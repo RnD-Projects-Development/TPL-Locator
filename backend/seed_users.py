@@ -25,6 +25,11 @@ SEED_ADMINS = [
         "password": "Trakker123",
         "uid": "251799",
     },
+        {
+        "email": "tpl@gmail.com",
+        "password": "Trakker123",
+        "uid": "251000",
+    },
 ]
 
 # demo user accounts (will be linked to admin when they add a device)
