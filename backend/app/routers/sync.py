@@ -195,7 +195,7 @@ async def sync_zoqin_vendor_locations(mongo: MongoService) -> tuple[int, int]:
     devices_processed = 0
     points_inserted = 0
 
-    async with AsyncClient(timeout=20.0) as client:
+    async with AsyncClient(timeout=40.0) as client:
         for sn in device_sns:
             # Keep devices table coherent with vendor list before location ingest.
             await mongo.upsert_device_from_citytag(

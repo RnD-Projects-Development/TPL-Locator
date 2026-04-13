@@ -127,8 +127,8 @@ async def sync_zoqin(mongo: MongoService):
     uid = admin.get("uid") or "zoqin_vendor_tpl"
 
     now = datetime.utcnow()
-    start = now.strftime("%Y-%m-%d 00:00:00")
-    end = now.strftime("%Y-%m-%d 23:59:59")
+    start = now.strftime("%Y-%m-%d %H:%M:%S")
+    end = (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
     devices_count = 0
     points_count = 0
