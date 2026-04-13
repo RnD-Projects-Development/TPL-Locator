@@ -29,6 +29,15 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useMapTheme } from "../context/MapThemeContext.jsx";
 import "./FencePage.css";
 
+// Pakistan Time (PKT) offset: UTC+5, so subtract 5 hours to align queries with stored data
+const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+function toPktTimeFromLocal(dateStr, timeStr) {
+  // Fencepage uses local time pickers (no Z), convert to PKT by subtracting 5 hours
+  const local = new Date(`${dateStr}T${timeStr}`);
+  return new Date(local.getTime() - PKT_OFFSET_MS);
+}
+
 const MAPBOX_TOKEN =
   import.meta.env?.VITE_MAPBOX_TOKEN || "";
 
@@ -266,8 +275,9 @@ function FencePageInner() {
 
     setLoading(true); setLoadError(""); setDevicePoints({});
 
-    const start = new Date(`${startDate}T${startTime}:00`);
-    const end   = new Date(`${endDate}T${endTime}:59`);
+    // Convert local picker values to Pakistan time for database alignment
+    const start = toPktTimeFromLocal(startDate, `${startTime}:00`);
+    const end   = toPktTimeFromLocal(endDate, `${endTime}:59`);
     if (start >= end) { setLoadError("Start must be before end"); setLoading(false); return; }
 
     const results = await Promise.allSettled(
@@ -292,8 +302,9 @@ function FencePageInner() {
   // ── rangePoints / insidePoints ─────────────────────────────────────────────
   const rangePoints = useMemo(() => {
     if (!selectedArea) return {};
-    const rangeStart = new Date(`${startDate}T${startTime}:00`);
-    const rangeEnd   = new Date(`${endDate}T${endTime}:59`);
+    // Convert local picker values to Pakistan time for database alignment
+    const rangeStart = toPktTimeFromLocal(startDate, `${startTime}:00`);
+    const rangeEnd   = toPktTimeFromLocal(endDate, `${endTime}:59`);
     const result = {};
     Object.entries(devicePoints).forEach(([sn, pts]) => {
       result[sn] = pts.filter((p) => {

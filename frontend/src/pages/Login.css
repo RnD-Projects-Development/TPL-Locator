@@ -1,16 +1,17 @@
-/* Layout Container - Perfect Centering */
+/* ── Login Page ─────────────────────────────────────────────── */
 .grid-wrapper {
   min-height: 100vh;
   width: 100%;
   position: fixed;
-  background-color: #000000;
+  background: var(--surface-base);
   top: 0;
   left: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 24px;
   box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .login-content-container {
@@ -20,54 +21,50 @@
   z-index: 10;
 }
 
+/* Subtle grid background */
 .grid-background {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
-  background-size: 40px 40px; 
-  
-  mask-image: radial-gradient(
-    ellipse 80% 80% at 50% 50%,
-    #000 40%,
-    transparent 100%
-  );
+  inset: 0;
+  background-image:
+    linear-gradient(to right,  rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 75% 75% at 50% 50%, #000 30%, transparent 100%);
+  pointer-events: none;
 }
 
-/* Card-in-Card Base Design */
+/* Outer brand gradient ring */
 .card {
-  background-image: linear-gradient(163deg, #800000 0%, #4a0000 100%);
-  border-radius: 28px;
-  transition: all 0.3s;
-  padding: 0px;
+  background: linear-gradient(163deg, var(--brand) 0%, #3b0a0a 100%);
+  border-radius: var(--radius-xl);
+  transition: box-shadow 0.3s ease;
+  padding: 0;
   box-sizing: border-box;
+  box-shadow: 0 0 0 1px var(--brand-border);
+}
+
+.card:hover {
+  box-shadow: 0 0 40px 4px var(--brand-glow), 0 0 0 1px var(--brand-border);
 }
 
 .card2 {
   border-radius: 0;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   box-sizing: border-box;
 }
 
 .card2:hover {
-  transform: scale(0.98);
-  border-radius: 25px;
+  transform: scale(0.985);
+  border-radius: calc(var(--radius-xl) - 3px);
 }
 
-.card:hover {
-  box-shadow: 0px 0px 40px 5px rgba(128, 0, 0, 0.15);
-}
-
-/* Form Container */
+/* Inner form surface */
 .form-container {
   display: flex;
   flex-direction: column;
   padding: 2em;
-  background-color: #1c1b1b;
-  border-radius: 25px;
+  background: var(--surface-2);
+  border-radius: calc(var(--radius-xl) - 2px);
   transition: 0.4s ease-in-out;
   box-sizing: border-box;
 }
@@ -77,12 +74,13 @@
   margin: 1.5em 0;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   font-size: 1.1em;
+  color: var(--text-primary);
   box-sizing: border-box;
 }
 
-/* Internal LoginForm Reset */
+/* Reset inner form chrome */
 .login-form-content form {
   background: transparent !important;
   box-shadow: none !important;
@@ -90,73 +88,27 @@
   padding: 0 !important;
 }
 
-/* Mobile Optimization */
+/* ── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 720px) {
-  .grid-wrapper {
-    padding: 16px;
-  }
-  
-  .login-content-container {
-    max-width: 90%;
-  }
-  
-  .form-container {
-    padding: 1.25em;
-    border-radius: 18px;
-  }
-  
-  .card {
-    border-radius: 20px;
-  }
-  
-  #heading {
-    font-size: 1em;
-    margin: 1em 0;
-  }
+  .grid-wrapper { padding: 16px; }
+  .login-content-container { max-width: 94%; }
+  .form-container { padding: 1.25em; border-radius: var(--radius-lg); }
+  .card           { border-radius: var(--radius-lg); }
+  #heading        { font-size: 1em; margin: 1em 0; }
 }
 
 @media (max-width: 420px) {
-  .form-container {
-    padding: 1em;
-  }
-  
-  #heading {
-    font-size: 0.9em;
-  }
+  .form-container { padding: 1em; }
+  #heading        { font-size: 0.9em; }
 }
 
-/* Desktop & Large Screens */
 @media (min-width: 1440px) {
-  .login-content-container {
-    max-width: 500px;
-  }
-  
-  .form-container {
-    padding: 2.5em;
-    border-radius: 30px;
-  }
-  
-  .card {
-    border-radius: 32px;
-  }
-  
-  #heading {
-    font-size: 1.2em;
-    margin: 2em 0;
-  }
+  .login-content-container { max-width: 500px; }
+  .form-container { padding: 2.5em; }
+  #heading        { font-size: 1.2em; margin: 2em 0; }
 }
 
 @media (min-width: 1920px) {
-  .login-content-container {
-    max-width: 550px;
-  }
-  
-  .form-container {
-    padding: 3em;
-    border-radius: 35px;
-  }
-  
-  .card {
-    border-radius: 38px;
-  }
+  .login-content-container { max-width: 550px; }
+  .form-container { padding: 3em; }
 }

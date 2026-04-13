@@ -54,29 +54,39 @@ async def login(
     """
     email = payload.email.strip().lower()
 
-    # Use the email to determine whether this is an admin or user login.
-    admin = await mongo.get_admin_by_email(email)
-    if admin:
-        if not verify_password(payload.password, admin.password):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials")
+    try:
+        # Use the email to determine whether this is an admin or user login.
+        admin = await mongo.get_admin_by_email(email)
+        if admin:
+            if not verify_password(payload.password, admin.password):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials")
 
-        admin_data = AdminCreate(email=email, password=payload.password, uid=payload.uid or admin.uid or "")
-        try:
-            admin = await mongo.create_or_update_admin(admin_data)
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        logger.info("admin login completed email=%s admin_id=%s", email, admin.id)
+            admin_data = AdminCreate(email=email, password=payload.password, uid=payload.uid or admin.uid or "")
+            try:
+                admin = await mongo.create_or_update_admin(admin_data)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+            logger.info("admin login completed email=%s admin_id=%s", email, admin.id)
 
-        access_token = create_access_token(str(admin.id))
-        return LoginResponse(admin=admin_to_public(admin), access_token=access_token)
+            access_token = create_access_token(str(admin.id))
+            return LoginResponse(admin=admin_to_public(admin), access_token=access_token)
 
-    user = await mongo.get_user_by_email(email)
-    if user and verify_password(payload.password, user.password):
-        access_token = create_access_token(str(user.id))
-        logger.info("user login completed email=%s user_id=%s", email, user.id)
-        return LoginResponse(user=user_to_public(user), access_token=access_token)
+        user = await mongo.get_user_by_email(email)
+        if user and verify_password(payload.password, user.password):
+            access_token = create_access_token(str(user.id))
+            logger.info("user login completed email=%s user_id=%s", email, user.id)
+            return LoginResponse(user=user_to_public(user), access_token=access_token)
 
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    except HTTPException:
+        raise  # re-raise 401/400 as-is
+    except Exception as exc:
+        logger.exception("login failed for email=%s — MongoDB error: %s", email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database connection error: {type(exc).__name__}: {exc}",
+        )
 
 
 # FIX 1: removed `response_model=UserPublic` — we now return a custom dict
