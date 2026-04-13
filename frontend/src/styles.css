@@ -1,4 +1,6 @@
+@import './styles/tokens.css';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap');
 
 html, body, #root {
   height: 100%;
@@ -7,19 +9,15 @@ html, body, #root {
   overflow: hidden;
 }
 
-:root {
-  --primary-font: 'Inter', sans-serif;
-}
-
 body, button, input, div {
-  font-family: var(--primary-font);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  letter-spacing: -0.01em; /* Makes Inter look more professional */
+  letter-spacing: -0.01em;
 }
 
 /* Use Monospace only for coordinates/data numbers */
 .coordinate-display, .timestamp {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
 }
 
@@ -27,35 +25,90 @@ body, button, input, div {
 @tailwind components;
 @tailwind utilities;
 
-/* ── Mapbox popup dark theme ──────────────────────
-   Add this to your index.css or App.css
-────────────────────────────────────────────────── */
-.mapboxgl-popup-content {
-  background: #1a1a1a !important;
-  border: 1px solid #2d2d2d !important;
-  border-radius: 10px !important;
-  padding: 14px !important;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.6) !important;
-  color: #e5e5e5 !important;
+/* ── Flame gradient canvas ──────────────────────────────────────────────────
+   MUST be after @tailwind base (which resets body bg to white).
+   Pages with solid background: var(--surface-base) cover this completely.
+   Only transparent-background pages (HomePage) reveal the flame.
+   ────────────────────────────────────────────────────────────────────────── */
+body {
+  background:
+    /* Amber/orange hot tip — hottest point of the flame */
+    radial-gradient(ellipse 60% 45% at 50% 118%, rgba(251, 146, 60, 0.10) 0%, transparent 68%),
+    /* #b91c1c mid-flame core */
+    radial-gradient(ellipse 80% 58% at 50% 110%, rgba(185, 28, 28, 0.14) 0%, transparent 64%),
+    /* #b91c1c outer flame body */
+    radial-gradient(ellipse 110% 72% at 50% 105%, rgba(185, 28, 28, 0.18) 0%, transparent 56%),
+    /* Left tongue */
+    radial-gradient(ellipse 42% 46% at 26% 104%, rgba(185, 28, 28, 0.09) 0%, transparent 54%),
+    /* Right tongue */
+    radial-gradient(ellipse 42% 46% at 74% 106%, rgba(185, 28, 28, 0.08) 0%, transparent 54%),
+    /* Faint top-left brand ember */
+    radial-gradient(circle at 15% 8%, rgba(185, 28, 28, 0.06) 0%, transparent 40%),
+    /* Dark canvas — always present */
+    #0c0c0e;
 }
 
-.mapboxgl-popup-anchor-top    .mapboxgl-popup-tip { border-bottom-color: #1a1a1a !important; }
-.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip { border-top-color:    #1a1a1a !important; }
-.mapboxgl-popup-anchor-left   .mapboxgl-popup-tip { border-right-color:  #1a1a1a !important; }
-.mapboxgl-popup-anchor-right  .mapboxgl-popup-tip { border-left-color:   #1a1a1a !important; }
+/* ── Date/time inputs ──────────────────────────── */
+input[type="date"],
+input[type="time"] {
+  color-scheme: dark;
+}
+
+/* ── Mapbox popup dark theme ───────────────────── */
+.mapboxgl-popup-content {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 14px !important;
+  box-shadow: var(--shadow-float) !important;
+  color: var(--text-primary) !important;
+}
+
+.mapboxgl-popup-anchor-top    .mapboxgl-popup-tip { border-bottom-color: var(--surface-2) !important; }
+.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip { border-top-color:    var(--surface-2) !important; }
+.mapboxgl-popup-anchor-left   .mapboxgl-popup-tip { border-right-color:  var(--surface-2) !important; }
+.mapboxgl-popup-anchor-right  .mapboxgl-popup-tip { border-left-color:   var(--surface-2) !important; }
 
 .mapboxgl-popup-close-button {
-  color: #555 !important;
+  color: var(--text-tertiary) !important;
   font-size: 16px !important;
   padding: 4px 8px !important;
   background: transparent !important;
 }
-
 .mapboxgl-popup-close-button:hover {
-  color: #e5e5e5 !important;
+  color: var(--text-primary) !important;
   background: transparent !important;
 }
-input[type="date"],
-input[type="time"] {
-  color-scheme: dark;
+
+/* ── Global scrollbar ──────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* ── Recharts tooltip global override ─────────── */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-raised) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 12px !important;
+}
+.recharts-tooltip-label {
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  margin-bottom: 4px !important;
+}
+.recharts-tooltip-item {
+  color: var(--text-secondary) !important;
+}
+.recharts-cartesian-axis-tick-value {
+  fill: var(--text-tertiary);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+.recharts-legend-item-text {
+  color: var(--text-secondary) !important;
+  font-size: 11px !important;
 }

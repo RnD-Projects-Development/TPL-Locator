@@ -1,7 +1,9 @@
 import logging
+import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.routers.auth import router as auth_router
 from app.routers.devices import router as devices_router
@@ -9,6 +11,8 @@ from app.routers.location import router as location_router
 from app.routers.history import router as history_router
 from app.routers.sync import router as sync_router
 from app.services.auto_sync import start_auto_sync_tasks
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -18,11 +22,36 @@ def create_app() -> FastAPI:
     )
     app = FastAPI(title="CityTag Tracking Dashboard API")
 
+    # ── Global exception handler: log traceback, return clean JSON ────────────
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        logger.exception("Unhandled exception on %s %s: %s", request.method, request.url.path, exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal server error: {type(exc).__name__}: {exc}"},
+        )
+
+    # ── Startup: test MongoDB connection so issues surface immediately ────────
+    @app.on_event("startup")
+    async def check_mongo_connection():
+        from app.dependencies import get_settings
+        from app.services.mongodb import MongoService
+        settings = get_settings()
+        uri = settings["mongo_uri"]
+        masked = uri[:30] + "..." if len(uri) > 30 else uri
+        logger.info("Testing MongoDB connection to: %s", masked)
+        try:
+            svc = MongoService(uri)
+            await svc.client.admin.command("ping")
+            logger.info("MongoDB connection OK")
+        except Exception as exc:
+            logger.error("MongoDB connection FAILED: %s: %s", type(exc).__name__, exc)
+
     # CORS for local development – adjust origins as needed
     app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],           
-    allow_credentials=False,       
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],

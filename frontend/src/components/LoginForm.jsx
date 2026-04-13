@@ -66,7 +66,7 @@ export default function LoginForm() {
           accessToken: res.access_token,
           role: res.admin ? "admin" : "user",
         });
-        navigate("/devices");
+        navigate("/Homepage");
       }
     } catch (err) {
       setError(err.message || "Something went wrong");

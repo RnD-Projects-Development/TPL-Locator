@@ -1,38 +1,20 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import tplLogo from '../assets/tpl.png';
 import './HomePage.css';
-import { useCityTag } from '../hooks/useCityTag.js';
-import { parseKMLText, pointInArea } from '../utils/geofenceUtils.js';
+import { pointInArea } from '../utils/geofenceUtils.js';
 import { useNavigate } from "react-router-dom";
 import { useBindCache } from '../context/BindCacheContext.jsx';
+import { useHomePageCache } from '../context/HomePageCacheContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
+import { useUserCache } from '../context/Usercachecontext.jsx';
+import { useCityTag } from '../hooks/useCityTag.js';
 
 // ══════════════════════════════════════════════════════════════════════
 // CONSTANTS & UTILITIES
 // ══════════════════════════════════════════════════════════════════════
 
-const LOCATION_POLL_MS   = 8_000;
-const TRAJECTORY_POLL_MS = 20_000;
-const FETCH_CONCURRENCY  = 10;
-
 function todayStr() { return new Date().toISOString().slice(0, 10); }
-
-function dayRange(dateStr, isLive) {
-  const start = new Date(`${dateStr}T00:00:00.000Z`);
-  const end   = isLive ? new Date() : new Date(`${dateStr}T23:59:59.999Z`);
-  return { start, end };
-}
-
-async function pLimit(tasks, limit = 5) {
-  const results = new Array(tasks.length).fill(null);
-  let idx = 0;
-  async function worker() {
-    while (idx < tasks.length) {
-      const i = idx++;
-      try { results[i] = await tasks[i](); } catch { results[i] = null; }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
-  return results;
-}
 
 function niceScale(maxVal, tickCount = 5) {
   if (maxVal <= 0) return [0, 1, 2, 3, 4];
@@ -93,12 +75,10 @@ function LiveClock({ isHistorical, selectedDate, onDateChange }) {
     return () => clearInterval(t);
   }, []);
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   return (
     <div className="hp-header-controls">
       <div className="hp-clock">
         <span className="hp-clock-time">{timeStr}</span>
-        <span className="hp-clock-date">{isHistorical ? 'Historical' : dateStr}</span>
       </div>
       <div className="hp-hdr-date-group">
         <label className="hp-hdr-date-label">
@@ -131,7 +111,9 @@ function StatCard({ title, value, icon, iconBg, iconColor, accentColor, loading,
   const pct = progress != null ? Math.max(0, Math.min(100, isNaN(progress) ? 0 : progress)) : null;
   return (
     <div className="hp-stat-card">
-      <div className="hp-stat-accent" style={{ background: accentColor }} />
+      <div className="hp-stat-accent-clip">
+        <div className="hp-stat-accent" style={{ background: accentColor }} />
+      </div>
       <div className="hp-stat-inner">
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="hp-stat-title">{title}</div>
@@ -190,7 +172,9 @@ function BatteryStatusCard() {
 
   return (
     <div className="hp-stat-card hp-battery-card">
-      <div className="hp-stat-accent" style={{ background: '#22c55e' }} />
+      <div className="hp-stat-accent-clip">
+        <div className="hp-stat-accent" style={{ background: '#22c55e' }} />
+      </div>
       <div className="hp-battery-inner">
         {/* Bigger SVG: 90×90 (was 80×80) — pushed closer to legend */}
         <svg width={90} height={90} style={{ flexShrink: 0 }}>
@@ -217,19 +201,19 @@ function BatteryStatusCard() {
 // RECENT ACTIVITY CARD — real device data, sorted by latest seen
 // ══════════════════════════════════════════════════════════════════════
 function RecentActivityCard({ devices, locations, activityData, isLive }) {
-  const rows = useMemo(() => {
+  const [search, setSearch] = useState('');
+
+  const allRows = useMemo(() => {
     return [...devices]
       .map(d => {
         const sn = d.sn ?? '';
         let lastTs = null;
 
         if (isLive) {
-          // Live: use real-time location data
           const loc = locations?.[sn];
           lastTs = loc?.timestamp ?? loc?.time ?? loc?.locTime
             ?? d.dataRetrievalTime ?? d.last_seen ?? null;
         } else {
-          // Historical: derive last seen from the last activity point on that date
           const pts = activityData?.[sn];
           if (pts?.length) {
             const last = pts[pts.length - 1];
@@ -239,7 +223,7 @@ function RecentActivityCard({ devices, locations, activityData, isLive }) {
 
         const isOnline = isLive
           ? (d.status === 'online' || (lastTs && (Date.now() - new Date(lastTs).getTime()) < 30 * 60_000))
-          : !!lastTs; // historical: had any activity on that date = active
+          : !!lastTs;
 
         return {
           id:       sn,
@@ -250,9 +234,17 @@ function RecentActivityCard({ devices, locations, activityData, isLive }) {
         };
       })
       .filter(r => r.id)
-      .sort((a, b) => b.ts - a.ts)
-      .slice(0, 10);
+      .sort((a, b) => b.ts - a.ts);
   }, [devices, locations, activityData, isLive]);
+
+  const rows = useMemo(() => {
+    const q = search.toLowerCase();
+    return allRows
+      .filter(r => !q ||
+        r.id.toLowerCase().includes(q) ||
+        r.user.toLowerCase().includes(q))
+      .slice(0, 15);
+  }, [allRows, search]);
 
   const badge = s => s === 'online'
     ? <span className="hp-badge hp-badge-active">● Active</span>
@@ -262,7 +254,15 @@ function RecentActivityCard({ devices, locations, activityData, isLive }) {
     <div className="hp-card hp-recent-card">
       <div className="hp-card-header">
         <span className="hp-card-title">Recent Activity</span>
-        <span className="hp-card-sub">{rows.length} locator{rows.length !== 1 ? 's' : ''}</span>
+        <span className="hp-card-sub">{allRows.length} locator{allRows.length !== 1 ? 's' : ''}</span>
+        <div className="hp-card-search-wrap">
+          <input
+            className="hp-card-search"
+            placeholder="Search devices…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
       </div>
       <div className="hp-recent-scroll">
         <table className="hp-activity-table">
@@ -278,7 +278,7 @@ function RecentActivityCard({ devices, locations, activityData, isLive }) {
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '22px 0', fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>
-                  No devices loaded
+                  {search ? `No results for "${search}"` : 'No devices loaded'}
                 </td>
               </tr>
             ) : rows.map(row => (
@@ -471,6 +471,7 @@ function TopUsersPanel({ devices, activityData, isLive }) {
 // ══════════════════════════════════════════════════════════════════════
 function UserDevicePanel({ devices }) {
   const [hovered, setHovered] = useState(null);
+  const [search, setSearch]   = useState('');
   const colors = ['#4ade80','#60a5fa','#f97316','#fbbf24','#c084fc','#ec4899','#06b6d4'];
   const ini    = n => n.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || '??';
 
@@ -485,7 +486,7 @@ function UserDevicePanel({ devices }) {
     const total = userDevices.reduce((s, [, devs]) => s + devs.length, 0);
     if (total === 0) return { userDevices, slices: [] };
 
-    const CX = 85, CY = 85, R = 78, GAP = 1.2;
+    const CX = 110, CY = 110, R = 100, GAP = 1.2;
     const toRad = deg => (deg * Math.PI) / 180;
     let cursor = -90;
     const slices = userDevices.slice(0, 5).map(([user, devs], i) => {
@@ -512,21 +513,37 @@ function UserDevicePanel({ devices }) {
   }, [devices]);
 
   const hovSlice = hovered !== null ? slices[hovered] : null;
-  const CX = 85, CY = 85;
+  const CX = 110, CY = 110;
+
+  const filteredUsers = useMemo(() => {
+    const q = search.toLowerCase();
+    return userDevices
+      .filter(([user]) => !q || user.toLowerCase().includes(q))
+      .slice(0, 15);
+  }, [userDevices, search]);
 
   return (
-    <div className="hp-card" style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: '1 1 320px', maxWidth: 500 }}>
+    <div className="hp-card hp-user-device-panel" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <div className="hp-card-header">
-        <span className="hp-card-title">Users / Department &amp; Devices</span>
-        <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "'Nunito',sans-serif" }}>
+        <span className="hp-card-title">Users / Department &amp; Locators</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: "'Nunito',sans-serif", marginRight: 'auto' }}>
           {devices.length} total
         </span>
+        <div className="hp-card-search-wrap">
+          <input
+            className="hp-card-search"
+            placeholder="Search users…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flex: 1, minHeight: 0, padding: '6px 10px 10px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          <svg width={170} height={170}>
+        {/* Pie chart + legend — centered in its column */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, flex: '0 0 auto' }}>
+          <svg width={220} height={220}>
             {slices.length === 0
-              ? <circle cx={CX} cy={CY} r={78} fill="#1e1e28" strokeDasharray="5 4" />
+              ? <circle cx={CX} cy={CY} r={100} fill="#1e1e28" strokeDasharray="5 4" />
               : slices.map((s, i) => (
                 <path key={s.user} d={s.path}
                   fill={s.color}
@@ -543,25 +560,25 @@ function UserDevicePanel({ devices }) {
               ))}
             {hovSlice && (
               <text x={hovSlice.lx} y={hovSlice.ly + 4} textAnchor="middle"
-                fontSize={10} fontWeight="700" fill="#ffffff"
+                fontSize={13} fontWeight="700" fill="#ffffff"
                 fontFamily="'JetBrains Mono',monospace" style={{ pointerEvents: 'none' }}>
                 {hovSlice.pct}%
               </text>
             )}
           </svg>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px', justifyContent: 'center', maxWidth: 170 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', justifyContent: 'center', maxWidth: 220 }}>
             {slices.map((s, i) => (
               <div key={s.user}
-                style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
                   opacity: hovered === null ? 1 : hovered === i ? 1 : 0.3, transition: 'opacity 0.15s' }}
                 onMouseEnter={() => setHovered(i)}
                 onMouseLeave={() => setHovered(null)}>
-                <div style={{ width: 7, height: 7, borderRadius: 2, flexShrink: 0, background: s.color }} />
-                <span style={{ fontSize: 10, fontFamily: "'Nunito', sans-serif", color: 'var(--text)', fontWeight: 600,
-                  maxWidth: 75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: s.color }} />
+                <span style={{ fontSize: 12, fontFamily: "'Nunito', sans-serif", color: 'var(--text)', fontWeight: 600,
+                  maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {s.user}
                 </span>
-                <span style={{ fontSize: 10, fontFamily: "'Nunito', sans-serif", color: s.color, fontWeight: 700 }}>
+                <span style={{ fontSize: 12, fontFamily: "'Nunito', sans-serif", color: s.color, fontWeight: 700 }}>
                   {s.count}
                 </span>
               </div>
@@ -569,9 +586,9 @@ function UserDevicePanel({ devices }) {
           </div>
         </div>
         <div className="hp-dpu-body" style={{ flex: 1, minWidth: 0 }}>
-          {userDevices.length === 0
-            ? <p className="hp-empty-msg">No locators</p>
-            : userDevices.map(([user, devs], i) => {
+          {filteredUsers.length === 0
+            ? <p className="hp-empty-msg">{search ? `No results for "${search}"` : 'No locators'}</p>
+            : filteredUsers.map(([user, devs], i) => {
               const color = colors[i % colors.length];
               return (
                 <div key={user} className="hp-dpu-row">
@@ -629,7 +646,10 @@ function BoundDevicesChart({ devices, selectedDate }) {
   const { getMergedBindings } = useBindCache();
 
   const { months, total } = useMemo(() => {
-    const now = selectedDate ? new Date(selectedDate + 'T23:59:59') : new Date();
+    // Subtract 5 hours (PKT offset) to align with Pakistan time storage
+    const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+    const nowUtc = selectedDate ? new Date(selectedDate + 'T23:59:59.999Z') : new Date();
+    const now = new Date(nowUtc.getTime() - PKT_OFFSET_MS);
     const months = [];
     for (let i = 7; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -640,8 +660,13 @@ function BoundDevicesChart({ devices, selectedDate }) {
       });
     }
     const map = Object.fromEntries(months.map(m => [m.key, m]));
-    const allBindings = getMergedBindings(devices);
-    allBindings.forEach(bindTime => {
+    const mergedMap = getMergedBindings(devices);
+    const seen = new Set();
+    devices.forEach(d => {
+      if (!d.sn || seen.has(d.sn)) return;
+      seen.add(d.sn);
+      const bindTime = mergedMap.get(d.sn);
+      if (!bindTime) return;
       const dt = new Date(bindTime);
       if (isNaN(dt) || dt > now) return;
       const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
@@ -652,7 +677,7 @@ function BoundDevicesChart({ devices, selectedDate }) {
   }, [devices, selectedDate, getMergedBindings]);
 
   const { w: W, h: H } = dims;
-  const PAD = { top: 12, right: 18, bottom: 28, left: 30 };
+  const PAD = { top: 24, right: 24, bottom: 34, left: 30 };
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
   const maxCount = Math.max(...months.map(m => m.count), 1);
@@ -679,7 +704,7 @@ function BoundDevicesChart({ devices, selectedDate }) {
   return (
     <div className="hp-card hp-donut-bare">
       <div className="hp-card-header">
-        <span className="hp-card-title">Bound Devices / Month</span>
+        <span className="hp-card-title">Bound Locators / Month</span>
         <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "'Nunito', sans-serif", fontWeight: 600 }}>
           {total} bound
         </span>
@@ -726,8 +751,8 @@ function BoundDevicesChart({ devices, selectedDate }) {
                       stroke={isHov ? '#fff' : 'none'} strokeWidth={1.5}
                       style={{ transition: 'r 0.1s' }} />
                     {(idx % 2 === 0 || isSelected) && (
-                      <text x={p.x} y={H - 4} textAnchor="middle" fontSize={8}
-                        fill={isSelected ? '#f59e0b' : '#64748b'} fontFamily="'JetBrains Mono',monospace">
+                      <text x={p.x} y={H - 12} textAnchor="middle" fontSize={12}
+                        fill={isSelected ? '#f59e0b' : '#F6F4E8'} fontFamily="'JetBrains Mono',monospace">
                         {p.label.split(' ')[0]}
                       </text>
                     )}
@@ -831,10 +856,10 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
     return () => ro.disconnect();
   }, []);
 
-  const maxHour = isLive ? new Date().getHours() : 23;
+  const maxHour = isLive ? new Date().getUTCHours() : 23;
   const hours   = Array.from({ length: maxHour + 1 }, (_, i) => i);
   const fmtHour = h => String(h).padStart(2, '0');
-  const fmtVal  = v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v);
+  const fmtTick = v => Number.isInteger(v) ? String(v) : v.toFixed(1);
 
   const deviceList = useMemo(() =>
     devices.filter(d => d.sn).map((d, i) => ({
@@ -849,9 +874,13 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
       (activityData[sn] ?? []).forEach(pt => {
         const ts = pt.timestamp ?? pt.time ?? pt.locTime;
         if (!ts) return;
-        const d = new Date(ts);
+        // Timestamps are stored as naive PKT wall-clock values (no tz suffix).
+        // Parse as UTC so getUTCHours() reads the stored PKT hour correctly
+        // regardless of what timezone the browser is running in.
+        const raw = typeof ts === 'string' && !ts.endsWith('Z') && !ts.includes('+') ? ts + 'Z' : ts;
+        const d = new Date(raw);
         if (isNaN(d)) return;
-        const h = d.getHours();
+        const h = d.getUTCHours();
         devHour[sn][h] = (devHour[sn][h] || 0) + 1;
       });
     });
@@ -872,17 +901,22 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
     return { generalBins, deviceBins };
   }, [activityData, deviceList, hours]);
 
-  const maxVal = mode === 'device'
-    ? Math.max(...deviceBins.map(b => b.total), 0)
-    : Math.max(...generalBins.map(b => b.count), 0);
-  const ticks    = niceScale(maxVal || 10);
-  const tickMax  = ticks[ticks.length - 1];
+  const rawMax    = Math.max(
+    mode === 'device'
+      ? Math.max(...deviceBins.map(b => b.total), 0)
+      : Math.max(...generalBins.map(b => b.count), 0),
+    0
+  );
+  const unit      = rawMax >= 1000 ? 1000 : rawMax >= 100 ? 100 : 1;
+  const unitLabel = unit === 1000 ? 'Packets (×1,000)' : unit === 100 ? 'Packets (×100)' : 'Packets';
+  const ticks     = niceScale((rawMax || 10) / unit);
+  const tickMax   = ticks[ticks.length - 1];
   const totalPts = generalBins.reduce((s, b) => s + b.count, 0);
   const hasData  = Object.keys(activityData).length > 0;
   const peakBin  = hasData ? generalBins.reduce((best, b) => b.count > best.count ? b : best, generalBins[0]) : null;
   const syncStr  = lastSync ? lastSync.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
 
-  const PAD_L = 40, PAD_R = 14, PAD_T = 12, PAD_B = 22;
+  const PAD_L = 52, PAD_R = 14, PAD_T = 12, PAD_B = 36;
   const { w: W, h: H } = dims;
   const chartW    = W - PAD_L - PAD_R;
   const chartH    = H - PAD_T - PAD_B;
@@ -906,7 +940,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
         </div>
         <div style={{ display: 'flex', gap: 5 }}>
           <button className={`hp-mode-btn${mode === 'general' ? ' active' : ''}`} onClick={() => onModeChange('general')}>Overview</button>
-          <button className={`hp-mode-btn${mode === 'device'  ? ' active' : ''}`} onClick={() => onModeChange('device')}>Per Device</button>
+          <button className={`hp-mode-btn${mode === 'device'  ? ' active' : ''}`} onClick={() => onModeChange('device')}>Per Locator</button>
           <button className={`hp-mode-btn${mode === 'trend'   ? ' active' : ''}`} onClick={() => onModeChange('trend')}>Trend</button>
         </div>
       </div>
@@ -942,7 +976,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
               return (
                 <g key={`t-${tick}`}>
                   <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y} stroke="#dde3ec" strokeWidth={1} strokeDasharray="3 4" />
-                  <text x={PAD_L - 5} y={y + 3.5} textAnchor="end" fontSize={9} fill="#374151" fontFamily="'JetBrains Mono',monospace">{fmtVal(tick)}</text>
+                  <text x={PAD_L - 5} y={y + 3.5} textAnchor="end" fontSize={11} fill="#b91c1c" fontFamily="'JetBrains Mono',monospace">{fmtTick(tick)}</text>
                 </g>
               );
             })}
@@ -953,7 +987,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
             {mode === 'trend' && (() => {
               const linePoints = hours.map((h, i) => {
                 const count = generalBins[i]?.count ?? 0;
-                const lh    = tickMax > 0 && count > 0 ? (count / tickMax) * chartH : 0;
+                const lh    = tickMax > 0 && count > 0 ? ((count / unit) / tickMax) * chartH : 0;
                 return { x: PAD_L + i * barGroupW + barGroupW / 2, y: PAD_T + chartH - lh, h, count };
               });
               const baseline = PAD_T + chartH;
@@ -980,7 +1014,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
                           stroke={isHov ? '#e8eaf0' : 'none'} strokeWidth={1.5}
                           style={{ transition: 'r 0.12s, fill 0.12s' }} />
                         {showLbl && (
-                          <text x={p.x} y={H - 5} textAnchor="middle" fontSize={8} fill={isHov ? '#fca5a5' : '#374151'} fontFamily="'JetBrains Mono',monospace">
+                          <text x={p.x} y={PAD_T + chartH + 16} textAnchor="middle" fontSize={10} fill={isHov ? '#fca5a5' : '#b91c1c'} fontFamily="'JetBrains Mono',monospace">
                             {fmtHour(p.h)}
                           </text>
                         )}
@@ -1016,7 +1050,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
 
               if (mode === 'general') {
                 const count = generalBins[i]?.count ?? 0;
-                const barH  = tickMax > 0 && count > 0 ? Math.max((count / tickMax) * chartH, 2) : 0;
+                const barH  = tickMax > 0 && count > 0 ? Math.max(((count / unit) / tickMax) * chartH, 2) : 0;
                 const fill  = isPeak ? '#f59e0b' : isHov ? 'url(#bar-grad-hover)' : 'url(#bar-grad-default)';
                 return (
                   <g key={h} style={{ cursor: 'pointer' }}
@@ -1025,7 +1059,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
                     <rect x={groupX - barGroupW / 2} y={PAD_T} width={barGroupW} height={chartH + PAD_B} fill="transparent" />
                     <rect x={groupX - barW / 2} y={PAD_T + chartH - barH} width={barW} height={barH} rx={3} fill={fill} opacity={isHov || isPeak ? 1 : 0.82} style={{ transition: 'opacity 0.12s' }} />
                     {showLbl && (
-                      <text x={groupX} y={H - 5} textAnchor="middle" fontSize={8} fill={isHov ? '#fca5a5' : '#374151'} fontFamily="'JetBrains Mono',monospace">
+                      <text x={groupX} y={PAD_T + chartH + 16} textAnchor="middle" fontSize={10} fill={isHov ? '#fca5a5' : '#b91c1c'} fontFamily="'JetBrains Mono',monospace">
                         {fmtHour(h)}
                       </text>
                     )}
@@ -1050,7 +1084,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
               }
 
               const bin       = deviceBins[i];
-              const topH      = tickMax > 0 && bin.total > 0 ? (bin.total / tickMax) * chartH : 0;
+              const topH      = tickMax > 0 && bin.total > 0 ? ((bin.total / unit) / tickMax) * chartH : 0;
               const topSegIdx = bin.segments.map((s, si) => s.count > 0 ? si : -1).filter(si => si >= 0).pop() ?? -1;
               return (
                 <g key={h} style={{ cursor: 'pointer' }}
@@ -1059,8 +1093,8 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
                   <rect x={groupX - barGroupW / 2} y={PAD_T} width={barGroupW} height={chartH + PAD_B} fill="transparent" />
                   {bin.segments.map((seg, si) => {
                     if (!seg.count) return null;
-                    const segH  = (seg.count   / tickMax) * chartH;
-                    const botH  = (seg.yBottom / tickMax) * chartH;
+                    const segH  = ((seg.count   / unit) / tickMax) * chartH;
+                    const botH  = ((seg.yBottom / unit) / tickMax) * chartH;
                     const isTop = si === topSegIdx;
                     return (
                       <rect key={seg.sn}
@@ -1072,7 +1106,7 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
                     );
                   })}
                   {showLbl && (
-                    <text x={groupX} y={H - 5} textAnchor="middle" fontSize={8} fill={isHov ? '#e8eaf0' : '#374151'} fontFamily="'JetBrains Mono',monospace">
+                    <text x={groupX} y={PAD_T + chartH + 16} textAnchor="middle" fontSize={10} fill={isHov ? '#fca5a5' : '#b91c1c'} fontFamily="'JetBrains Mono',monospace">
                       {fmtHour(h)}
                     </text>
                   )}
@@ -1104,8 +1138,12 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
                 </g>
               );
             })}
-            <text x={PAD_L + chartW / 2} y={H} textAnchor="middle" fontSize={8} fill="#374151" fontFamily="'JetBrains Mono',monospace">
+            <text x={PAD_L + chartW / 2} y={H} textAnchor="middle" fontSize={12} fill="#F6F4E8" fontFamily="'JetBrains Mono',monospace">
               Hour (PKT)
+            </text>
+            <text x={12} y={PAD_T + chartH / 2} textAnchor="middle" fontSize={10} fill="#F6F4E8" fontFamily="'JetBrains Mono',monospace"
+              transform={`rotate(-90, 12, ${PAD_T + chartH / 2})`}>
+              {unitLabel}
             </text>
           </svg>
         )}
@@ -1134,32 +1172,241 @@ function ActivityChart({ activityData, devices, selectedDate, isLive, mode, onMo
 // ══════════════════════════════════════════════════════════════════════
 // PAGE
 // ══════════════════════════════════════════════════════════════════════
-export default function HomePage() {
-  const { getDevices, getLatestLocation, getPlayback } = useCityTag();
-  const navigate = useNavigate();
-  const { updateFromDevices, countBindsInWindow, getDevicesBoundBy } = useBindCache();
+const DEFAULT_WIDGETS = [
+  { id: 'stats',       label: 'Stat Cards',            hidden: false },
+  { id: 'users',       label: 'Users & Locators',      hidden: false },
+  { id: 'activity',    label: 'Activity Chart',         hidden: false },
+  { id: 'recent',      label: 'Recent Activity',        hidden: false },
+  { id: 'top-users',   label: 'Top Users',              hidden: false },
+  { id: 'bound-chart', label: 'Bound Locators Trend',   hidden: false },
+];
 
-  const [filters, setFilters]           = useState({ region: 'all', area: 'all', areaId: null, date: todayStr() });
-  const [devices, setDevices]           = useState([]);
-  const [devLoading, setDevLoading]     = useState(true);
-  const [locations, setLocations]       = useState({});
-  const [locSync, setLocSync]           = useState(null);
-  const [activityData, setActivityData] = useState({});
-  const [chartLoading, setChartLoading] = useState(false);
-  const [chartMode, setChartMode]       = useState('general');
-  const [kmlAreas, setKmlAreas]         = useState([]);
+// ══════════════════════════════════════════════════════════════════════
+// BIND SEARCH DROPDOWN — searchable combobox, shows 5 results at a time
+// ══════════════════════════════════════════════════════════════════════
+function BindSearchDropdown({ items, value, onSelect, placeholder, getLabel, getKey }) {
+  const [query,   setQuery]   = useState('');
+  const [open,    setOpen]    = useState(false);
+  const wrapRef               = useRef(null);
 
-  const isLive          = filters.date === todayStr();
-  const locAbortRef     = useRef(null);
-  const trajAbortRef    = useRef(null);
-  const activitySyncRef = useRef(null);
+  const selectedItem = items.find(item => getKey(item) === value);
+  const displayText  = selectedItem ? getLabel(selectedItem) : '';
 
+  const filtered = (() => {
+    const q = query.toLowerCase();
+    return items.filter(item => !q || getLabel(item).toLowerCase().includes(q)).slice(0, 5);
+  })();
+
+  const totalMatches = (() => {
+    const q = query.toLowerCase();
+    return items.filter(item => !q || getLabel(item).toLowerCase().includes(q)).length;
+  })();
+
+  // Close on outside click
   useEffect(() => {
-    fetch('/areas.kml')
-      .then(r => r.text())
-      .then(text => setKmlAreas(parseKMLText(text)))
-      .catch(() => {});
-  }, []);
+    if (!open) return;
+    const h = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const inputStyle = {
+    width: '100%', padding: '10px 36px 10px 12px', background: '#27272a',
+    border: `1px solid ${open ? 'rgba(185,28,28,0.55)' : '#3f3f46'}`,
+    borderRadius: 8, color: displayText && !open ? '#f4f4f5' : '#f4f4f5',
+    fontSize: 13, outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.15s',
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={open ? query : displayText}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => { setQuery(''); setOpen(true); }}
+        style={inputStyle}
+        autoComplete="off"
+      />
+      {/* Chevron */}
+      <svg
+        style={{ position: 'absolute', right: 10, top: '50%', transform: `translateY(-50%) rotate(${open ? 180 : 0}deg)`, transition: 'transform 0.15s', pointerEvents: 'none' }}
+        width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#71717a" strokeWidth={2.5}>
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 99999,
+          background: '#1c1c22', border: '1px solid #3f3f46', borderRadius: 8,
+          overflow: 'hidden', boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: '#71717a', fontFamily: 'var(--font-sans)' }}>
+              No results
+            </div>
+          ) : (
+            <>
+              {filtered.map(item => (
+                <div
+                  key={getKey(item)}
+                  onMouseDown={e => { e.preventDefault(); onSelect(getKey(item)); setOpen(false); setQuery(''); }}
+                  style={{
+                    padding: '9px 12px', fontSize: 12, color: '#f4f4f5', cursor: 'pointer',
+                    borderBottom: '1px solid rgba(255,255,255,0.05)', fontFamily: "'JetBrains Mono', monospace",
+                    transition: 'background 0.1s',
+                    background: getKey(item) === value ? 'rgba(185,28,28,0.18)' : 'transparent',
+                  }}
+                  onMouseEnter={e => { if (getKey(item) !== value) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                  onMouseLeave={e => { if (getKey(item) !== value) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  {getLabel(item)}
+                </div>
+              ))}
+              {totalMatches > 5 && (
+                <div style={{ padding: '6px 12px', fontSize: 11, color: '#52525b', fontFamily: 'var(--font-sans)', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  {totalMatches - 5} more — type to narrow results
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function HomePage() {
+  const navigate = useNavigate();
+  const { countBindsInWindow, getDevicesBoundBy } = useBindCache();
+  const {
+    filters, setFilters,
+    devices, devLoading,
+    locations, locSync,
+    activityData, chartLoading,
+    kmlAreas,
+    refreshAll,
+  } = useHomePageCache();
+  const { isAdmin } = useAuth();
+  const { devices: allDevices } = useDeviceCache();
+  const { users } = useUserCache();
+  const { bindDevice, adminAssignDeviceToUser } = useCityTag();
+
+  // ── Quick Actions Sidebar ─────────────────────────────────────────────
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // ── Bind modal ────────────────────────────────────────────────────────
+  const [showBindModal, setShowBindModal] = useState(false);
+  const [bindSn, setBindSn]               = useState('');
+  const [bindName, setBindName]           = useState('');
+  const [bindClient, setBindClient]       = useState('');
+  const [bindUserId, setBindUserId]       = useState('');
+  const [bindLoading, setBindLoading]     = useState(false);
+  const [bindError, setBindError]         = useState('');
+
+  const unboundDevices = (allDevices || []).filter(d => !d.assigned_user_name && !d.user_id);
+
+  const closeBindModal = () => {
+    setShowBindModal(false);
+    setBindSn(''); setBindName(''); setBindClient(''); setBindUserId(''); setBindError('');
+  };
+
+  const handleBind = async () => {
+    if (isAdmin) {
+      if (!bindSn || !bindUserId) { setBindError('Please select a device and a user'); return; }
+      setBindError(''); setBindLoading(true);
+      try {
+        await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim() });
+        refreshAll(); closeBindModal();
+      } catch (err) {
+        setBindError(err.message || 'Failed to bind locator');
+      } finally { setBindLoading(false); }
+    } else {
+      if (!bindSn.trim()) { setBindError('Please enter a locator serial number'); return; }
+      setBindError(''); setBindLoading(true);
+      try {
+        await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined });
+        refreshAll(); closeBindModal();
+      } catch (err) {
+        setBindError(err.message || 'Failed to bind locator');
+      } finally { setBindLoading(false); }
+    }
+  };
+
+  // ── Widget customization ──────────────────────────────────────────────
+  const [editMode, setEditMode] = useState(false);
+  const [widgets, setWidgets] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hp_widget_layout');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // merge saved with defaults to handle new widgets added later
+        return DEFAULT_WIDGETS.map(dw => {
+          const found = parsed.find(sw => sw.id === dw.id);
+          return found ? { ...dw, hidden: found.hidden } : dw;
+        });
+      }
+    } catch {}
+    return DEFAULT_WIDGETS;
+  });
+  const dragId = useRef(null);
+
+  const toggleWidget = (id) => {
+    setWidgets(prev => {
+      const next = prev.map(w => w.id === id ? { ...w, hidden: !w.hidden } : w);
+      localStorage.setItem('hp_widget_layout', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const onDragStart = (id) => { dragId.current = id; };
+  const onDrop = (targetId) => {
+    if (!dragId.current || dragId.current === targetId) return;
+    setWidgets(prev => {
+      const arr = [...prev];
+      const fromIdx = arr.findIndex(w => w.id === dragId.current);
+      const toIdx   = arr.findIndex(w => w.id === targetId);
+      // swap the two cards in place
+      [arr[fromIdx], arr[toIdx]] = [arr[toIdx], arr[fromIdx]];
+      localStorage.setItem('hp_widget_layout', JSON.stringify(arr));
+      return arr;
+    });
+    dragId.current = null;
+  };
+
+  const isVisible    = (id)    => !(widgets.find(w => w.id === id)?.hidden);
+  const isRowVisible = (ids)   => editMode || ids.some(id => isVisible(id));
+
+  // flexStyle mirrors the inner card's original flex so layout is unchanged
+  const wrapWidget = (id, node, flexStyle = {}) => {
+    const hidden = !isVisible(id);
+    if (hidden && !editMode) return null;
+    return (
+      <div
+        key={id}
+        className={`hp-widget-wrap${editMode ? ' hp-widget-editing' : ''}`}
+        draggable={editMode}
+        onDragStart={() => onDragStart(id)}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={() => onDrop(id)}
+        style={{ opacity: hidden ? 0.3 : undefined, ...flexStyle }}
+      >
+        {editMode && (
+          <div className="hp-widget-overlay">
+            <span className="hp-widget-handle">⠿</span>
+            <button className="hp-widget-hide-btn" onClick={() => toggleWidget(id)}>
+              {hidden ? '＋ Show' : '✕ Hide'}
+            </button>
+          </div>
+        )}
+        {node}
+      </div>
+    );
+  };
+
+  const [chartMode, setChartMode] = useState('general');
+
+  const isLive = filters.date === todayStr();
 
   const regionBreaches = useMemo(() => {
     if (!kmlAreas.length) return [];
@@ -1179,102 +1426,6 @@ export default function HomePage() {
       .filter(Boolean);
   }, [devices, locations, kmlAreas]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setDevLoading(true);
-    getDevices()
-      .then(res => {
-        if (cancelled) return;
-        const list = Array.isArray(res) ? res : (res?.devices ?? []);
-        setDevices(list);
-        updateFromDevices(list); // persist bindTimes to cache context + localStorage
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setDevLoading(false); });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fetchLocations = useCallback(async () => {
-    if (!devices.length) return;
-    locAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    locAbortRef.current = ctrl;
-    const tasks = devices.map(d => {
-      const sn = d.sn ?? d.serialNumber ?? '';
-      if (!sn) return Promise.resolve(null);
-      return getLatestLocation(sn)
-        .then(res => ({ sn, point: res?.latest ?? res ?? null }))
-        .catch(() => null);
-    });
-    const settled = await Promise.allSettled(tasks);
-    if (ctrl.signal.aborted) return;
-    const results = settled.map(r => r.status === 'fulfilled' ? r.value : null);
-    setLocations(prev => {
-      const next = { ...prev };
-      results.forEach(r => { if (r) next[r.sn] = r.point; });
-      return next;
-    });
-    setLocSync(new Date());
-  }, [devices, getLatestLocation]);
-
-  useEffect(() => { fetchLocations(); }, [fetchLocations]);
-  useEffect(() => {
-    if (!isLive || !devices.length) return;
-    const id = setInterval(fetchLocations, LOCATION_POLL_MS);
-    return () => clearInterval(id);
-  }, [isLive, devices.length, fetchLocations]);
-
-  const fetchActivity = useCallback(async (dateStr, live, incremental = false) => {
-    if (!devices.length) return;
-    trajAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    trajAbortRef.current = ctrl;
-    const useIncremental = incremental && live && !!activitySyncRef.current;
-    const { start: dayStart, end: dayEnd } = dayRange(dateStr, live);
-    const start   = useIncremental ? new Date(activitySyncRef.current) : dayStart;
-    const end     = live ? new Date(Date.now() + 2 * 3600 * 1000) : dayEnd;
-    const snapNow = new Date().toISOString();
-    if (!useIncremental) { setChartLoading(true); setActivityData({}); }
-    const fetch1 = (sn) => getPlayback(sn, start, end)
-      .then(res => ({ sn, pts: Array.isArray(res?.points) ? res.points : Array.isArray(res) ? res : [] }))
-      .catch(() => null);
-    let results;
-    if (useIncremental) {
-      const settled = await Promise.allSettled(devices.map(d => fetch1(d.sn ?? '')));
-      results = settled.map(r => r.status === 'fulfilled' ? r.value : null);
-    } else {
-      results = await pLimit(devices.map(d => () => fetch1(d.sn ?? '')), FETCH_CONCURRENCY);
-    }
-    if (ctrl.signal.aborted) return;
-    activitySyncRef.current = snapNow;
-    if (useIncremental) {
-      setActivityData(prev => {
-        const next = { ...prev };
-        results.forEach(r => { if (r?.pts?.length) next[r.sn] = [...(prev[r.sn] ?? []), ...r.pts]; });
-        return next;
-      });
-    } else {
-      const map = {};
-      results.forEach(r => { if (r?.pts?.length) map[r.sn] = r.pts; });
-      setActivityData(map);
-      setChartLoading(false);
-    }
-  }, [devices, getPlayback]);
-
-  useEffect(() => {
-    if (!devices.length) return;
-    activitySyncRef.current = null;
-    fetchActivity(filters.date, isLive, false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.date, filters.region, filters.area, devices.length]);
-
-  useEffect(() => {
-    if (!isLive || !devices.length) return;
-    const id = setInterval(() => fetchActivity(filters.date, true, true), TRAJECTORY_POLL_MS);
-    return () => clearInterval(id);
-  }, [isLive, filters.date, devices.length, fetchActivity]);
-
   const filteredDevices = useMemo(() => {
     if (filters.region === 'all') return devices;
     const entry = KML_REGIONS.find(r => r.value === filters.region);
@@ -1284,8 +1435,13 @@ export default function HomePage() {
   }, [devices, filters.region]);
 
   // ── selectedDateTime — end of the selected date (used for all date math) ──
+  // Subtract 5 hours (PKT offset) to align with Pakistan time storage
+  const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
   const selectedDateTime = useMemo(
-    () => new Date(filters.date + 'T23:59:59'),
+    () => {
+      const utcTime = new Date(filters.date + 'T23:59:59.999Z');
+      return new Date(utcTime.getTime() - PKT_OFFSET_MS);
+    },
     [filters.date]
   );
 
@@ -1334,10 +1490,85 @@ export default function HomePage() {
   return (
     <div className="hp-page">
 
+      {/* ── Quick Actions Sidebar ── */}
+      <div className={`qa-sidebar${sidebarOpen ? ' qa-sidebar--open' : ''}`}>
+        <div className="qa-sidebar-inner">
+          <p className="qa-sidebar-label">Actions</p>
+
+          <button className="qa-item" onClick={() => { setShowBindModal(true); setSidebarOpen(false); }}>
+            <span className="qa-item-icon">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M11 3a1 1 0 10-2 0v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-5V3z"/>
+                <path fillRule="evenodd" d="M10 8a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1H8a1 1 0 110-2h1V9a1 1 0 011-1z" clipRule="evenodd"/>
+              </svg>
+            </span>
+            <span className="qa-item-label">Add Locator</span>
+          </button>
+
+          <button className="qa-item" onClick={() => { navigate('/field-staff-dashboard'); }}>
+            <span className="qa-item-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </span>
+            <span className="qa-item-label">Field Staff</span>
+          </button>
+
+          <button className={`qa-item${editMode ? ' qa-item--active' : ''}`} onClick={() => setEditMode(m => !m)}>
+            <span className="qa-item-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+            </span>
+            <span className="qa-item-label">{editMode ? 'Done' : 'Customize'}</span>
+          </button>
+
+          {editMode && (
+            <div className="qa-widget-list">
+              <p className="qa-sidebar-sublabel">Widgets</p>
+              {widgets.map(w => (
+                <div key={w.id} className="qa-widget-row">
+                  <span className="qa-widget-name">{w.label}</span>
+                  <button className={`qa-widget-toggle${w.hidden ? ' qa-widget-toggle--off' : ''}`} onClick={() => toggleWidget(w.id)}>
+                    {w.hidden ? 'Off' : 'On'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* TPL logo watermark at bottom */}
+          <div className="qa-sidebar-logo">
+            <img src={tplLogo} alt="" aria-hidden="true" />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Sidebar trigger (floating circle) ── */}
+      <button
+        className={`qa-trigger${sidebarOpen ? ' qa-trigger--open' : ''}`}
+        onClick={() => setSidebarOpen(o => !o)}
+        aria-label="Quick actions"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+          {sidebarOpen
+            ? <polyline points="9 18 15 12 9 6"/>
+            : <polyline points="15 18 9 12 15 6"/>}
+        </svg>
+      </button>
+
       {/* Header */}
       <div className="hp-top-row">
         <div className="hp-header-left">
-          <h1 className="hp-heading-title">TPL TRAKKER — Locator Dashboard</h1>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <h1 className="hp-heading-title" style={{ margin: 0 }}>Locator Dashboard</h1>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.05em' }}>TPL TRAKKER</span>
+          </div>
+          {editMode && <span className="hp-edit-badge">Edit Mode — drag cards to reorder</span>}
         </div>
         <div className="hp-top-right">
           <LiveClock
@@ -1345,97 +1576,181 @@ export default function HomePage() {
             selectedDate={filters.date}
             onDateChange={date => setFilters(f => ({ ...f, date }))}
           />
-          {isLive && (
-            <>
-              <button className="hp-refresh-btn" onClick={fetchLocations}>
-                <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
-                </svg>
-                Locations
-              </button>
-              <button className="hp-refresh-btn" onClick={() => { activitySyncRef.current = null; fetchActivity(filters.date, true, false); }}>
-                <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
-                </svg>
-                Chart
-              </button>
-            </>
-          )}
-          <button className="btn-fieldstaff" onClick={() => navigate('/field-staff-dashboard')}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          <button className="hp-refresh-btn" onClick={refreshAll}>
+            <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
             </svg>
-            Field Staff
+            Refresh
           </button>
         </div>
       </div>
 
       {/* Section 1: 4 stat cards */}
-      <div className="hp-stats-row">
-        <StatCard
-          title="Total Devices" value={totalDevices} loading={devLoading}
-          accentColor="#3b82f6"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>}
-          iconBg="rgba(59,130,246,0.12)" iconColor="#3b82f6"
-          rate={weeklyBinds}
-          progress={null}
-        />
-        <StatCard
-          title="Active Locators" value={activeNow} loading={devLoading}
-          accentColor="#16a34a"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>}
-          iconBg="rgba(22,163,74,0.12)" iconColor="#16a34a"
-          progress={totalDevices > 0 ? (activeNow / totalDevices) * 100 : 0}
-          subtitle={!isLive ? `on ${filters.date}` : null}
-        />
-        <StatCard
-          title="Offline / Absent" value={offlineCount} loading={devLoading}
-          accentColor="#dc2626"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>}
-          iconBg="rgba(220,38,38,0.12)" iconColor="#dc2626"
-          progress={totalDevices > 0 ? (offlineCount / totalDevices) * 100 : 0}
-          subtitle={!isLive ? `on ${filters.date}` : null}
-        />
-        <BatteryStatusCard />
-      </div>
+      {wrapWidget('stats',
+        <div className="hp-stats-row">
+          <StatCard
+            title="Total Locators" value={totalDevices} loading={devLoading}
+            accentColor="#3b82f6"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>}
+            iconBg="rgba(59,130,246,0.12)" iconColor="#3b82f6"
+            rate={weeklyBinds}
+            progress={null}
+          />
+          <StatCard
+            title="Active Locators" value={activeNow} loading={devLoading}
+            accentColor="#16a34a"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>}
+            iconBg="rgba(22,163,74,0.12)" iconColor="#16a34a"
+            progress={totalDevices > 0 ? (activeNow / totalDevices) * 100 : 0}
+            subtitle={!isLive ? `on ${filters.date}` : null}
+          />
+          <StatCard
+            title="Offline / Absent" value={offlineCount} loading={devLoading}
+            accentColor="#dc2626"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>}
+            iconBg="rgba(220,38,38,0.12)" iconColor="#dc2626"
+            progress={totalDevices > 0 ? (offlineCount / totalDevices) * 100 : 0}
+            subtitle={!isLive ? `on ${filters.date}` : null}
+          />
+          <BatteryStatusCard />
+        </div>
+      )}
 
       {/* Section 2: Users panel + Activity chart */}
-      <div className="hp-charts-row">
-        <UserDevicePanel devices={dateFilteredDevices} />
-        <div className="hp-chart-wide">
-          <ActivityChart
-            activityData={filteredActivityData}
-            devices={dateFilteredDevices}
-            selectedDate={filters.date}
-            isLive={isLive}
-            mode={chartMode}
-            onModeChange={setChartMode}
-            loading={chartLoading}
-            lastSync={locSync}
-          />
+      {isRowVisible(['users', 'activity']) && (
+        <div className="hp-charts-row">
+          {wrapWidget('users',
+            <UserDevicePanel devices={dateFilteredDevices} />,
+            { flex: '0 0 42%', minWidth: 0 }
+          )}
+          {wrapWidget('activity',
+            <div className="hp-chart-wide">
+              <ActivityChart
+                activityData={filteredActivityData}
+                devices={dateFilteredDevices}
+                selectedDate={filters.date}
+                isLive={isLive}
+                mode={chartMode}
+                onModeChange={setChartMode}
+                loading={chartLoading}
+                lastSync={locSync}
+              />
+            </div>,
+            { flex: '1.4', minWidth: 0 }
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Section 3: Recent Activity — date-scoped */}
-      <RecentActivityCard
-        devices={dateFilteredDevices}
-        locations={locations}
-        activityData={filteredActivityData}
-        isLive={isLive}
-      />
+      {/* Section 3+4: Recent Activity | Top Users | Bound Locators — one row */}
+      {isRowVisible(['recent', 'top-users', 'bound-chart']) && (
+        <div className="hp-charts-row hp-charts-row--bottom hp-section-bottom">
+          {wrapWidget('recent',
+            <RecentActivityCard
+              devices={dateFilteredDevices}
+              locations={locations}
+              activityData={filteredActivityData}
+              isLive={isLive}
+            />,
+            { flex: '0 0 42%', minWidth: 0 }
+          )}
+          {wrapWidget('top-users',
+            <TopUsersPanel
+              devices={dateFilteredDevices}
+              activityData={filteredActivityData}
+              isLive={isLive}
+            />,
+            { flex: '1', minWidth: 0 }
+          )}
+          {wrapWidget('bound-chart',
+            <BoundDevicesChart devices={filteredDevices} selectedDate={filters.date} />,
+            { flex: '1.6', minWidth: 0 }
+          )}
+        </div>
+      )}
 
-      {/* Section 4: Top Users | Bound Devices */}
-      <div className="hp-charts-row hp-charts-row--bottom hp-section4">
-        <TopUsersPanel
-          devices={dateFilteredDevices}
-          activityData={filteredActivityData}
-          isLive={isLive}
-        />
-        <BoundDevicesChart devices={filteredDevices} selectedDate={filters.date} />
-      </div>
+      {/* ── Bind Locator Modal ── */}
+      {showBindModal && (
+        <div className="hp-modal-overlay" onClick={closeBindModal}>
+          <div className="hp-modal" onClick={e => e.stopPropagation()}>
+            <div className="hp-modal-header">
+              <div className="hp-modal-title-wrap">
+                <div className="hp-modal-icon">
+                  <svg viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M11 3a1 1 0 10-2 0v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-5V3z"/>
+                    <path fillRule="evenodd" d="M10 8a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1H8a1 1 0 110-2h1V9a1 1 0 011-1z" clipRule="evenodd"/>
+                  </svg>
+                </div>
+                <h3>Bind Locator</h3>
+              </div>
+              <button className="hp-modal-close" onClick={closeBindModal}>✕</button>
+            </div>
+            <div className="hp-modal-body">
+              {bindError && (
+                <div style={{ padding:'8px 12px', marginBottom:12, background:'rgba(127,29,29,0.2)', border:'1px solid rgba(127,29,29,0.4)', borderRadius:6, color:'#fca5a5', fontSize:12 }}>
+                  {bindError}
+                </div>
+              )}
+              {isAdmin ? (
+                <>
+                  <div className="hp-modal-field">
+                    <label>Serial Number <span className="required">*</span></label>
+                    {unboundDevices.length === 0
+                      ? <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>No unbound locators available</p>
+                      : <BindSearchDropdown
+                          items={unboundDevices}
+                          value={bindSn}
+                          onSelect={sn => setBindSn(sn)}
+                          placeholder="Search or select a device…"
+                          getKey={d => d.sn}
+                          getLabel={d => d.sn + (d.client ? ` — ${d.client}` : '')}
+                        />
+                    }
+                  </div>
+                  <div className="hp-modal-field">
+                    <label>Assign to User <span className="required">*</span></label>
+                    {users.length === 0
+                      ? <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>No users available</p>
+                      : <BindSearchDropdown
+                          items={users}
+                          value={bindUserId}
+                          onSelect={id => setBindUserId(id)}
+                          placeholder="Search or select a user…"
+                          getKey={u => u.id}
+                          getLabel={u => u.email + (u.name ? ` (${u.name})` : '')}
+                        />
+                    }
+                  </div>
+                  <div className="hp-modal-field">
+                    <label>Locator Name <span style={{ fontWeight:400, color:'#71717a' }}>(optional)</span></label>
+                    <input type="text" placeholder="e.g. My Car, Office Van…" value={bindName} onChange={e => setBindName(e.target.value)} style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:'1px solid #3f3f46', borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                  <div className="hp-modal-field">
+                    <label>Client <span style={{ fontWeight:400, color:'#71717a' }}>(optional)</span></label>
+                    <input type="text" placeholder="e.g. TPL Trakker" value={bindClient} onChange={e => setBindClient(e.target.value)} style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:'1px solid #3f3f46', borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="hp-modal-field">
+                    <label>Locator Serial Number <span className="required">*</span></label>
+                    <input type="text" placeholder="e.g. 201404628953" value={bindSn} onChange={e => setBindSn(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleBind()} autoFocus style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:`1px solid ${bindError ? '#7f1d1d' : '#3f3f46'}`, borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                  <div className="hp-modal-field">
+                    <label>Locator Name <span style={{ fontWeight:400, color:'#71717a' }}>(optional)</span></label>
+                    <input type="text" placeholder="e.g. My Car, Office Van…" value={bindName} onChange={e => setBindName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleBind()} style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:'1px solid #3f3f46', borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box' }} />
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="hp-modal-footer">
+              <button className="hp-modal-cancel" onClick={closeBindModal}>Cancel</button>
+              <button className="hp-modal-confirm" onClick={handleBind} disabled={bindLoading || (isAdmin ? (!bindSn || !bindUserId) : !bindSn.trim())}>
+                {bindLoading ? 'Saving…' : 'Bind Locator'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
