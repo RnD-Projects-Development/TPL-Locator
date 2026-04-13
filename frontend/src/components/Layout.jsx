@@ -5,6 +5,8 @@ import tplLogo from '../assets/tpl.png';
 import { useAuth } from '../context/AuthContext.jsx';
 import { DeviceCacheProvider } from '../context/DeviceCacheContext.jsx';
 import { UserCacheProvider } from '../context/Usercachecontext.jsx';
+import { HomePageCacheProvider } from '../context/HomePageCacheContext.jsx';
+import { FieldStaffCacheProvider } from '../context/FieldStaffCacheContext.jsx';
 import MapThemeToggle from './MapThemeToggle.jsx';
 
 // ─── Icon helper ─────────────────────────────────────────────────
@@ -46,7 +48,7 @@ function PasswordInput({ label, value, onChange, placeholder }) {
   return (
     <div>
       <label style={{ display: 'block', fontSize: 11, fontWeight: 600,
-        textTransform: 'uppercase', letterSpacing: '0.1em', color: '#a1a1aa', marginBottom: 6 }}>
+        textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-secondary)', marginBottom: 6 }}>
         {label}
       </label>
       <div style={{ position: 'relative' }}>
@@ -55,17 +57,12 @@ function PasswordInput({ label, value, onChange, placeholder }) {
           value={value}
           onChange={onChange}
           placeholder={placeholder}
-          style={{
-            width: '100%', background: '#18181b', border: '1px solid #3f3f46',
-            borderRadius: 8, padding: '10px 40px 10px 14px', fontSize: 13,
-            color: '#fff', outline: 'none', boxSizing: 'border-box',
-          }}
-          onFocus={e => (e.target.style.borderColor = '#800000')}
-          onBlur={e => (e.target.style.borderColor = '#3f3f46')}
+          className="pm-input"
+          style={{ paddingRight: 40 }}
         />
         <button type="button" onClick={() => setShow(v => !v)}
           style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-            background: 'none', border: 'none', cursor: 'pointer', color: '#71717a', padding: 0 }}>
+            background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 0 }}>
           <Icon d={show ? ICONS.eyeOff : ICONS.eye} size={16} />
         </button>
       </div>
@@ -77,7 +74,7 @@ function TextInput({ label, value, onChange, placeholder, readOnly }) {
   return (
     <div>
       <label style={{ display: 'block', fontSize: 11, fontWeight: 600,
-        textTransform: 'uppercase', letterSpacing: '0.1em', color: '#a1a1aa', marginBottom: 6 }}>
+        textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-secondary)', marginBottom: 6 }}>
         {label}
       </label>
       <input
@@ -85,14 +82,7 @@ function TextInput({ label, value, onChange, placeholder, readOnly }) {
         onChange={onChange}
         placeholder={placeholder}
         readOnly={readOnly}
-        style={{
-          width: '100%', background: '#18181b', border: '1px solid #3f3f46',
-          borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#fff',
-          outline: 'none', boxSizing: 'border-box',
-          opacity: readOnly ? 0.5 : 1, cursor: readOnly ? 'not-allowed' : 'text',
-        }}
-        onFocus={e => !readOnly && (e.target.style.borderColor = '#800000')}
-        onBlur={e => (e.target.style.borderColor = '#3f3f46')}
+        className="pm-input"
       />
     </div>
   );
@@ -149,17 +139,17 @@ function ProfileSettingsModal({ isOpen, onClose, user, role }) {
       background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        width: '100%', maxWidth: 560, background: '#09090b',
-        border: '1px solid #27272a', borderRadius: 16,
-        boxShadow: '0 25px 60px rgba(0,0,0,0.6)', overflow: 'hidden',
+        width: '100%', maxWidth: 560, background: 'var(--surface-base)',
+        border: '1px solid var(--border-default)', borderRadius: 'var(--radius-xl)',
+        boxShadow: 'var(--shadow-float)', overflow: 'hidden',
       }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 24px', borderBottom: '1px solid #27272a', background: '#111113',
+          padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-1)',
         }}>
           <div>
-            <h2 style={{ color: '#fff', fontWeight: 700, fontSize: 15, margin: 0 }}>Profile Settings</h2>
-            <p style={{ color: '#71717a', fontSize: 12, margin: '2px 0 0' }}>Manage your account preferences</p>
+            <h2 style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: 15, margin: 0 }}>Profile Settings</h2>
+            <p style={{ color: 'var(--text-tertiary)', fontSize: 12, margin: '2px 0 0' }}>Manage your account preferences</p>
           </div>
           <button onClick={onClose} style={{
             width: 32, height: 32, borderRadius: 8, border: 'none', background: 'transparent',
@@ -172,15 +162,15 @@ function ProfileSettingsModal({ isOpen, onClose, user, role }) {
           </button>
         </div>
 
-        <div style={{ display: 'flex', borderBottom: '1px solid #27272a', background: '#0d0d0f' }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface-inset)' }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '12px 20px', fontSize: 11, fontWeight: 600,
               textTransform: 'uppercase', letterSpacing: '0.1em',
               background: 'none', border: 'none', cursor: 'pointer',
-              color: tab === t.id ? '#fff' : '#71717a',
-              borderBottom: tab === t.id ? '2px solid #800000' : '2px solid transparent',
+              color: tab === t.id ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              borderBottom: tab === t.id ? '2px solid var(--brand)' : '2px solid transparent',
               transition: 'all 0.15s',
             }}>
               <Icon d={t.icon} size={13} />
@@ -195,25 +185,25 @@ function ProfileSettingsModal({ isOpen, onClose, user, role }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
                 <div style={{ position: 'relative', flexShrink: 0 }}>
                   {avatarSrc
-                    ? <img src={avatarSrc} alt="avatar" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(128,0,0,0.4)' }} />
-                    : <div style={{ width: 72, height: 72, borderRadius: '50%', background: isAdmin ? 'linear-gradient(135deg, #800000, #4a0000)' : 'linear-gradient(135deg, #1e40af, #1e3a5f)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 22, border: `2px solid ${isAdmin ? 'rgba(128,0,0,0.4)' : 'rgba(59,130,246,0.4)'}` }}>{initials}</div>
+                    ? <img src={avatarSrc} alt="avatar" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--brand-border)' }} />
+                    : <div style={{ width: 72, height: 72, borderRadius: '50%', background: isAdmin ? 'var(--brand-dim)' : 'rgba(59,130,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', fontWeight: 700, fontSize: 22, border: `2px solid ${isAdmin ? 'var(--brand-border)' : 'rgba(59,130,246,0.3)'}` }}>{initials}</div>
                   }
-                  <button onClick={() => fileRef.current?.click()} style={{ position: 'absolute', bottom: -2, right: -2, width: 24, height: 24, borderRadius: '50%', background: '#800000', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <button onClick={() => fileRef.current?.click()} style={{ position: 'absolute', bottom: -2, right: -2, width: 24, height: 24, borderRadius: '50%', background: 'var(--brand)', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Icon d={ICONS.camera} size={12} />
                   </button>
                   <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatar} />
                 </div>
                 <div>
-                  <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, margin: 0 }}>{displayName}</p>
+                  <p style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, margin: 0 }}>{displayName}</p>
                   <span style={{ display: 'inline-block', marginTop: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', padding: '2px 8px', borderRadius: 4, background: roleBadgeBg, color: roleBadgeColor, border: `1px solid ${roleBadgeBorder}` }}>{roleLabel}</span>
                 </div>
               </div>
-              <div style={{ height: 1, background: '#27272a' }} />
+              <div style={{ height: 1, background: 'var(--border-subtle)' }} />
               <TextInput label="Display Name" value={displayName} onChange={e => setName(e.target.value)} placeholder="Your name" />
               <TextInput label="Email Address" value={user?.email ?? "—"} readOnly />
               <TextInput label="Phone (optional)" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+92 300 0000000" />
               <TextInput label="Role" value={roleLabel} readOnly />
-              <button onClick={handleSaveProfile} style={{ width: '100%', padding: '11px 0', borderRadius: 8, border: 'none', background: profileSaved ? '#15803d' : '#800000', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 0.2s' }}>
+              <button onClick={handleSaveProfile} style={{ width: '100%', padding: '11px 0', borderRadius: 'var(--radius-md)', border: 'none', background: profileSaved ? 'var(--status-online)' : 'var(--brand)', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 0.2s' }}>
                 {profileSaved ? <><Icon d={ICONS.check} size={15} /> Saved</> : "Save Profile"}
               </button>
             </div>
@@ -221,9 +211,9 @@ function ProfileSettingsModal({ isOpen, onClose, user, role }) {
 
           {tab === "security" && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ display: 'flex', gap: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(128,0,0,0.1)', border: '1px solid rgba(128,0,0,0.2)' }}>
+              <div style={{ display: 'flex', gap: 10, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--brand-dim)', border: '1px solid var(--brand-border)' }}>
                 <Icon d={ICONS.shield} size={15} />
-                <p style={{ fontSize: 12, color: '#a1a1aa', margin: 0, lineHeight: 1.5 }}>Use at least 8 characters with uppercase letters, numbers, and symbols.</p>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>Use at least 8 characters with uppercase letters, numbers, and symbols.</p>
               </div>
               <PasswordInput label="Current Password" value={currentPw} onChange={e => setCurrentPw(e.target.value)} placeholder="Enter current password" />
               <PasswordInput label="New Password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="Enter new password" />
@@ -240,7 +230,7 @@ function ProfileSettingsModal({ isOpen, onClose, user, role }) {
               <PasswordInput label="Confirm New Password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="Re-enter new password" />
               {confirmPw && !pwMatch && <p style={{ fontSize: 12, color: '#ef4444', margin: 0 }}>Passwords do not match</p>}
               {pwSaved && <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#22c55e', fontSize: 13 }}><Icon d={ICONS.check} size={15} /> Password updated successfully</div>}
-              <button onClick={handleSavePassword} disabled={!canSavePw} style={{ width: '100%', padding: '11px 0', borderRadius: 8, border: 'none', background: canSavePw ? '#800000' : '#27272a', color: canSavePw ? '#fff' : '#52525b', fontWeight: 600, fontSize: 13, cursor: canSavePw ? 'pointer' : 'not-allowed', transition: 'background 0.2s' }}>
+              <button onClick={handleSavePassword} disabled={!canSavePw} style={{ width: '100%', padding: '11px 0', borderRadius: 'var(--radius-md)', border: 'none', background: canSavePw ? 'var(--brand)' : 'var(--surface-3)', color: canSavePw ? '#fff' : 'var(--text-tertiary)', fontWeight: 600, fontSize: 13, cursor: canSavePw ? 'pointer' : 'not-allowed', transition: 'background 0.2s' }}>
                 Update Password
               </button>
             </div>
@@ -282,6 +272,8 @@ const Layout = ({ children }) => {
   return (
     <DeviceCacheProvider>
       <UserCacheProvider>
+      <HomePageCacheProvider>
+      <FieldStaffCacheProvider>
         <div className="layout">
           <header className="header">
 
@@ -327,10 +319,10 @@ const Layout = ({ children }) => {
 
               <span style={{
                 fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em',
-                padding: '4px 10px', borderRadius: 6,
-                background: isAdmin ? 'rgba(255,255,255,0.15)' : 'rgba(59,130,246,0.2)',
-                color: isAdmin ? '#fff' : '#93c5fd',
-                border: isAdmin ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(59,130,246,0.3)',
+                padding: '4px 10px', borderRadius: 'var(--radius-sm)',
+                background: isAdmin ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.18)',
+                color: isAdmin ? '#ffffff' : 'rgba(255,255,255,0.8)',
+                border: isAdmin ? '1px solid rgba(0,0,0,0.28)' : '1px solid rgba(0,0,0,0.22)',
               }}>
                 {isAdmin ? 'Admin' : 'User'}
               </span>
@@ -386,6 +378,8 @@ const Layout = ({ children }) => {
             role={role}
           />
         </div>
+      </FieldStaffCacheProvider>
+      </HomePageCacheProvider>
       </UserCacheProvider>
     </DeviceCacheProvider>
   );

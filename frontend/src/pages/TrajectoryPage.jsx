@@ -16,6 +16,14 @@ function isDuplicate(p1, p2) {
 
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 
+// Pakistan Time (PKT) offset: UTC+5, so subtract 5 hours to align queries with stored data
+const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+function toPktTime(utcDateStr, timeStr) {
+  const utc = new Date(`${utcDateStr}T${timeStr}Z`);
+  return new Date(utc.getTime() - PKT_OFFSET_MS);
+}
+
 function formatDateTime(point) {
   const ts = point?.timestamp ?? point?.time ?? point?.locTime;
   if (!ts) return "—";
@@ -141,9 +149,9 @@ export default function TrajectoryPage() {
     setHistError("");
     setHistLoading(true);
     try {
-      // Picker value IS the UTC value, no offset needed
-      const start = overrideStart ?? new Date(`${startDate}T${startTime}:00Z`);
-      const end   = overrideEnd   ?? new Date(`${endDate}T${endTime}:59Z`);
+      // Convert picker values to Pakistan time for database alignment
+      const start = overrideStart ?? toPktTime(startDate, `${startTime}:00`);
+      const end   = overrideEnd   ?? toPktTime(endDate, `${endTime}:59`);
       if (start >= end) throw new Error("Start must be before end");
       const res    = await getTrajectory(sn, start, end);
       const points = normaliseTrajectoryResponse(res);

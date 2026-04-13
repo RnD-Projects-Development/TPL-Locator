@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 
 const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL || "");
 
-async function apiFetch(path, { method = "GET", body } = {}, accessToken) {
+async function apiFetch(path, { method = "GET", body } = {}, accessToken, onUnauthorized) {
   const headers = { "Content-Type": "application/json" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
@@ -23,6 +23,10 @@ async function apiFetch(path, { method = "GET", body } = {}, accessToken) {
   const payload = contentType.includes("application/json") ? await res.json() : await res.text();
 
   if (!res.ok) {
+    // Token expired or invalid — log out immediately so the user isn't stuck
+    if (res.status === 401 && onUnauthorized) {
+      onUnauthorized();
+    }
     const message = typeof payload === "string" ? payload : payload?.detail || payload?.error || "Request failed";
     const err = new Error(message);
     err.status = res.status;
@@ -34,7 +38,7 @@ async function apiFetch(path, { method = "GET", body } = {}, accessToken) {
 }
 
 export function useCityTag() {
-  const { accessToken } = useAuth();
+  const { accessToken, logout } = useAuth();
 
   const login = useCallback(
     async ({ email, password }) =>
@@ -52,15 +56,15 @@ export function useCityTag() {
   );
 
   const getDevices = useCallback(
-    async () => apiFetch("/api/devices", {}, accessToken),
-    [accessToken]
+    async () => apiFetch("/api/devices", {}, accessToken, logout),
+    [accessToken, logout]
   );
 
   // User bind — hits /api/devices (user endpoint)
   const bindDevice = useCallback(
     async ({ sn, label, client }) =>
-      apiFetch("/api/devices", { method: "POST", body: { sn, name: label, client: client || "" } }, accessToken),
-    [accessToken]
+      apiFetch("/api/devices", { method: "POST", body: { sn, name: label, client: client || "" } }, accessToken, logout),
+    [accessToken, logout]
   );
 
   const bindDeviceByEmail = useCallback(
@@ -68,33 +72,33 @@ export function useCityTag() {
       apiFetch(
         "/api/devices",
         { method: "POST", body: { sn, email: email || undefined, user_id: undefined, name, client } },
-        accessToken
+        accessToken, logout
       ),
-    [accessToken]
+    [accessToken, logout]
   );
 
   const unbindDevice = useCallback(
-    async (sn) => apiFetch(`/api/devices/${encodeURIComponent(sn)}`, { method: "DELETE" }, accessToken),
-    [accessToken]
+    async (sn) => apiFetch(`/api/devices/${encodeURIComponent(sn)}`, { method: "DELETE" }, accessToken, logout),
+    [accessToken, logout]
   );
 
   const adminUnbindDevice = useCallback(
-    async (sn) => apiFetch(`/api/devices/${encodeURIComponent(sn)}`, { method: "DELETE" }, accessToken),
-    [accessToken]
+    async (sn) => apiFetch(`/api/devices/${encodeURIComponent(sn)}`, { method: "DELETE" }, accessToken, logout),
+    [accessToken, logout]
   );
 
   const getUsers = useCallback(
-    async () => apiFetch("/api/users", {}, accessToken), [accessToken]
+    async () => apiFetch("/api/users", {}, accessToken, logout), [accessToken, logout]
   );
 
   const adminGetUsers = useCallback(
-    async () => apiFetch("/api/admin/users", {}, accessToken), [accessToken]
+    async () => apiFetch("/api/admin/users", {}, accessToken, logout), [accessToken, logout]
   );
 
   const adminCreateUser = useCallback(
     async ({ email, password, name }) =>
-      apiFetch("/api/admin/users", { method: "POST", body: { email, password, name } }, accessToken),
-    [accessToken]
+      apiFetch("/api/admin/users", { method: "POST", body: { email, password, name } }, accessToken, logout),
+    [accessToken, logout]
   );
 
   // Admin assigns a device to a user via unified endpoint.
@@ -103,23 +107,23 @@ export function useCityTag() {
       apiFetch(
         "/api/devices",
         { method: "POST", body: { sn, user_id: userId, name, client } },
-        accessToken
+        accessToken, logout
       ),
-    [accessToken]
+    [accessToken, logout]
   );
 
   // Admin unassigns by SN via unified endpoint.
   const adminUnassignDeviceFromUser = useCallback(
     async (_userId, sn) =>
-      apiFetch(`/api/devices/${encodeURIComponent(sn)}`, { method: "DELETE" }, accessToken),
-    [accessToken]
+      apiFetch(`/api/devices/${encodeURIComponent(sn)}`, { method: "DELETE" }, accessToken, logout),
+    [accessToken, logout]
   );
 
   // Admin deletes a user (also unassigns all their devices via backend)
   const adminDeleteUser = useCallback(
     async (userId) =>
-      apiFetch(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" }, accessToken),
-    [accessToken]
+      apiFetch(`/api/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" }, accessToken, logout),
+    [accessToken, logout]
   );
 
   const adminUpdateUser = useCallback(
@@ -127,9 +131,9 @@ export function useCityTag() {
       apiFetch(
         `/api/admin/users/${encodeURIComponent(userId)}`,
         { method: "PUT", body: { name, password } },
-        accessToken
+        accessToken, logout
       ),
-    [accessToken]
+    [accessToken, logout]
   );
 
   const adminUpdateDevice = useCallback(
@@ -137,19 +141,19 @@ export function useCityTag() {
       apiFetch(
         `/api/admin/devices/${encodeURIComponent(sn)}`,
         { method: "PUT", body: { name, client, region } },
-        accessToken
+        accessToken, logout
       ),
-    [accessToken]
+    [accessToken, logout]
   );
 
   const searchDevice = useCallback(
-    async (sn) => apiFetch(`/api/admin/devices/search/${encodeURIComponent(sn)}`, {}, accessToken),
-    [accessToken]
+    async (sn) => apiFetch(`/api/admin/devices/search/${encodeURIComponent(sn)}`, {}, accessToken, logout),
+    [accessToken, logout]
   );
 
   const getLatestLocation = useCallback(
-    async (sn) => apiFetch(`/api/location/${encodeURIComponent(sn)}`, {}, accessToken),
-    [accessToken]
+    async (sn) => apiFetch(`/api/location/${encodeURIComponent(sn)}`, {}, accessToken, logout),
+    [accessToken, logout]
   );
 
   const getTrajectory = useCallback(
@@ -158,8 +162,8 @@ export function useCityTag() {
         start: start instanceof Date ? start.toISOString() : start,
         end:   end   instanceof Date ? end.toISOString()   : end,
       });
-      return apiFetch(`/api/devices/${encodeURIComponent(sn)}/trajectory?${params}`, {}, accessToken);
-    }, [accessToken]
+      return apiFetch(`/api/devices/${encodeURIComponent(sn)}/trajectory?${params}`, {}, accessToken, logout);
+    }, [accessToken, logout]
   );
 
   const getPlayback = useCallback(
@@ -168,13 +172,13 @@ export function useCityTag() {
         start: start instanceof Date ? start.toISOString() : start,
         end:   end   instanceof Date ? end.toISOString()   : end,
       });
-      return apiFetch(`/api/devices/${encodeURIComponent(sn)}/playback?${params}`, {}, accessToken);
-    }, [accessToken]
+      return apiFetch(`/api/devices/${encodeURIComponent(sn)}/playback?${params}`, {}, accessToken, logout);
+    }, [accessToken, logout]
   );
 
   const getFieldStaffLiveDevices = useCallback(
-    async () => apiFetch("/api/field-staff/live-devices", {}, accessToken),
-    [accessToken]
+    async () => apiFetch("/api/field-staff/live-devices", {}, accessToken, logout),
+    [accessToken, logout]
   );
 
   return {

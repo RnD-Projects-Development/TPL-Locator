@@ -35,7 +35,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
 
       <div className="dsb-header">
         <div className="dsb-title">
-          Devices
+          Locators
           <span className="dsb-count">{devices.length}</span>
         </div>
         <div className="dsb-stats">
@@ -45,7 +45,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
         <button
           onClick={refresh}
           disabled={loading}
-          title="Refresh devices"
+          title="Refresh locators"
           style={{
             marginLeft: "auto", background: "none", border: "none",
             color: loading ? "#3f3f46" : "#71717a",
@@ -100,7 +100,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
               }}
             />
             <span style={{ fontSize: 10, color: "#52525b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Loading devices…
+              Loading locators…
             </span>
           </div>
         )}
@@ -110,7 +110,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
         )}
 
         {!loading && !error && filtered.length === 0 && (
-          <div className="dsb-state">No devices found</div>
+          <div className="dsb-state">No locators found</div>
         )}
 
         {!loading && !error && filtered.map((d) => {

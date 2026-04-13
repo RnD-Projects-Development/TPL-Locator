@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
-import { useCityTag } from '../hooks/useCityTag.js';
 import { useKmlAreas } from '../hooks/useKmlAreas.js';
+import { useFieldStaffCache } from '../context/FieldStaffCacheContext.jsx';
 import AreaSelector from '../components/AreaSelector.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
 import { reverseGeocode } from '../utils/reverseGeocode.js';
@@ -249,37 +249,16 @@ function ZoneTable({ devices, locationCache }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function FieldStaffDashboard() {
-  const { getFieldStaffLiveDevices } = useCityTag();
   const mapContainerRef = useRef(null);
   const navigate        = useNavigate();
   const { areas, kmlLoading } = useKmlAreas();
+  const { devices, loading, error, locationCache, refresh, updateLocationCache } = useFieldStaffCache();
 
-  const [devices,        setDevices]        = useState([]);
-  const [loading,        setLoading]        = useState(true);
-  const [error,          setError]          = useState(null);
   const [selectedAreaId, setSelectedAreaId] = useState(null);
   const [dateFrom,       setDateFrom]       = useState('');
   const [dateTo,         setDateTo]         = useState('');
 
-  // Reverse-geocode cache: { [sn]: "Primary, Secondary" }
-  const [locationCache,  setLocationCache]  = useState({});
   const geocodingInFlight = useRef(new Set());
-
-  // ── Fetch ─────────────────────────────────────────────────────────────────
-  const fetchDevices = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await getFieldStaffLiveDevices();
-      setDevices(data);
-    } catch (err) {
-      setError(err.message || 'Failed to load field staff data');
-    } finally {
-      setLoading(false);
-    }
-  }, [getFieldStaffLiveDevices]);
-
-  useEffect(() => { fetchDevices(); }, [fetchDevices]);
 
   // ── Resolve selected area ─────────────────────────────────────────────────
   const selectedArea = useMemo(
@@ -325,7 +304,7 @@ export default function FieldStaffDashboard() {
         .then(result => {
           if (!result) return;
           const label = result.primary + (result.secondary ? `, ${result.secondary}` : '');
-          setLocationCache(prev => ({ ...prev, [device.sn]: label }));
+          updateLocationCache(device.sn, label);
         })
         .catch(() => {})
         .finally(() => { geocodingInFlight.current.delete(device.sn); });
@@ -346,7 +325,7 @@ export default function FieldStaffDashboard() {
     return (
       <div className="fsd-loading">
         <p style={{ color: '#f87171', fontSize: 14 }}>{error}</p>
-        <button className="fsd-back-btn" onClick={fetchDevices} style={{ marginTop: 12 }}>
+        <button className="fsd-refresh-btn" onClick={refresh} style={{ marginTop: 12 }}>
           Retry
         </button>
       </div>
@@ -363,6 +342,12 @@ export default function FieldStaffDashboard() {
         <div className="fsd-header-left">
           <button className="fsd-back-btn" onClick={() => navigate('/Homepage')}>
             ‹ Back
+          </button>
+          <button className="fsd-refresh-btn" onClick={refresh}>
+            <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+            </svg>
+            Refresh
           </button>
           <div className="fsd-header-text">
             <h1 className="fsd-title">Field Staff Dashboard</h1>

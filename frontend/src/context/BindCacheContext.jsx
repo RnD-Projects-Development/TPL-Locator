@@ -69,8 +69,13 @@ export function BindCacheProvider({ children }) {
    */
   const countBindsInWindow = useCallback((devices, fromDate, toDate) => {
     const bindings = getMergedBindings(devices);
+    const seen = new Set();
     let n = 0;
-    bindings.forEach(bt => {
+    devices.forEach(d => {
+      if (!d.sn || seen.has(d.sn)) return;
+      seen.add(d.sn);
+      const bt = bindings.get(d.sn);
+      if (!bt) return;
       const dt = new Date(bt);
       if (!isNaN(dt) && dt >= fromDate && dt <= toDate) n++;
     });
