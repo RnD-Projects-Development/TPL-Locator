@@ -36,7 +36,17 @@ function _parseResponse(raw) {
     ? (street || (area ? `${area}${city ? ', ' + city : ''}` : city) || null)
     : (area ? `${area}${city ? ', ' + city : ''}` : city || null);
 
-  return primary ? { primary, secondary, isSpecific: isPOI || !!name || !!street } : null;
+  // Road-only portion of the address — drop trailing ", Sector X, Karachi" parts.
+  // e.g. "Main University Road, Gulshan-e-Iqbal, Karachi" → "Main University Road"
+  const roadOnly = street ? street.split(',')[0].trim() || null : null;
+
+  return primary
+    ? {
+        primary, secondary, isSpecific: isPOI || !!name || !!street,
+        // Raw parts — callers that want generic area names (not POIs) use these.
+        name, street, area, city, roadOnly,
+      }
+    : null;
 }
 
 /**

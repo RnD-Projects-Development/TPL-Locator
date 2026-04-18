@@ -2,15 +2,15 @@
 """
 GET /api/devices/{sn}/zones?start=<ISO>&end=<ISO>
 
-Derives activity zones for a device by clustering its GPS points within the
-requested time window. No static zone database — computed on-the-fly.
+Runs the zone pipeline synchronously (clustering is pure-Python and fast
+enough that a queue is unnecessary). Returns polygons + centres + visit
+points. The frontend names each zone using TPLMaps reverse geocoding.
 """
-
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Annotated, Optional, Union
+from datetime import datetime
+from typing import Annotated, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -19,19 +19,10 @@ from app.dependencies import get_current_account, get_mongo_service
 from app.models.admin import AdminInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
-from app.services.zone_clustering import MAX_POINTS, cluster_gps_points
+from app.services.zone_pipeline import process_zones_for_device
 
 router = APIRouter(prefix="/api", tags=["zones"])
 logger = logging.getLogger(__name__)
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _to_naive_utc(dt: datetime) -> datetime:
-    """Strip timezone after converting to UTC (stored timestamps are naive UTC)."""
-    if dt.tzinfo is not None:
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
 
 
 # ── Response models ───────────────────────────────────────────────────────────
@@ -44,22 +35,22 @@ class LatLng(BaseModel):
 class ZoneVisit(BaseModel):
     lat:       float
     lng:       float
-    timestamp: str | None = None
+    timestamp: Optional[str] = None
 
 
 class Zone(BaseModel):
     zone_id:      str
-    name:         str
-    polygon:      list[LatLng]    # convex-hull boundary vertices
+    polygon:      List[LatLng]
     center:       LatLng
-    points:       list[ZoneVisit] # GPS visit points inside the zone
+    points:       List[ZoneVisit]
     total_points: int
-    first_seen:   str | None      # oldest recorded fix inside this zone
-    last_seen:    str | None      # newest recorded fix inside this zone
+    first_seen:   Optional[str] = None
+    last_seen:    Optional[str] = None
+    zone_key:     Optional[str] = None
 
 
 class ZonesResponse(BaseModel):
-    zones:     list[Zone]
+    zones:     List[Zone]
     device_sn: str
 
 
@@ -92,56 +83,28 @@ async def get_device_zones(
     mongo:   Annotated[MongoService, Depends(get_mongo_service)]                        = None,
 ):
     """
-    Return auto-generated activity zones for a device within a time window.
+    Returns activity zones for a device within a time window.
 
-    Zones are derived by:
-      1. Fetching up to MAX_POINTS GPS fixes within [start, end] from MongoDB.
-      2. Binning fixes into ~110 m grid cells; discarding sparse cells.
-      3. Merging nearby dense cells (≤ 200 m) via union-find into clusters.
-      4. Wrapping each cluster in a padded convex-hull polygon.
-
-    The frontend reverse-geocodes each zone centre to get human-readable names.
+    Pipeline (synchronous):
+      1. Fetch GPS points for sn in [start, end]
+      2. Cluster (existing logic — not modified)
+      3. Assign zone_id + zone_key onto points via bulkWrite
+         (skipped if the point already has the same zone_key)
+      4. Persist zones summary on the device doc
+      5. Return zones (frontend names them via TPLMaps)
     """
     logger.info(
-        "get_device_zones started actor=%s sn=%s start=%s end=%s",
-        account.email, sn, start, end,
+        "get_device_zones sn=%s start=%s end=%s actor=%s",
+        sn, start, end, account.email,
     )
-
     await _assert_device_access(sn, account, mongo)
 
-    # Build the MongoDB filter — timestamp range is optional
-    query: dict = {
-        "sn":  sn,
-        "lat": {"$exists": True},
-        "lng": {"$exists": True},
-    }
+    zones = await process_zones_for_device(
+        sn=sn,
+        start=start,
+        end=end,
+        locations_col=mongo.locations,
+        devices_col=mongo.devices,
+    )
 
-    if start or end:
-        ts_filter: dict = {}
-        if start: ts_filter["$gte"] = _to_naive_utc(start)
-        if end:   ts_filter["$lte"] = _to_naive_utc(end)
-        query["timestamp"] = ts_filter
-
-    cursor = mongo.locations.find(
-        query,
-        {"lat": 1, "lng": 1, "timestamp": 1, "_id": 0},
-        sort=[("timestamp", -1)],
-    ).limit(MAX_POINTS)
-
-    raw = []
-    async for doc in cursor:
-        lat = doc.get("lat")
-        lng = doc.get("lng")
-        if lat is not None and lng is not None:
-            raw.append({
-                "lat":       float(lat),
-                "lng":       float(lng),
-                "timestamp": doc.get("timestamp"),
-            })
-
-    logger.info("get_device_zones fetched sn=%s points=%d", sn, len(raw))
-
-    zones = cluster_gps_points(raw)
-
-    logger.info("get_device_zones completed sn=%s zones=%d", sn, len(zones))
     return ZonesResponse(zones=zones, device_sn=sn)

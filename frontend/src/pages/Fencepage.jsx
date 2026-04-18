@@ -60,11 +60,20 @@ async function geocodeZoneNames(zones) {
   return Promise.all(
     zones.map(async (zone, idx) => {
       try {
+        // Zones get a GENERIC name — the neighbourhood / road / city the
+        // centre sits in, NOT the nearest landmark (POI) at those coords.
+        // Priority: area (Gulshan-e-Iqbal, Korangi) → road (University Road)
+        // → city (Karachi) → fallback.
         const geo  = await tplGeocode(zone.center.lat, zone.center.lng);
-        const name = geo?.name || geo?.street || geo?.area || geo?.city || `Zone ${idx + 1}`;
+        const name =
+          geo?.area     ||
+          geo?.roadOnly ||
+          geo?.city     ||
+          zone.name     ||
+          `Zone ${idx + 1}`;
         return { ...zone, name };
       } catch {
-        return zone;
+        return { ...zone, name: zone.name || `Zone ${idx + 1}` };
       }
     }),
   );
@@ -149,9 +158,9 @@ function FencePageInner() {
   // ── Date range state (initialised to last 7 days) ───────────────────────────
   const _init7d = _rangeFromHours(168);
   const [startDate, setStartDate] = useState(() => _dateStr(_init7d.start));
-  const [startTime, setStartTime] = useState(() => _timeStr(_init7d.start));
+  const [startTime, setStartTime] = useState("00:00");
   const [endDate,   setEndDate]   = useState(() => _dateStr(_init7d.end));
-  const [endTime,   setEndTime]   = useState(() => _timeStr(_init7d.end));
+  const [endTime,   setEndTime]   = useState("23:59");
 
   // ── Map initialisation ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -215,7 +224,12 @@ function FencePageInner() {
     fetchZones(selectedSnRef.current, accessToken, startDt, endDt)
       .then((data) => {
         if (ctx.cancelled) return;
-        const rawZones = data.zones ?? [];
+        // Backend returns unnamed zones — give each a provisional "Zone N"
+        // label so the sidebar renders immediately while TPLMaps geocodes.
+        const rawZones = (data.zones ?? []).map((z, i) => ({
+          ...z,
+          name: z.name || `Zone ${i + 1}`,
+        }));
         setZones(rawZones);
         polygonManager.current?.renderZones(rawZones, {
           onZoneClick:    (id) => setSelectedZoneId(id),

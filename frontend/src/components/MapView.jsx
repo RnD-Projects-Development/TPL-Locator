@@ -112,8 +112,9 @@ function attachMap(parent, onReady) {
       const map = window.TPLMaps.map.initMap({
         divID: 'mapview-persistent',
         lat: 24.8607, lng: 67.0011, zoom: 11,
-        showZoomControl: true, gestureHandling: true,
+        showZoomControl: true,
       });
+      try { map.scrollWheelZoom?.enable(); } catch {}
       try { map.invalidateSize(); } catch {}
       _cachedMap = map;
       onReady(map);
