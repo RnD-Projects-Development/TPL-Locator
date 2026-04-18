@@ -2,6 +2,25 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap');
 
+/* ── MapView popup theme ───────────────────────────────────────────────────── */
+.mv-popup .leaflet-popup-content-wrapper {
+  background: #991b1b;
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  padding: 0;
+}
+.mv-popup .leaflet-popup-content {
+  margin: 0;
+  padding: 12px 14px;
+}
+.mv-popup .leaflet-popup-tip {
+  background: #991b1b;
+}
+.mv-popup .leaflet-popup-tip-container {
+  margin-top: -1px;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -25,27 +44,31 @@ body, button, input, div {
 @tailwind components;
 @tailwind utilities;
 
-/* ── Flame gradient canvas ──────────────────────────────────────────────────
-   MUST be after @tailwind base (which resets body bg to white).
-   Pages with solid background: var(--surface-base) cover this completely.
-   Only transparent-background pages (HomePage) reveal the flame.
+/* ── Fading grid background ──────────────────────────────────────────────────
+   Grid lives on body::before so the mask only clips the grid layer —
+   cards and content above it are completely unaffected.
    ────────────────────────────────────────────────────────────────────────── */
 body {
-  background:
-    /* Amber/orange hot tip — hottest point of the flame */
-    radial-gradient(ellipse 60% 45% at 50% 118%, rgba(251, 146, 60, 0.10) 0%, transparent 68%),
-    /* #b91c1c mid-flame core */
-    radial-gradient(ellipse 80% 58% at 50% 110%, rgba(185, 28, 28, 0.14) 0%, transparent 64%),
-    /* #b91c1c outer flame body */
-    radial-gradient(ellipse 110% 72% at 50% 105%, rgba(185, 28, 28, 0.18) 0%, transparent 56%),
-    /* Left tongue */
-    radial-gradient(ellipse 42% 46% at 26% 104%, rgba(185, 28, 28, 0.09) 0%, transparent 54%),
-    /* Right tongue */
-    radial-gradient(ellipse 42% 46% at 74% 106%, rgba(185, 28, 28, 0.08) 0%, transparent 54%),
-    /* Faint top-left brand ember */
-    radial-gradient(circle at 15% 8%, rgba(185, 28, 28, 0.06) 0%, transparent 40%),
-    /* Dark canvas — always present */
-    #0c0c0e;
+  background-color: #0c0c0e;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+
+  background-image:
+    linear-gradient(to right,  rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+
+  /* Mask fades the grid — only this pseudo-element is clipped, not the page content */
+  -webkit-mask-image:
+    radial-gradient(ellipse 85% 80% at 50% 40%, black 30%, transparent 100%);
+  mask-image:
+    radial-gradient(ellipse 85% 80% at 50% 40%, black 30%, transparent 100%);
 }
 
 /* ── Date/time inputs ──────────────────────────── */

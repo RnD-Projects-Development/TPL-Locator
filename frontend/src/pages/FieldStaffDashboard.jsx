@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import mapboxgl from 'mapbox-gl';
 import { useKmlAreas } from '../hooks/useKmlAreas.js';
 import { useFieldStaffCache } from '../context/FieldStaffCacheContext.jsx';
 import AreaSelector from '../components/AreaSelector.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
-import { reverseGeocode } from '../utils/reverseGeocode.js';
+import loadTPLMaps from '../components/loadTPLMaps.js';
+import { tplGeocode } from '../utils/tplGeocode.js';
 import { pointInArea } from '../utils/geofenceUtils.js';
 import './FieldStaffDashboard.css';
-
-mapboxgl.accessToken =
-  import.meta.env?.VITE_MAPBOX_TOKEN || process.env?.REACT_APP_MAPBOX_TOKEN || '';
 
 // ─── SVG Rank Badge ───────────────────────────────────────────────────────────
 const RANK_COLORS = ['#f59e0b', '#94a3b8', '#cd7c4a', '#9ca3af', '#9ca3af'];
@@ -54,68 +51,103 @@ function RankBadge({ rank }) {
 function MapSection({ filteredDevices, mapContainerRef }) {
   const mapRef     = useRef(null);
   const markersRef = useRef([]);
+  const mapReadyRef = useRef(false);
 
+  // Initialise TPLMaps once on mount
   useEffect(() => {
     if (!mapContainerRef.current) return;
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
-      center: [74.3587, 31.5204],
-      zoom: 10,
-      attributionControl: false,
+
+    loadTPLMaps(() => {
+      if (mapRef.current) return; // already init
+
+      const map = window.TPLMaps.map.initMap({
+        divID:           mapContainerRef.current.id,
+        lat:             31.5204,
+        lng:             74.3587,
+        zoom:            10,
+        showZoomControl: true,
+      });
+
+      map.scrollWheelZoom?.enable();
+      mapRef.current   = map;
+      mapReadyRef.current = true;
+
+      requestAnimationFrame(() => map.invalidateSize?.());
     });
-    mapRef.current = map;
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-    // Call resize once the map has loaded so Mapbox measures the container correctly
-    map.on('load', () => map.resize());
-
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      markersRef.current.forEach(m => { try { mapRef.current?.removeLayer(m); } catch {} });
+      markersRef.current = [];
+      mapRef.current?.remove?.();
+      mapRef.current    = null;
+      mapReadyRef.current = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-render markers whenever filteredDevices changes
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    markersRef.current.forEach(m => m.remove());
+    if (!map || !mapReadyRef.current) return;
+
+    // Clear previous markers
+    markersRef.current.forEach(m => { try { map.removeLayer(m); } catch {} });
     markersRef.current = [];
+
     const withCoords = filteredDevices.filter(
       d => d.latitude != null && d.longitude != null
     );
     if (!withCoords.length) return;
+
     withCoords.forEach(device => {
-      const color  = device.isOnline ? '#22c55e' : '#ef4444';
-      const marker = new mapboxgl.Marker({ color, scale: 0.85 })
-        .setLngLat([device.longitude, device.latitude])
-        .setPopup(
-          new mapboxgl.Popup({ closeButton: false }).setHTML(`
-            <div style="font-family:'Nunito',sans-serif;padding:4px 2px;min-width:160px;">
-              <div style="font-weight:700;font-size:13px;color:#f9fafb;margin-bottom:4px;">
-                ${device.name || device.sn}
-              </div>
-              <div style="font-size:12px;color:#d1d5db;margin-bottom:2px;">
-                ${device.assignedUser || 'Unassigned'}
-              </div>
-              <div style="font-size:11px;color:#9ca3af;">
-                ${device.region || 'No region'}
-                ${device.location ? ' › ' + device.location : ''}
-                ${device.zone    ? ' › ' + device.zone    : ''}
-              </div>
-            </div>
-          `)
-        )
-        .addTo(map);
+      const isOnline  = device.isOnline;
+      const pinColor  = isOnline ? '#22c55e' : '#ef4444';
+      const iconHtml  = `<div style="width:32px;height:32px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="${pinColor}" width="32" height="32"><path d="M14,10a2,2,0,1,1-2-2A2.006,2.006,0,0,1,14,10Zm5.5,0c0,6.08-4.67,9.89-6.67,11.24a1.407,1.407,0,0,1-.83.26,1.459,1.459,0,0,1-.84-.26C9.16,19.89,4.5,16.09,4.5,10A7.33,7.33,0,0,1,12,2.5,7.336,7.336,0,0,1,19.5,10ZM16,10a4,4,0,1,0-4,4A4,4,0,0,0,16,10Z"/></svg></div>`;
+      const icon      = window.L.divIcon({
+        html:       iconHtml,
+        className:  '',
+        iconSize:   [32, 32],
+        iconAnchor: [16, 29],
+        popupAnchor:[0, -28],
+      });
+      const marker = window.L.marker(
+        [device.latitude, device.longitude],
+        { icon }
+      ).addTo(map);
+
+      marker.bindPopup(`
+        <div style="font-family:'Nunito',sans-serif;padding:4px 2px;min-width:160px;">
+          <div style="font-weight:700;font-size:13px;color:#f9fafb;margin-bottom:4px;">
+            ${device.name || device.sn}
+          </div>
+          <div style="font-size:12px;color:#d1d5db;margin-bottom:2px;">
+            ${device.assignedUser || 'Unassigned'}
+          </div>
+          <div style="font-size:11px;color:#9ca3af;">
+            ${device.region || 'No region'}
+            ${device.location ? ' › ' + device.location : ''}
+            ${device.zone    ? ' › ' + device.zone    : ''}
+          </div>
+        </div>
+      `);
+
       markersRef.current.push(marker);
     });
-    const bounds = new mapboxgl.LngLatBounds();
-    withCoords.forEach(d => bounds.extend([d.longitude, d.latitude]));
-    map.fitBounds(bounds, { padding: 60, maxZoom: 15 });
+
+    // Fit map to all visible markers
+    try {
+      const latlngs = withCoords.map(d => [d.latitude, d.longitude]);
+      const bounds  = window.L.latLngBounds(latlngs);
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+      }
+    } catch {}
   }, [filteredDevices]);
 
-  // The wrapper div below is the key fix: it stretches to fill .fsd-map-card
-  // via the CSS rule `.fsd-map-card > * { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }`
   return (
     <div style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div ref={mapContainerRef} className="fsd-map-container" />
+      {/* id required for TPLMaps initMap({ divID }) */}
+      <div ref={mapContainerRef} id="fsd-map" className="fsd-map-container" />
     </div>
   );
 }
@@ -288,27 +320,48 @@ export default function FieldStaffDashboard() {
     return list;
   }, [devices, selectedArea, dateFrom, dateTo]);
 
-  // ── Reverse geocode visible devices ──────────────────────────────────────
+  // ── Reverse-geocode visible devices using TPLMaps (shared cache) ──────────
+  const _runGeocode = useRef(null);
   useEffect(() => {
-    const pending = filteredDevices.filter(
-      d =>
-        d.latitude  != null &&
-        d.longitude != null &&
-        !locationCache[d.sn] &&
-        !geocodingInFlight.current.has(d.sn)
-    );
-    if (!pending.length) return;
-    pending.forEach(device => {
-      geocodingInFlight.current.add(device.sn);
-      reverseGeocode(device.latitude, device.longitude)
-        .then(result => {
-          if (!result) return;
-          const label = result.primary + (result.secondary ? `, ${result.secondary}` : '');
-          updateLocationCache(device.sn, label);
-        })
-        .catch(() => {})
-        .finally(() => { geocodingInFlight.current.delete(device.sn); });
-    });
+    let cancelled = false;
+
+    function runBatch() {
+      if (cancelled) return;
+      const pending = filteredDevices.filter(
+        d =>
+          d.latitude  != null &&
+          d.longitude != null &&
+          !locationCache[d.sn] &&
+          !geocodingInFlight.current.has(d.sn)
+      );
+      if (!pending.length) return;
+
+      // If SDK not ready yet, retry after 1 s
+      if (!window.TPLMaps?.api?.reverseGeoCode) {
+        _runGeocode.current = setTimeout(runBatch, 1000);
+        return;
+      }
+
+      pending.forEach(device => {
+        geocodingInFlight.current.add(device.sn);
+        tplGeocode(device.latitude, device.longitude)
+          .then(result => {
+            if (cancelled || !result) return;
+            // tplGeocode returns { primary, secondary, isSpecific }
+            const label = result.primary || result.secondary || '';
+            if (label) updateLocationCache(device.sn, label);
+          })
+          .catch(() => {})
+          .finally(() => { geocodingInFlight.current.delete(device.sn); });
+      });
+    }
+
+    runBatch();
+    return () => {
+      cancelled = true;
+      clearTimeout(_runGeocode.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredDevices]);
 
   // ── Loading ───────────────────────────────────────────────────────────────

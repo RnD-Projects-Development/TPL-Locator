@@ -46,9 +46,11 @@ const KML_REGIONS = [
 ];
 
 const CHART_COLORS = [
-  '#3b82f6','#ef4444','#22c55e','#f59e0b','#a855f7',
-  '#06b6d4','#f97316','#84cc16','#ec4899','#14b8a6',
-  '#6366f1','#f43f5e',
+  '#3A86FF', // Muted Blue
+  '#4CAF50', // Desaturated Green
+  '#F4A261', // Soft Amber
+  '#8E7DBE', // Cool Purple
+  '#2A9D8F', // Muted Cyan
 ];
 
 // ── Relative time formatter ────────────────────────────────────────────
@@ -77,8 +79,11 @@ function LiveClock({ isHistorical, selectedDate, onDateChange }) {
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   return (
     <div className="hp-header-controls">
-      <div className="hp-clock">
-        <span className="hp-clock-time">{timeStr}</span>
+      <div className="hp-hdr-date-group">
+        <label className="hp-hdr-date-label">Live Clock</label>
+        <div className="hp-clock">
+          <span className="hp-clock-time">{timeStr}</span>
+        </div>
       </div>
       <div className="hp-hdr-date-group">
         <label className="hp-hdr-date-label">
@@ -149,9 +154,9 @@ function StatCard({ title, value, icon, iconBg, iconColor, accentColor, loading,
 // ══════════════════════════════════════════════════════════════════════
 function BatteryStatusCard() {
   const data = [
-    { label: 'High',   pct: 68, color: '#22c55e' },
-    { label: 'Medium', pct: 22, color: '#f59e0b' },
-    { label: 'Low',    pct: 10, color: '#ef4444' },
+    { label: 'High',   pct: 68, color: '#4CAF50' }, // Desaturated Green
+    { label: 'Medium', pct: 22, color: '#F4A261' }, // Soft Amber
+    { label: 'Low',    pct: 10, color: '#3A86FF' }, // Muted Blue
   ];
   // Bigger donut: 90×90, radius 38
   const CX = 45, CY = 45, R = 38;
@@ -173,7 +178,7 @@ function BatteryStatusCard() {
   return (
     <div className="hp-stat-card hp-battery-card">
       <div className="hp-stat-accent-clip">
-        <div className="hp-stat-accent" style={{ background: '#22c55e' }} />
+        <div className="hp-stat-accent" style={{ background: '#4CAF50' }} />
       </div>
       <div className="hp-battery-inner">
         {/* Bigger SVG: 90×90 (was 80×80) — pushed closer to legend */}
@@ -326,7 +331,7 @@ function TopDevices({ devices, activityData }) {
   [devices, activityData]);
 
   const maxP   = ranked[0]?.packets || 1;
-  const colors = ['#fbbf24','#a3a3a3','#f97316','#60a5fa','#c084fc'];
+  const colors = ['#3A86FF','#4CAF50','#F4A261','#8E7DBE','#2A9D8F'];
 
   const PAD_L = 88, PAD_R = 48, PAD_T = 8, PAD_B = 8;
   const { w: W, h: H } = dims;
@@ -404,7 +409,7 @@ function TopUsersPanel({ devices, activityData, isLive }) {
     });
     const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const max = sorted[0]?.[1] || 1;
-    const colors = ['#fbbf24', '#c0c0c0', '#f97316', '#60a5fa', '#c084fc'];
+    const colors = ['#3A86FF','#4CAF50','#F4A261','#8E7DBE','#2A9D8F'];
     return sorted.map(([user, count], i) => ({
       user, count, pct: Math.round((count / max) * 100), color: colors[i],
     }));
@@ -472,7 +477,7 @@ function TopUsersPanel({ devices, activityData, isLive }) {
 function UserDevicePanel({ devices }) {
   const [hovered, setHovered] = useState(null);
   const [search, setSearch]   = useState('');
-  const colors = ['#4ade80','#60a5fa','#f97316','#fbbf24','#c084fc','#ec4899','#06b6d4'];
+  const colors = ['#3A86FF','#4CAF50','#F4A261','#8E7DBE','#2A9D8F'];
   const ini    = n => n.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || '??';
 
   const { userDevices, slices } = useMemo(() => {

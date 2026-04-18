@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vite:*)",
+      "Bash(python -c \"from app.services.zone_clustering import cluster_gps_points; print\\('clustering import OK'\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(gh pr:*)",
+      "Bash(where gh:*)",
+      "Bash(winget install:*)",
+      "Bash(powershell -Command \"Get-Command gh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Read(//c/Program Files/GitHub CLI/\" 2>&1; ls C:/Users/Test-August2023/AppData/Local/**)",
+      "Bash(powershell -Command \"git config --global --list | Select-String 'token|credential|user'\")",
+      "Bash(git config:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(printf 'protocol=https\\\\nhost=github.com\\\\n\\\\n')",
+      "Bash(git credential:*)",
+      "Bash(npm run:*)",
+      "Bash(grep -v '\\\\.pyc$')",
+      "Bash(python -c \"from app.services.zone_pipeline import process_zones_for_device, build_zone_key; from app.routers.zones import router; print\\('OK'\\)\")"
+    ]
+  }
+}

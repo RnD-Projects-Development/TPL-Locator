@@ -5,11 +5,31 @@ import { useAuth } from "../context/AuthContext.jsx";
 
 const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL || "");
 
+// In-flight GET request cache — if the same URL is already being fetched,
+// return the existing promise instead of firing a second network request.
+// This eliminates redundant concurrent calls from multiple context providers.
+const _inflight = new Map();
+
 async function apiFetch(path, { method = "GET", body } = {}, accessToken, onUnauthorized) {
   const headers = { "Content-Type": "application/json" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   const url = `${API_BASE_URL}${path}`;
+
+  // Deduplicate concurrent GET requests for the same URL + token
+  if (method === "GET" && !body) {
+    const key = `${accessToken}|${url}`;
+    if (_inflight.has(key)) return _inflight.get(key);
+    const promise = _doFetch(url, method, headers, body, onUnauthorized)
+      .finally(() => _inflight.delete(key));
+    _inflight.set(key, promise);
+    return promise;
+  }
+
+  return _doFetch(url, method, headers, body, onUnauthorized);
+}
+
+async function _doFetch(url, method, headers, body, onUnauthorized) {
   let res;
   try {
     res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
