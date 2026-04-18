@@ -61,10 +61,20 @@ export default function MapViewPage() {
     }
   }, [sn, getLatestLocation]);
 
+  // Immediate fetch whenever sn changes (covers URL-param init + sidebar select)
+  useEffect(() => {
+    if (!sn) return;
+    console.log('[MapViewPage] sn changed → immediate refresh for', sn);
+    refresh(sn);
+  }, [sn]); // intentionally omitting refresh — sn change is the trigger
+
   useEffect(() => {
     clearInterval(intervalRef.current);
     if (autoRefresh && sn) {
-      intervalRef.current = setInterval(() => refresh(), intervalSec * 1000);
+      intervalRef.current = setInterval(() => {
+        console.log('[MapViewPage] interval refresh for', sn);
+        refresh();
+      }, intervalSec * 1000);
     }
     return () => clearInterval(intervalRef.current);
   }, [autoRefresh, intervalSec, sn, refresh]);
@@ -92,8 +102,8 @@ export default function MapViewPage() {
   useEffect(() => {
     if (lat == null || lng == null) { setGeocodeLabel(""); return; }
     let cancelled = false;
-    import("../utils/reverseGeocode.js").then(({ reverseGeocode }) =>
-      reverseGeocode(Number(lat), Number(lng))
+    import("../utils/tplGeocode.js").then(({ tplGeocode }) =>
+      tplGeocode(Number(lat), Number(lng))
     ).then((result) => {
       if (cancelled) return;
       if (result?.primary) {

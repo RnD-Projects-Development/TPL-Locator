@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vite:*)",
+      "Bash(python -c \"from app.services.zone_clustering import cluster_gps_points; print\\('clustering import OK'\\)\")",
+      "Bash(python -c ':*)"
+    ]
+  }
+}

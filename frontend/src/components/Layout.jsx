@@ -7,7 +7,6 @@ import { DeviceCacheProvider } from '../context/DeviceCacheContext.jsx';
 import { UserCacheProvider } from '../context/Usercachecontext.jsx';
 import { HomePageCacheProvider } from '../context/HomePageCacheContext.jsx';
 import { FieldStaffCacheProvider } from '../context/FieldStaffCacheContext.jsx';
-import MapThemeToggle from './MapThemeToggle.jsx';
 
 // ─── Icon helper ─────────────────────────────────────────────────
 const Icon = ({ d, size = 20 }) => (
@@ -250,10 +249,6 @@ const Layout = ({ children }) => {
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Pages where map theme toggle should be hidden
-  const hideMapThemePaths = ['/', '/Homepage', '/devices', '/report', '/field-staff-dashboard'];
-  const shouldHideMapTheme = hideMapThemePaths.includes(location.pathname);
-
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -315,8 +310,6 @@ const Layout = ({ children }) => {
             </div>
 
             <div className="header-right">
-              {!shouldHideMapTheme && <MapThemeToggle />}
-
               <span style={{
                 fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em',
                 padding: '4px 10px', borderRadius: 'var(--radius-sm)',

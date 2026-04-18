@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
-import { reverseGeocode } from "../utils/reverseGeocode.js";
+import { tplGeocode } from "../utils/tplGeocode.js";
 import "./TrajectoryPage.css";
 
 function isDuplicate(p1, p2) {
@@ -122,9 +122,19 @@ export default function TrajectoryPage() {
     } catch { /* silent */ }
   }, [sn, getLatestLocation]);
 
+  // Immediate fetch whenever sn changes (covers URL-param init + sidebar select)
+  useEffect(() => {
+    if (!sn) return;
+    console.log('[TrajectoryPage] sn changed → immediate refreshLive for', sn);
+    refreshLive(sn);
+  }, [sn]); // intentionally omitting refreshLive — sn change is the trigger
+
   useEffect(() => {
     clearInterval(liveIntervalRef.current);
-    if (sn) liveIntervalRef.current = setInterval(() => refreshLive(), 15000);
+    if (sn) liveIntervalRef.current = setInterval(() => {
+      console.log('[TrajectoryPage] interval refreshLive for', sn);
+      refreshLive();
+    }, 15000);
     return () => clearInterval(liveIntervalRef.current);
   }, [sn, refreshLive]);
 
@@ -193,12 +203,12 @@ export default function TrajectoryPage() {
     const lastCoords  = extractCoords(activeTraj[activeTraj.length - 1]);
 
     if (firstCoords) {
-      reverseGeocode(firstCoords.lat, firstCoords.lng).then((g) => {
+      tplGeocode(firstCoords.lat, firstCoords.lng).then((g) => {
         setStartLocation(g?.primary ?? null);
       });
     }
     if (lastCoords && activeTraj.length > 1) {
-      reverseGeocode(lastCoords.lat, lastCoords.lng).then((g) => {
+      tplGeocode(lastCoords.lat, lastCoords.lng).then((g) => {
         setEndLocation(g?.primary ?? null);
       });
     }
