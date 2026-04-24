@@ -210,6 +210,7 @@ class UpdateDeviceRequest(BaseModel):
     name: str | None = None
     client: str | None = None
     region: str | None = None
+    zone: str | None = None  # KML zone assignment — pass empty string to clear
 
 
 @router.put("/devices/{sn}")
@@ -228,8 +229,13 @@ async def admin_update_device(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not owned by this admin")
 
         updated = await mongo.update_device(sn, payload.name, payload.client, payload.region)
+
+        if payload.zone is not None:
+            zone_val = payload.zone.strip() or None
+            await mongo.devices.update_one({"sn": sn}, {"$set": {"zone": zone_val}})
+
         logger.info("admin_update_device completed admin=%s sn=%s", current_admin.email, sn)
-        return {"status": "ok", "device": {"id": str(updated.id), "sn": updated.sn, "name": updated.name, "client": updated.client, "region": updated.region}}
+        return {"status": "ok", "device": {"id": str(updated.id), "sn": updated.sn, "name": updated.name, "client": updated.client, "region": updated.region, "zone": payload.zone}}
     except HTTPException:
         raise
     except Exception as err:
