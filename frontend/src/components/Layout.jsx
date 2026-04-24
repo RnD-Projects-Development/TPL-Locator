@@ -255,13 +255,14 @@ const Layout = ({ children }) => {
   };
 
   const navItems = [
-    { path: '/Homepage',   label: 'Home'       },
+    ...(isAdmin ? [{ path: '/Homepage', label: 'Home' }] : []),
     { path: '/devices',    label: 'Locators'   },
     { path: '/trajectory', label: 'Trajectory' },
     { path: '/mapview',    label: 'Map View'   },
     { path: '/playback',   label: 'Playback'   },
     { path: '/fence',      label: 'Fence'      },
     { path: '/report',     label: 'Report'     },
+    ...(isAdmin ? [{ path: '/field-staff-dashboard', label: 'Field Staff' }] : []),
   ];
 
   return (
