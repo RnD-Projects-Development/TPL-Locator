@@ -16,7 +16,13 @@
       "Bash(git credential:*)",
       "Bash(npm run:*)",
       "Bash(grep -v '\\\\.pyc$')",
-      "Bash(python -c \"from app.services.zone_pipeline import process_zones_for_device, build_zone_key; from app.routers.zones import router; print\\('OK'\\)\")"
+      "Bash(python -c \"from app.services.zone_pipeline import process_zones_for_device, build_zone_key; from app.routers.zones import router; print\\('OK'\\)\")",
+      "Bash(Remove-Item -Recurse -Force \"C:\\\\Users\\\\Test-August2023\\\\Downloads\\\\TPL-Locator\\\\firmware\")",
+      "Bash(Remove-Item -Force \"C:\\\\Users\\\\Test-August2023\\\\Downloads\\\\TPL-Locator\\\\backend\\\\app\\\\routers\\\\detection.py\" -ErrorAction SilentlyContinue)",
+      "Bash(Remove-Item -Force \"C:\\\\Users\\\\Test-August2023\\\\Downloads\\\\TPL-Locator\\\\backend\\\\app\\\\services\\\\yolo.py\" -ErrorAction SilentlyContinue)",
+      "Bash(xargs grep *)",
+      "Bash(grep -E \"\\\\.\\(jsx?|tsx?\\)$\")",
+      "Bash(grep -E \"\\\\.py$\")"
     ]
   }
 }
