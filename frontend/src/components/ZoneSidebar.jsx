@@ -257,7 +257,9 @@ export default function ZoneSidebar({
   deviceTracks    = [],     // ← NEW: Array<{ sn, user_name, points }>
   tracksLoading   = false,  // ← NEW: true while GPS playback is fetching
 }) {
-  const totalAssigned = Object.values(assignments).reduce((s, arr) => s + arr.length, 0);
+  // Count from zoneStatuses — works for both admin and user roles.
+  // assignments comes from DeviceCache which users may not fully see.
+  const totalAssigned = Object.values(zoneStatuses).reduce((s, arr) => s + arr.length, 0);
 
   // Build a quick lookup: sn → track for the DeviceRow
   const trackBySn = Object.fromEntries(deviceTracks.map((t) => [t.sn, t]));
