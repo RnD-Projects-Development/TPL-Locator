@@ -191,6 +191,7 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
             "bindTime": _fmt_dt(doc.get("bound_at")),
             "region": doc.get("region") or None,
             "zone":   doc.get("zone")   or None,
+            "fence_zone_ids": doc.get("fence_zone_ids") or [],
 
             # Optional legacy fields that old admin enrichment included.
             "local_only": bool(doc.get("local_only")) if doc.get("local_only") is not None else None,

@@ -57,10 +57,10 @@ export function deviceColor(sn) {
 
 /**
  * Ray-casting point-in-polygon test.
- * @param {number} lat - Latitude of the point
- * @param {number} lng - Longitude of the point
- * @param {Array<{lat: number, lng: number}>} polygon - Zone polygon vertices
- * @returns {boolean} True if point is inside the polygon
+ * @param {number} lat
+ * @param {number} lng
+ * @param {Array<{lat: number, lng: number}>} polygon
+ * @returns {boolean}
  */
 export function pointInPolygon(lat, lng, polygon) {
   if (!polygon || polygon.length === 0) return false;
@@ -80,6 +80,18 @@ export function pointInPolygon(lat, lng, polygon) {
     j = i;
   }
   return inside;
+}
+
+/**
+ * Multi-polygon point test — true if inside any of the sub-polygons.
+ * @param {number} lat
+ * @param {number} lng
+ * @param {Array<Array<{lat: number, lng: number}>>} polygons
+ * @returns {boolean}
+ */
+export function pointInMultiPolygon(lat, lng, polygons) {
+  if (!polygons || polygons.length === 0) return false;
+  return polygons.some((poly) => pointInPolygon(lat, lng, poly));
 }
 
 function _fmt(ts) {
@@ -213,10 +225,18 @@ export function createPolygonManager(map) {
     const allLatLngs = [];
 
     zones.forEach((zone) => {
-      if (!zone.polygon || zone.polygon.length === 0) return;
+      // Multi-polygon zone (e.g. uc_216): pass all rings as a Leaflet multi-polygon
+      const isMulti = Array.isArray(zone.polygons) && zone.polygons.length > 0;
+      if (!isMulti && (!zone.polygon || zone.polygon.length === 0)) return;
 
-      const latLngs = zone.polygon.map(({ lat, lng }) => [lat, lng]);
-      allLatLngs.push(...latLngs);
+      let latLngs;
+      if (isMulti) {
+        latLngs = zone.polygons.map((ring) => ring.map(({ lat, lng }) => [lat, lng]));
+        latLngs.flat().forEach((ll) => allLatLngs.push(ll));
+      } else {
+        latLngs = zone.polygon.map(({ lat, lng }) => [lat, lng]);
+        allLatLngs.push(...latLngs);
+      }
 
       const polygon = window.L.polygon(latLngs, { ...DEFAULT_STYLE });
       polygon.addTo(map);
@@ -277,7 +297,7 @@ export function createPolygonManager(map) {
         console.warn('[ZonePolygonManager] selectZone fitBounds failed:', e);
       }
 
-      _renderDots(zone);
+      if (!zone.polygons) _renderDots(zone);
     }
   }
 

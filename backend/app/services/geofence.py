@@ -25,6 +25,22 @@ def point_in_polygon(lat: float, lng: float, polygon: List[Dict]) -> bool:
     return inside
 
 
+def _is_multi_polygon(polygon_data) -> bool:
+    """True when polygon_data is a list-of-lists (multi-polygon like uc_216)."""
+    return (
+        isinstance(polygon_data, list)
+        and len(polygon_data) > 0
+        and isinstance(polygon_data[0], list)
+    )
+
+
+def point_in_zone(lat: float, lng: float, polygon_data) -> bool:
+    """Works for both single polygons and multi-polygons."""
+    if _is_multi_polygon(polygon_data):
+        return any(point_in_polygon(lat, lng, ring) for ring in polygon_data)
+    return point_in_polygon(lat, lng, polygon_data)
+
+
 # ── Status computation ────────────────────────────────────────────────────────
 
 async def compute_device_zone_status(
@@ -60,7 +76,7 @@ async def compute_device_zone_status(
 
     latest = points[0]
 
-    inside_pts = [p for p in points if point_in_polygon(p["lat"], p["lng"], polygon)]
+    inside_pts = [p for p in points if point_in_zone(p["lat"], p["lng"], polygon)]
 
     if not inside_pts:
         return {
@@ -74,7 +90,7 @@ async def compute_device_zone_status(
             "last_seen":  None,
         }
 
-    current_inside = point_in_polygon(latest["lat"], latest["lng"], polygon)
+    current_inside = point_in_zone(latest["lat"], latest["lng"], polygon)
     inside_sorted  = sorted(inside_pts, key=lambda p: p["timestamp"])
 
     return {
@@ -115,7 +131,7 @@ async def compute_zone_events(
     was_inside: Optional[bool] = None
 
     for pt in points:
-        now_inside = point_in_polygon(pt["lat"], pt["lng"], polygon)
+        now_inside = point_in_zone(pt["lat"], pt["lng"], polygon)
         if was_inside is None:
             was_inside = now_inside
             continue

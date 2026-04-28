@@ -3,11 +3,10 @@ import React, { useState, useEffect, useRef, useCallback, Component } from 'reac
 import loadTPLMaps from '../components/loadTPLMaps.js';
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { createPolygonManager, pointInPolygon } from '../utils/zonePolygonManager.js';
-import { tplGeocode } from '../utils/tplGeocode.js';
+import { useZoneCache } from '../context/ZoneCacheContext.jsx';
+import { createPolygonManager, pointInPolygon, pointInMultiPolygon } from '../utils/zonePolygonManager.js';
 import ZoneSidebar from '../components/ZoneSidebar.jsx';
 import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
-import { KML_ZONES } from '../data/kmlZones.js';
 import tplLogo from '../assets/tpl.png';
 import './FencePage.css';
 
@@ -34,6 +33,7 @@ class ErrorBoundary extends Component {
 function FencePageInner() {
   const { devices, refresh } = useDeviceCache();
   const { accessToken, isAdmin } = useAuth();
+  const { zones } = useZoneCache();
 
   const mapRef             = useRef(null);
   const mapContainerRef    = useRef(null);
@@ -46,7 +46,6 @@ function FencePageInner() {
   const devicesRef         = useRef(devices);
 
   const [mapReady,        setMapReady]        = useState(false);
-  const [zones,           setZones]           = useState(KML_ZONES);
   const [selectedZoneId,  setSelectedZoneId]  = useState(null);
   const [assignments,     setAssignments]     = useState({});
   const [zoneStatuses,    setZoneStatuses]    = useState({});
@@ -55,6 +54,7 @@ function FencePageInner() {
   const [assigningZoneId, setAssigningZoneId] = useState(null);
   const [deviceTracks,    setDeviceTracks]    = useState([]);
   const [tracksLoading,   setTracksLoading]   = useState(false);
+  const [tracksFetchKey,  setTracksFetchKey]  = useState(0);
 
   // Keep refs in sync
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
@@ -95,37 +95,25 @@ function FencePageInner() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Render KML polygons ───────────────────────────────────────────────────────
+  // ── Render KML polygons — re-renders when zones update (e.g. after geocoding) ──
   useEffect(() => {
-    if (!mapReady || !polygonManager.current) return;
-    polygonManager.current.renderZones(KML_ZONES, {
+    if (!mapReady || !polygonManager.current || !zones.length) return;
+    polygonManager.current.renderZones(zones, {
       onZoneClick: (id) => setSelectedZoneId(id),
       onZoneHover: () => {},
       onZoneHoverOut: () => {},
     });
-  }, [mapReady]);
-
-  // ── Reverse-geocode zone names ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!mapReady) return;
-    let cancelled = false;
-    Promise.all(KML_ZONES.map(async (zone) => {
-      try {
-        const geo = await tplGeocode(zone.center.lat, zone.center.lng);
-        return { ...zone, name: geo?.area || geo?.roadOnly || geo?.city || zone.name };
-      } catch { return zone; }
-    })).then((named) => { if (!cancelled) setZones(named); });
-    return () => { cancelled = true; };
-  }, [mapReady]);
+  }, [mapReady, zones]);
 
   // ── Derive assignments from device cache ──────────────────────────────────────
   useEffect(() => {
     const map = {};
     devices.forEach((d) => {
-      if (d.zone?.startsWith('beat_')) {
-        if (!map[d.zone]) map[d.zone] = [];
-        map[d.zone].push({ sn: d.sn, user_name: d.assigned_user_name || d.assignedUser || d.sn });
-      }
+      const deviceZones = d.fence_zone_ids?.length ? d.fence_zone_ids : (d.zone ? [d.zone] : []);
+      deviceZones.forEach((zid) => {
+        if (!map[zid]) map[zid] = [];
+        map[zid].push({ sn: d.sn, user_name: d.assigned_user_name || d.assignedUser || d.sn });
+      });
     });
     setAssignments(map);
   }, [devices]);
@@ -172,7 +160,7 @@ function FencePageInner() {
     if (!selectedZoneId || !accessToken) return;
 
     const selectedZone = zones.find((z) => z.zone_id === selectedZoneId);
-    if (!selectedZone?.polygon) return;
+    if (!selectedZone?.polygon && !selectedZone?.polygons?.length) return;
 
     const end   = new Date();
     const start = new Date(end - 30 * 24 * 60 * 60 * 1000);
@@ -190,14 +178,16 @@ function FencePageInner() {
         const data = await res.json();
         if (tracksFetchZoneRef.current !== fetchTag) { setTracksLoading(false); return; }
 
-        const { polygon } = selectedZone;
-        const statusMap   = zoneStatusesRef.current[selectedZoneId] || [];
+        const statusMap = zoneStatusesRef.current[selectedZoneId] || [];
+        const isInZone  = selectedZone.polygons
+          ? (lat, lng) => pointInMultiPolygon(lat, lng, selectedZone.polygons)
+          : (lat, lng) => pointInPolygon(lat, lng, selectedZone.polygon);
 
         const tracks = (data.devices || []).map((dev) => {
           const user_name     = statusMap.find((e) => e.sn === dev.sn)?.user_name ?? dev.sn;
           const allPoints     = (dev.points || []).map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp ?? null }));
-          const insidePoints  = allPoints.filter(p => pointInPolygon(p.lat, p.lng, polygon));
-          const outsidePoints = allPoints.filter(p => !pointInPolygon(p.lat, p.lng, polygon));
+          const insidePoints  = allPoints.filter(p => isInZone(p.lat, p.lng));
+          const outsidePoints = allPoints.filter(p => !isInZone(p.lat, p.lng));
           return {
             sn: dev.sn, user_name, insidePoints, outsidePoints,
             firstSeen: insidePoints[0]?.timestamp ?? null,
@@ -206,45 +196,44 @@ function FencePageInner() {
         });
 
         setDeviceTracks(tracks);
-        polygonManager.current?.renderDeviceDots(tracks, polygon);
+        polygonManager.current?.renderDeviceDots(tracks);
         setTracksLoading(false);
       })
       .catch(() => setTracksLoading(false));
 
     return () => { if (tracksFetchZoneRef.current === fetchTag) tracksFetchZoneRef.current = null; };
-  }, [selectedZoneId, mapReady, accessToken, zones, authHeaders]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedZoneId, mapReady, accessToken, zones, authHeaders, tracksFetchKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Assign device ─────────────────────────────────────────────────────────────
   async function handleAssign(zone_id, sn) {
-    setAssignModal(null);
+    console.log('[FencePage] handleAssign zone_id=%s sn=%s', zone_id, sn);
     setAssigningZoneId(zone_id);
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/admin/devices/${encodeURIComponent(sn)}`,
-        { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ zone: zone_id }) },
-      );
+      const url = `${API_BASE_URL}/api/admin/devices/${encodeURIComponent(sn)}`;
+      const body = JSON.stringify({ add_zone: zone_id });
+      console.log('[FencePage] PUT', url, body);
+      const res = await fetch(url, { method: 'PUT', headers: authHeaders(), body });
+      console.log('[FencePage] response status:', res.status);
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        setAssigningZoneId(null);
-        throw new Error(body?.detail || 'Assignment failed');
+        const errBody = await res.json().catch(() => ({}));
+        console.error('[FencePage] assign error:', errBody);
+        throw new Error(errBody?.detail || `Assignment failed (HTTP ${res.status})`);
       }
+      setAssignModal(null); // close modal only after success
       await refresh();
       fetchStatuses();
+      setTracksFetchKey((k) => k + 1); // re-fetch tracks so new device's points appear
     } catch (err) {
+      console.error('[FencePage] handleAssign caught:', err);
       setAssigningZoneId(null);
-      throw err;
+      throw err; // modal's handleConfirm catches this and shows the error message
     }
   }
 
   // ── Unassign device ───────────────────────────────────────────────────────────
-  async function handleUnassign(sn) {
-    const filterSn = (prev) => {
-      const next = { ...prev };
-      Object.keys(next).forEach((id) => { next[id] = next[id].filter((e) => e.sn !== sn); });
-      return next;
-    };
-    setZoneStatuses(filterSn);
-    setAssignments(filterSn);
+  async function handleUnassign(sn, zone_id) {
+    setZoneStatuses((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
+    setAssignments((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
     setDeviceTracks((prev) => {
       const next = prev.filter((t) => t.sn !== sn);
       polygonManager.current?.renderDeviceDots(next);
@@ -252,7 +241,7 @@ function FencePageInner() {
     });
     fetch(
       `${API_BASE_URL}/api/admin/devices/${encodeURIComponent(sn)}`,
-      { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ zone: '' }) },
+      { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ remove_zone: zone_id }) },
     ).catch(() => refresh());
   }
 
@@ -269,7 +258,7 @@ function FencePageInner() {
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
               <circle cx="12" cy="10" r="1" fill="currentColor"/>
             </svg>
-            UC 216 — Muslim Town &nbsp;·&nbsp; {zones.length} zones
+            UC 216 — Muslim Town &nbsp;·&nbsp; 1 zone
           </span>
         </div>
         <div className="fp-topbar-right">
