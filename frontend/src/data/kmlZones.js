@@ -64,3 +64,17 @@ export const KML_ZONES = RAW.map((r) => {
     points:      [],
   };
 });
+
+export const UC_ZONE = {
+  zone_id:     'uc_216',
+  name:        'UC 216 — Muslim Town',
+  beat:        null,
+  worker_name: '',
+  uc_name:     'Muslim Town',
+  uc_no:       '216',
+  tehsil:      'Model Town',
+  polygons:    KML_ZONES.map((z) => z.polygon),
+  polygon:     null,
+  center:      _centroid(KML_ZONES.flatMap((z) => z.polygon)),
+  points:      [],
+};

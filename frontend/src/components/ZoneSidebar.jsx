@@ -368,7 +368,7 @@ export default function ZoneSidebar({
                           <DeviceRow
                             key={entry.sn}
                             entry={entry}
-                            onUnassign={onUnassign}
+                            onUnassign={onUnassign ? (sn) => onUnassign(sn, zone.zone_id) : null}
                             statusLoading={statusLoading}
                             trackInfo={trackBySn[entry.sn] ?? null}
                           />

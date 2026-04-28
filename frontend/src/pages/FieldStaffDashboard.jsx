@@ -295,7 +295,10 @@ export default function FieldStaffDashboard() {
   const filteredDevices = useMemo(() => {
     let list = devices;
     if (selectedAreaId) {
-      list = list.filter(d => d.zone === selectedAreaId);
+      list = list.filter(d =>
+        d.zone === selectedAreaId ||
+        (d.fence_zone_ids || []).includes(selectedAreaId)
+      );
     }
     if (dateFrom) {
       const from = new Date(dateFrom);

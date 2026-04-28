@@ -6,6 +6,7 @@ import Login from "./pages/Login.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 import { MapThemeProvider } from "./context/MapThemeContext.jsx";
 import { BindCacheProvider } from "./context/BindCacheContext.jsx";
+import { ZoneCacheProvider } from "./context/ZoneCacheContext.jsx";
 
 import Layout from "./components/Layout.jsx";
 import HomePage from "./pages/HomePage.jsx";
@@ -46,6 +47,7 @@ export default function App() {
         element={
           <ProtectedRoute>
             <BindCacheProvider>
+            <ZoneCacheProvider>
             <MapThemeProvider>
               <Layout>
                 <Routes>
@@ -62,6 +64,7 @@ export default function App() {
                 </Routes>
               </Layout>
             </MapThemeProvider>
+            </ZoneCacheProvider>
             </BindCacheProvider>
           </ProtectedRoute>
         }
