@@ -6,7 +6,6 @@ import AreaSelector from '../components/AreaSelector.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
 import loadTPLMaps from '../components/loadTPLMaps.js';
 import { tplGeocode } from '../utils/tplGeocode.js';
-import { pointInArea } from '../utils/geofenceUtils.js';
 import './FieldStaffDashboard.css';
 
 // ─── SVG Rank Badge ───────────────────────────────────────────────────────────
@@ -292,20 +291,14 @@ export default function FieldStaffDashboard() {
 
   const geocodingInFlight = useRef(new Set());
 
-  // ── Resolve selected area ─────────────────────────────────────────────────
-  const selectedArea = useMemo(
-    () => areas.find(a => a.id === selectedAreaId) ?? null,
-    [areas, selectedAreaId]
-  );
-
   // ── Filtered devices ──────────────────────────────────────────────────────
   const filteredDevices = useMemo(() => {
     let list = devices;
-    if (selectedArea) {
-      list = list.filter(d => {
-        if (d.latitude == null || d.longitude == null) return false;
-        return pointInArea([d.latitude, d.longitude], selectedArea.coords);
-      });
+    if (selectedAreaId) {
+      list = list.filter(d =>
+        d.zone === selectedAreaId ||
+        (d.fence_zone_ids || []).includes(selectedAreaId)
+      );
     }
     if (dateFrom) {
       const from = new Date(dateFrom);
@@ -318,7 +311,7 @@ export default function FieldStaffDashboard() {
       list = list.filter(d => d.lastSeen && new Date(d.lastSeen) <= to);
     }
     return list;
-  }, [devices, selectedArea, dateFrom, dateTo]);
+  }, [devices, selectedAreaId, dateFrom, dateTo]);
 
   // ── Reverse-geocode visible devices using TPLMaps (shared cache) ──────────
   const _runGeocode = useRef(null);

@@ -3,438 +3,351 @@ import React, { useState, useEffect, useRef, useCallback, Component } from 'reac
 import loadTPLMaps from '../components/loadTPLMaps.js';
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { createPolygonManager } from '../utils/zonePolygonManager.js';
-import { tplGeocode } from '../utils/tplGeocode.js';
+import { useZoneCache } from '../context/ZoneCacheContext.jsx';
+import { createPolygonManager, pointInPolygon, pointInMultiPolygon } from '../utils/zonePolygonManager.js';
 import ZoneSidebar from '../components/ZoneSidebar.jsx';
+import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
+import tplLogo from '../assets/tpl.png';
 import './FencePage.css';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const API_BASE_URL = import.meta.env.DEV
-  ? ''
-  : (import.meta.env.VITE_API_BASE_URL || '');
-
-const TIME_SHORTCUTS = [
-  { label: '1H',  hours: 1   },
-  { label: '3H',  hours: 3   },
-  { label: '6H',  hours: 6   },
-  { label: '1D',  hours: 24  },
-  { label: '7D',  hours: 168 },
-];
-
-// ─── Date helpers ─────────────────────────────────────────────────────────────
-function _dateStr(d)  { return d.toISOString().split('T')[0]; }
-function _timeStr(d)  { return d.toTimeString().slice(0, 5); }
-
-function _rangeFromHours(hours) {
-  const end   = new Date();
-  const start = new Date(end.getTime() - hours * 3_600_000);
-  return { start, end };
-}
-
-// ─── API ──────────────────────────────────────────────────────────────────────
-async function fetchZones(sn, accessToken, startDt, endDt) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-
-  const params = new URLSearchParams({
-    start: startDt.toISOString(),
-    end:   endDt.toISOString(),
-  });
-
-  const res = await fetch(
-    `${API_BASE_URL}/api/devices/${encodeURIComponent(sn)}/zones?${params}`,
-    { headers },
-  );
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    let message = text;
-    try { const j = JSON.parse(text); message = j?.detail || j?.error || text; } catch {}
-    throw new Error(message || `Failed to load zones (${res.status})`);
-  }
-
-  return res.json();
-}
-
-async function geocodeZoneNames(zones) {
-  return Promise.all(
-    zones.map(async (zone, idx) => {
-      try {
-        // Zones get a GENERIC name — the neighbourhood / road / city the
-        // centre sits in, NOT the nearest landmark (POI) at those coords.
-        // Priority: area (Gulshan-e-Iqbal, Korangi) → road (University Road)
-        // → city (Karachi) → fallback.
-        const geo  = await tplGeocode(zone.center.lat, zone.center.lng);
-        const name =
-          geo?.area     ||
-          geo?.roadOnly ||
-          geo?.city     ||
-          zone.name     ||
-          `Zone ${idx + 1}`;
-        return { ...zone, name };
-      } catch {
-        return { ...zone, name: zone.name || `Zone ${idx + 1}` };
-      }
-    }),
-  );
-}
+const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
 
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(e) { return { error: e }; }
   render() {
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 32, fontFamily: 'monospace', background: '#111', color: '#dc2626' }}>
-          <h2 style={{ marginBottom: 12 }}>FencePage crashed</h2>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: '#f1f5f9' }}>
-            {this.state.error?.message}{'\n\n'}{this.state.error?.stack}
-          </pre>
-        </div>
-      );
-    }
+    if (this.state.error) return (
+      <div style={{ padding: 32, fontFamily: 'monospace', background: '#111', color: '#dc2626' }}>
+        <h2 style={{ marginBottom: 12 }}>FencePage crashed</h2>
+        <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: '#f1f5f9' }}>
+          {this.state.error?.message}{'\n\n'}{this.state.error?.stack}
+        </pre>
+      </div>
+    );
     return this.props.children;
   }
 }
 
-// ─── Map overlays ─────────────────────────────────────────────────────────────
-function EmptyMapOverlay() {
-  return (
-    <div className="fp-map-overlay">
-      <div className="fp-map-overlay-box">
-        <div style={{ fontSize: 32, marginBottom: 4, opacity: 0.35 }}>📍</div>
-        <p className="fp-map-overlay-title">Select a device to view its activity zones</p>
-      </div>
-    </div>
-  );
-}
-
-function NoZonesOverlay() {
-  return (
-    <div className="fp-map-overlay" style={{ pointerEvents: 'none' }}>
-      <div className="fp-map-overlay-box">
-        <div style={{ fontSize: 28, marginBottom: 4, opacity: 0.3 }}>🗺️</div>
-        <p className="fp-map-overlay-title">No zones found for this range</p>
-      </div>
-    </div>
-  );
-}
-
-// ─── SVG icons (kept inline to avoid extra imports) ───────────────────────────
-const CalIcon = () => (
-  <svg viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/>
-  </svg>
-);
-
-const ClkIcon = () => (
-  <svg viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/>
-  </svg>
-);
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 function FencePageInner() {
-  const { devices }     = useDeviceCache();
-  const { accessToken } = useAuth();
+  const { devices, refresh } = useDeviceCache();
+  const { accessToken, isAdmin } = useAuth();
+  const { zones } = useZoneCache();
 
-  // ── Map refs (never in state) ───────────────────────────────────────────────
-  const mapRef           = useRef(null);
-  const mapContainerRef  = useRef(null);
-  const polygonManager   = useRef(null);
-  const resizeObserver   = useRef(null);
-  const loadCtxRef       = useRef(null);   // cancellation token for in-flight loads
+  const mapRef             = useRef(null);
+  const mapContainerRef    = useRef(null);
+  const mapWrapRef         = useRef(null);
+  const polygonManager     = useRef(null);
+  const resizeObserver     = useRef(null);
+  const tracksFetchZoneRef = useRef(null);
+  const zoneStatusesRef    = useRef({});
+  const accessTokenRef     = useRef(accessToken);
+  const devicesRef         = useRef(devices);
 
-  // ── UI state ────────────────────────────────────────────────────────────────
   const [mapReady,        setMapReady]        = useState(false);
-  const [selectedSn,      setSelectedSn]      = useState('');
-  const [zones,           setZones]           = useState([]);
   const [selectedZoneId,  setSelectedZoneId]  = useState(null);
-  const [loading,         setLoading]         = useState(false);
-  const [error,           setError]           = useState('');
-  const [activeShortcut,  setActiveShortcut]  = useState('7D');
+  const [assignments,     setAssignments]     = useState({});
+  const [zoneStatuses,    setZoneStatuses]    = useState({});
+  const [statusLoading,   setStatusLoading]   = useState(false);
+  const [assignModal,     setAssignModal]     = useState(null);
+  const [assigningZoneId, setAssigningZoneId] = useState(null);
+  const [deviceTracks,    setDeviceTracks]    = useState([]);
+  const [tracksLoading,   setTracksLoading]   = useState(false);
+  const [tracksFetchKey,  setTracksFetchKey]  = useState(0);
 
-  // ── Date range state (initialised to last 7 days) ───────────────────────────
-  const _init7d = _rangeFromHours(168);
-  const [startDate, setStartDate] = useState(() => _dateStr(_init7d.start));
-  const [startTime, setStartTime] = useState("00:00");
-  const [endDate,   setEndDate]   = useState(() => _dateStr(_init7d.end));
-  const [endTime,   setEndTime]   = useState("23:59");
+  // Keep refs in sync
+  useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
+  useEffect(() => { devicesRef.current = devices; }, [devices]);
+  useEffect(() => { zoneStatusesRef.current = zoneStatuses; }, [zoneStatuses]);
 
-  // ── Map initialisation ──────────────────────────────────────────────────────
+  // Stable auth headers
+  const authHeaders = useCallback(() => ({
+    'Content-Type': 'application/json',
+    ...(accessTokenRef.current ? { Authorization: `Bearer ${accessTokenRef.current}` } : {}),
+  }), []);
+
+  // ── Map init ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     loadTPLMaps(() => {
       if (mapRef.current) { setMapReady(true); return; }
-
       const map = window.TPLMaps.map.initMap({
-        divID:           'fence-map',
-        lat:             30.3753,
-        lng:             69.3451,
-        zoom:            6,
-        showZoomControl: true,
+        divID: 'fence-map', lat: 31.5135, lng: 74.3170, zoom: 15, showZoomControl: true,
       });
-
-      // Ensure scroll-wheel zoom is enabled
       map.scrollWheelZoom?.enable();
-
       mapRef.current         = map;
       polygonManager.current = createPolygonManager(map);
-
-      requestAnimationFrame(() => { map.invalidateSize?.(); });
-
+      requestAnimationFrame(() => map.invalidateSize?.());
       if (mapContainerRef.current) {
-        resizeObserver.current = new ResizeObserver(() => {
-          requestAnimationFrame(() => { mapRef.current?.invalidateSize?.(); });
-        });
+        resizeObserver.current = new ResizeObserver(() =>
+          requestAnimationFrame(() => mapRef.current?.invalidateSize?.())
+        );
         resizeObserver.current.observe(mapContainerRef.current);
       }
-
       setMapReady(true);
-      console.log('[FencePage] map initialised');
     });
-
     return () => {
-      if (loadCtxRef.current) loadCtxRef.current.cancelled = true;
       resizeObserver.current?.disconnect();
       polygonManager.current?.clearAll();
       mapRef.current?.remove?.();
-      mapRef.current         = null;
+      mapRef.current = null;
       polygonManager.current = null;
-      console.log('[FencePage] map destroyed');
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Core load function ──────────────────────────────────────────────────────
-  const triggerZoneLoad = useCallback((startDt, endDt) => {
-    if (!mapRef.current || !polygonManager.current) return;
-
-    // Cancel any previous in-flight request
-    if (loadCtxRef.current) loadCtxRef.current.cancelled = true;
-    const ctx = { cancelled: false };
-    loadCtxRef.current = ctx;
-
-    setLoading(true);
-    setError('');
-    setZones([]);
-    setSelectedZoneId(null);
-    polygonManager.current.clearAll();
-
-    fetchZones(selectedSnRef.current, accessToken, startDt, endDt)
-      .then((data) => {
-        if (ctx.cancelled) return;
-        // Backend returns unnamed zones — give each a provisional "Zone N"
-        // label so the sidebar renders immediately while TPLMaps geocodes.
-        const rawZones = (data.zones ?? []).map((z, i) => ({
-          ...z,
-          name: z.name || `Zone ${i + 1}`,
-        }));
-        setZones(rawZones);
-        polygonManager.current?.renderZones(rawZones, {
-          onZoneClick:    (id) => setSelectedZoneId(id),
-          onZoneHover:    () => {},
-          onZoneHoverOut: () => {},
-        });
-        if (rawZones.length > 0) {
-          geocodeZoneNames(rawZones).then((named) => {
-            if (!ctx.cancelled) setZones(named);
-          });
-        }
-      })
-      .catch((err) => {
-        if (!ctx.cancelled) setError(err.message || 'Failed to load zones');
-      })
-      .finally(() => {
-        if (!ctx.cancelled) setLoading(false);
-      });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken]);
-
-  // Keep a stable ref to selectedSn so triggerZoneLoad (memoised) can read it
-  const selectedSnRef = useRef(selectedSn);
-  useEffect(() => { selectedSnRef.current = selectedSn; }, [selectedSn]);
-
-  // ── Auto-load when device changes ──────────────────────────────────────────
+  // ── Render KML polygons — re-renders when zones update (e.g. after geocoding) ──
   useEffect(() => {
-    if (!mapReady) return;
-    if (!selectedSn) {
-      if (loadCtxRef.current) loadCtxRef.current.cancelled = true;
-      polygonManager.current?.clearAll();
-      setZones([]);
-      setSelectedZoneId(null);
-      setError('');
-      return;
-    }
-    const start = new Date(`${startDate}T${startTime}:00`);
-    const end   = new Date(`${endDate}T${endTime}:59`);
-    triggerZoneLoad(start, end);
-  // Only re-trigger on device change — date changes use the Load button
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSn, mapReady]);
+    if (!mapReady || !polygonManager.current || !zones.length) return;
+    polygonManager.current.renderZones(zones, {
+      onZoneClick: (id) => setSelectedZoneId(id),
+      onZoneHover: () => {},
+      onZoneHoverOut: () => {},
+    });
+  }, [mapReady, zones]);
 
-  // ── Sync zone selection → highlight + pan ──────────────────────────────────
+  // ── Derive assignments from device cache ──────────────────────────────────────
+  useEffect(() => {
+    const map = {};
+    devices.forEach((d) => {
+      const deviceZones = d.fence_zone_ids?.length ? d.fence_zone_ids : (d.zone ? [d.zone] : []);
+      deviceZones.forEach((zid) => {
+        if (!map[zid]) map[zid] = [];
+        map[zid].push({ sn: d.sn, user_name: d.assigned_user_name || d.assignedUser || d.sn });
+      });
+    });
+    setAssignments(map);
+  }, [devices]);
+
+  // ── Fetch geofence statuses ───────────────────────────────────────────────────
+  const fetchStatuses = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/geofence/status`, { headers: authHeaders() });
+      if (!res.ok) return;
+      const { zones: zoneData = {} } = await res.json();
+      const enriched = {};
+      Object.entries(zoneData).forEach(([zone_id, entries]) => {
+        enriched[zone_id] = entries.map((e) => {
+          const dev = devicesRef.current.find((d) => d.sn === e.sn);
+          return { ...e, user_name: dev?.assigned_user_name || dev?.assignedUser || e.sn };
+        });
+      });
+      setZoneStatuses(enriched);
+    } catch { /* keep previous statuses */ }
+    finally {
+      setStatusLoading(false);
+      setAssigningZoneId(null);
+    }
+  }, [authHeaders]);
+
+  useEffect(() => {
+    if (accessToken) fetchStatuses();
+  }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Zone selection → map highlight ────────────────────────────────────────────
   useEffect(() => {
     if (!mapReady || !polygonManager.current) return;
     polygonManager.current.selectZone(selectedZoneId);
   }, [selectedZoneId, mapReady]);
 
-  // ── Shortcut handler ────────────────────────────────────────────────────────
-  function handleShortcut(shortcut) {
-    if (!selectedSn) { setError('Select a device first'); return; }
-    const { start, end } = _rangeFromHours(shortcut.hours);
-    setStartDate(_dateStr(start));
-    setStartTime(_timeStr(start));
-    setEndDate(_dateStr(end));
-    setEndTime(_timeStr(end));
-    setActiveShortcut(shortcut.label);
-    triggerZoneLoad(start, end);
+  // ── Fetch + render device GPS tracks ─────────────────────────────────────────
+  useEffect(() => {
+    if (!mapReady || !polygonManager.current) return;
+
+    polygonManager.current.clearDeviceDots();
+    setDeviceTracks([]);
+
+    if (!selectedZoneId || !accessToken) return;
+
+    const selectedZone = zones.find((z) => z.zone_id === selectedZoneId);
+    if (!selectedZone?.polygon && !selectedZone?.polygons?.length) return;
+
+    const end   = new Date();
+    const start = new Date(end - 30 * 24 * 60 * 60 * 1000);
+    const url   = `${API_BASE_URL}/api/geofence/tracks/${encodeURIComponent(selectedZoneId)}` +
+                  `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
+
+    const fetchTag = selectedZoneId;
+    tracksFetchZoneRef.current = fetchTag;
+    setTracksLoading(true);
+
+    fetch(url, { headers: authHeaders() })
+      .then(async (res) => {
+        if (!res.ok) { setTracksLoading(false); return; }
+
+        const data = await res.json();
+        if (tracksFetchZoneRef.current !== fetchTag) { setTracksLoading(false); return; }
+
+        const statusMap = zoneStatusesRef.current[selectedZoneId] || [];
+        const isInZone  = selectedZone.polygons
+          ? (lat, lng) => pointInMultiPolygon(lat, lng, selectedZone.polygons)
+          : (lat, lng) => pointInPolygon(lat, lng, selectedZone.polygon);
+
+        const tracks = (data.devices || []).map((dev) => {
+          const user_name     = statusMap.find((e) => e.sn === dev.sn)?.user_name ?? dev.sn;
+          const allPoints     = (dev.points || []).map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp ?? null }));
+          const insidePoints  = allPoints.filter(p => isInZone(p.lat, p.lng));
+          const outsidePoints = allPoints.filter(p => !isInZone(p.lat, p.lng));
+          return {
+            sn: dev.sn, user_name, insidePoints, outsidePoints,
+            firstSeen: insidePoints[0]?.timestamp ?? null,
+            lastSeen:  insidePoints.at(-1)?.timestamp ?? null,
+          };
+        });
+
+        setDeviceTracks(tracks);
+        polygonManager.current?.renderDeviceDots(tracks);
+        setTracksLoading(false);
+      })
+      .catch(() => setTracksLoading(false));
+
+    return () => { if (tracksFetchZoneRef.current === fetchTag) tracksFetchZoneRef.current = null; };
+  }, [selectedZoneId, mapReady, accessToken, zones, authHeaders, tracksFetchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Assign device ─────────────────────────────────────────────────────────────
+  async function handleAssign(zone_id, sn) {
+    console.log('[FencePage] handleAssign zone_id=%s sn=%s', zone_id, sn);
+    setAssigningZoneId(zone_id);
+    try {
+      const url = `${API_BASE_URL}/api/admin/devices/${encodeURIComponent(sn)}`;
+      const body = JSON.stringify({ add_zone: zone_id });
+      console.log('[FencePage] PUT', url, body);
+      const res = await fetch(url, { method: 'PUT', headers: authHeaders(), body });
+      console.log('[FencePage] response status:', res.status);
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        console.error('[FencePage] assign error:', errBody);
+        throw new Error(errBody?.detail || `Assignment failed (HTTP ${res.status})`);
+      }
+      setAssignModal(null); // close modal only after success
+      await refresh();
+      fetchStatuses();
+      setTracksFetchKey((k) => k + 1); // re-fetch tracks so new device's points appear
+    } catch (err) {
+      console.error('[FencePage] handleAssign caught:', err);
+      setAssigningZoneId(null);
+      throw err; // modal's handleConfirm catches this and shows the error message
+    }
   }
 
-  // ── Manual load button ──────────────────────────────────────────────────────
-  function handleLoad() {
-    if (!selectedSn) { setError('Select a device first'); return; }
-    const start = new Date(`${startDate}T${startTime}:00`);
-    const end   = new Date(`${endDate}T${endTime}:59`);
-    if (isNaN(start) || isNaN(end)) { setError('Invalid date range'); return; }
-    if (start >= end)                { setError('Start must be before end'); return; }
-    setActiveShortcut(null);
-    triggerZoneLoad(start, end);
+  // ── Unassign device ───────────────────────────────────────────────────────────
+  async function handleUnassign(sn, zone_id) {
+    setZoneStatuses((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
+    setAssignments((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
+    setDeviceTracks((prev) => {
+      const next = prev.filter((t) => t.sn !== sn);
+      polygonManager.current?.renderDeviceDots(next);
+      return next;
+    });
+    fetch(
+      `${API_BASE_URL}/api/admin/devices/${encodeURIComponent(sn)}`,
+      { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ remove_zone: zone_id }) },
+    ).catch(() => refresh());
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="fp-page">
 
-      {/* ── Top bar ── */}
+      {/* Top bar */}
       <div className="fp-topbar">
         <div className="fp-topbar-left">
           <span className="fp-topbar-label">Geofencing</span>
-          {selectedSn && zones.length > 0 && !loading && (
-            <span className="fp-topbar-area">
-              <svg width="11" height="11" viewBox="0 0 24 24"
-                   fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
-                <circle cx="12" cy="10" r="1" fill="currentColor"/>
-              </svg>
-              {zones.length} zone{zones.length !== 1 ? 's' : ''}
-            </span>
-          )}
+          <span className="fp-topbar-area">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+              <circle cx="12" cy="10" r="1" fill="currentColor"/>
+            </svg>
+            UC 216 — Muslim Town &nbsp;·&nbsp; 1 zone
+          </span>
         </div>
-
         <div className="fp-topbar-right">
-
-          {/* Device selector */}
-          <select
-            className="fp-device-select"
-            value={selectedSn}
-            onChange={(e) => setSelectedSn(e.target.value)}
-          >
-            <option value="">Select a device…</option>
-            {devices.map((d) => (
-              <option key={d.sn} value={d.sn}>
-                {d.assigned_user_name || d.assignedUser || d.sn}
-              </option>
-            ))}
-          </select>
-
-          {/* Time shortcuts */}
-          <div className="fp-shortcuts">
-            {TIME_SHORTCUTS.map((s) => (
-              <button
-                key={s.label}
-                className={`fp-shortcut-btn${activeShortcut === s.label ? ' active' : ''}`}
-                onClick={() => handleShortcut(s)}
-                disabled={loading}
-              >
-                {activeShortcut === s.label && loading
-                  ? <span className="fp-spinner" />
-                  : s.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Start date + time */}
-          <div className="fp-date-group">
-            <label>Start</label>
-            <div className="fp-date-btn"
-                 onClick={(e) => e.currentTarget.querySelector('input[type=date]').showPicker()}>
-              <CalIcon />
-              <span>{startDate}</span>
-              <input type="date" value={startDate}
-                     onChange={(e) => { setStartDate(e.target.value); setActiveShortcut(null); }} />
-            </div>
-            <div className="fp-date-btn"
-                 onClick={(e) => e.currentTarget.querySelector('input[type=time]').showPicker()}>
-              <ClkIcon />
-              <span>{startTime}</span>
-              <input type="time" value={startTime}
-                     onChange={(e) => { setStartTime(e.target.value); setActiveShortcut(null); }} />
-            </div>
-          </div>
-
-          {/* End date + time */}
-          <div className="fp-date-group">
-            <label>End</label>
-            <div className="fp-date-btn"
-                 onClick={(e) => e.currentTarget.querySelector('input[type=date]').showPicker()}>
-              <CalIcon />
-              <span>{endDate}</span>
-              <input type="date" value={endDate}
-                     onChange={(e) => { setEndDate(e.target.value); setActiveShortcut(null); }} />
-            </div>
-            <div className="fp-date-btn"
-                 onClick={(e) => e.currentTarget.querySelector('input[type=time]').showPicker()}>
-              <ClkIcon />
-              <span>{endTime}</span>
-              <input type="time" value={endTime}
-                     onChange={(e) => { setEndTime(e.target.value); setActiveShortcut(null); }} />
-            </div>
-          </div>
-
-          {/* Load button */}
-          <button
-            className="fp-btn-load"
-            onClick={handleLoad}
-            disabled={!selectedSn || loading}
-          >
-            {loading
-              ? <><span className="fp-spinner" /> Loading…</>
-              : 'Load Zones'}
+<button onClick={fetchStatuses} disabled={statusLoading} className="fp-btn-load" style={{ fontSize: 11 }}>
+            {statusLoading ? <><span className="fp-spinner" /> Refreshing…</> : '↻ Refresh Status'}
           </button>
-
         </div>
       </div>
 
-      {/* ── Error banner ── */}
-      {error && (
-        <div className="fp-error">
-          <svg viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-          </svg>
-          {error}
-          <button className="fp-error-close" onClick={() => setError('')}>✕</button>
-        </div>
-      )}
-
-      {/* ── Body ── */}
+      {/* Body */}
       <div className="fp-body">
-
         <ZoneSidebar
           zones={zones}
           selectedZoneId={selectedZoneId}
           onSelect={setSelectedZoneId}
-          loading={loading}
+          zoneStatuses={zoneStatuses}
+          statusLoading={statusLoading}
+          assignments={assignments}
+          onOpenAssign={isAdmin ? (zone) => setAssignModal({ zone }) : null}
+          onUnassign={isAdmin ? handleUnassign : null}
+          assigningZoneId={assigningZoneId}
+          deviceTracks={deviceTracks}
+          tracksLoading={tracksLoading}
         />
-
-        <div className="fp-map-wrap">
-          <div ref={mapContainerRef} id="fence-map"
-               style={{ position: 'absolute', inset: 0 }} />
-          {!selectedSn && <EmptyMapOverlay />}
-          {selectedSn && !loading && zones.length === 0 && !error && <NoZonesOverlay />}
+        <div className="fp-map-wrap" ref={mapWrapRef}>
+          <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />
         </div>
-
       </div>
+
+      {/* GPS tracks loading overlay — fixed so it clears Leaflet's stacking context */}
+      {tracksLoading && (() => {
+        const r = mapWrapRef.current?.getBoundingClientRect();
+        if (!r) return null;
+        return (
+          <div style={{
+            position: 'fixed',
+            left: r.left, top: r.top, width: r.width, height: r.height,
+            zIndex: 99999,
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <style>{`
+              @keyframes fp-logo-pulse {
+                0%,100% { opacity:0.2; transform:scale(0.94); }
+                50%     { opacity:0.85; transform:scale(1.04); }
+              }
+            `}</style>
+            <div style={{
+              background: 'rgba(10,10,10,0.88)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 14,
+              padding: '28px 40px',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
+              textAlign: 'center',
+            }}>
+              <img
+                src={tplLogo}
+                alt="Loading"
+                style={{
+                  width: 52, height: 'auto',
+                  filter: 'brightness(0) invert(1)',
+                  animation: 'fp-logo-pulse 1.6s ease-in-out infinite',
+                  display: 'block', margin: '0 auto 14px',
+                }}
+              />
+              <span style={{
+                fontSize: 11, color: '#6b7280',
+                letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
+              }}>
+                Fetching GPS tracks…
+              </span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Assign Device Modal */}
+      {assignModal && (
+        <AssignDeviceModal
+          zone={assignModal.zone}
+          devices={devices}
+          assignments={assignments}
+          onAssign={(sn) => handleAssign(assignModal.zone.zone_id, sn)}
+          onClose={() => setAssignModal(null)}
+        />
+      )}
+
     </div>
   );
 }

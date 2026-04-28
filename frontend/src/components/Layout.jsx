@@ -255,124 +255,129 @@ const Layout = ({ children }) => {
   };
 
   const navItems = [
-    { path: '/Homepage',   label: 'Home'       },
+    ...(isAdmin ? [{ path: '/Homepage', label: 'Home' }] : []),
     { path: '/devices',    label: 'Locators'   },
     { path: '/trajectory', label: 'Trajectory' },
     { path: '/mapview',    label: 'Map View'   },
     { path: '/playback',   label: 'Playback'   },
     { path: '/fence',      label: 'Fence'      },
     { path: '/report',     label: 'Report'     },
+    ...(isAdmin ? [{ path: '/field-staff-dashboard', label: 'Field Staff' }] : []),
   ];
+
+  const layoutBody = (
+    <div className="layout">
+      <header className="header">
+
+        <div className="header-left">
+          <div className="logo">
+            <img src={tplLogo} alt="Trakker Logo" className="logo-img" />
+            <span className="logo-text">Trakker</span>
+          </div>
+
+          <button
+            className="mobile-menu-toggle"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {mobileMenuOpen ? (
+                <path d="M18 6L6 18M6 6l12 12" />
+              ) : (
+                <>
+                  <path d="M3 12h18M3 6h18M3 18h18" />
+                </>
+              )}
+            </svg>
+          </button>
+
+          <nav className={`nav ${mobileMenuOpen ? 'mobile-open' : ''}`}>
+            {navItems.map((item) => (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        <div className="header-right">
+          <span style={{
+            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em',
+            padding: '4px 10px', borderRadius: 'var(--radius-sm)',
+            background: isAdmin ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.18)',
+            color: isAdmin ? '#ffffff' : 'rgba(255,255,255,0.8)',
+            border: isAdmin ? '1px solid rgba(0,0,0,0.28)' : '1px solid rgba(0,0,0,0.22)',
+          }}>
+            {isAdmin ? 'Admin' : 'User'}
+          </span>
+
+          <div className="profile-container" style={{ position: 'relative' }}>
+            <button className="profile-btn" onClick={() => setShowProfileMenu(v => !v)}>
+              <div className="profile-avatar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" strokeWidth="2"/>
+                  <circle cx="12" cy="7" r="4" strokeWidth="2"/>
+                </svg>
+              </div>
+              <span className="profile-email">{user?.email ?? "Account"}</span>
+              <svg className="dropdown-arrow" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd"/>
+              </svg>
+            </button>
+
+            {showProfileMenu && (
+              <>
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 98 }}
+                  onClick={() => setShowProfileMenu(false)}
+                />
+                <div className="profile-menu" style={{ zIndex: 99 }}>
+                  <div
+                    className="profile-menu-item"
+                    onClick={() => { setShowProfileSettings(true); setShowProfileMenu(false); }}
+                  >
+                    Profile Settings
+                  </div>
+                  <div className="profile-menu-divider" />
+                  <div className="profile-menu-item logout" onClick={handleLogout}>
+                    Logout
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+      </header>
+
+      <main className="main-content">
+        {children}
+      </main>
+
+      <ProfileSettingsModal
+        isOpen={showProfileSettings}
+        onClose={() => setShowProfileSettings(false)}
+        user={user}
+        role={role}
+      />
+    </div>
+  );
 
   return (
     <DeviceCacheProvider>
       <UserCacheProvider>
-      <HomePageCacheProvider>
-      <FieldStaffCacheProvider>
-        <div className="layout">
-          <header className="header">
-
-            <div className="header-left">
-              <div className="logo">
-                <img src={tplLogo} alt="Trakker Logo" className="logo-img" />
-                <span className="logo-text">Trakker</span>
-              </div>
-              
-              {/* Mobile menu toggle button */}
-              <button 
-                className="mobile-menu-toggle"
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                aria-label="Toggle menu"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  {mobileMenuOpen ? (
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  ) : (
-                    <>
-                      <path d="M3 12h18M3 6h18M3 18h18" />
-                    </>
-                  )}
-                </svg>
-              </button>
-              
-              <nav className={`nav ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-                {navItems.map((item) => (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-              </nav>
-            </div>
-
-            <div className="header-right">
-              <span style={{
-                fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em',
-                padding: '4px 10px', borderRadius: 'var(--radius-sm)',
-                background: isAdmin ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.18)',
-                color: isAdmin ? '#ffffff' : 'rgba(255,255,255,0.8)',
-                border: isAdmin ? '1px solid rgba(0,0,0,0.28)' : '1px solid rgba(0,0,0,0.22)',
-              }}>
-                {isAdmin ? 'Admin' : 'User'}
-              </span>
-
-              <div className="profile-container" style={{ position: 'relative' }}>
-                <button className="profile-btn" onClick={() => setShowProfileMenu(v => !v)}>
-                  <div className="profile-avatar">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" strokeWidth="2"/>
-                      <circle cx="12" cy="7" r="4" strokeWidth="2"/>
-                    </svg>
-                  </div>
-                  <span className="profile-email">{user?.email ?? "Account"}</span>
-                  <svg className="dropdown-arrow" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd"/>
-                  </svg>
-                </button>
-
-                {showProfileMenu && (
-                  <>
-                    {/* Transparent backdrop — closes menu when clicking anywhere outside */}
-                    <div
-                      style={{ position: 'fixed', inset: 0, zIndex: 98 }}
-                      onClick={() => setShowProfileMenu(false)}
-                    />
-                    <div className="profile-menu" style={{ zIndex: 99 }}>
-                      <div
-                        className="profile-menu-item"
-                        onClick={() => { setShowProfileSettings(true); setShowProfileMenu(false); }}
-                      >
-                        Profile Settings
-                      </div>
-                      <div className="profile-menu-divider" />
-                      <div className="profile-menu-item logout" onClick={handleLogout}>
-                        Logout
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-          </header>
-
-          <main className="main-content">
-            {children}
-          </main>
-
-          <ProfileSettingsModal
-            isOpen={showProfileSettings}
-            onClose={() => setShowProfileSettings(false)}
-            user={user}
-            role={role}
-          />
-        </div>
-      </FieldStaffCacheProvider>
-      </HomePageCacheProvider>
+        {isAdmin ? (
+          <HomePageCacheProvider>
+            <FieldStaffCacheProvider>
+              {layoutBody}
+            </FieldStaffCacheProvider>
+          </HomePageCacheProvider>
+        ) : layoutBody}
       </UserCacheProvider>
     </DeviceCacheProvider>
   );

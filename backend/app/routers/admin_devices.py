@@ -210,6 +210,9 @@ class UpdateDeviceRequest(BaseModel):
     name: str | None = None
     client: str | None = None
     region: str | None = None
+    zone: str | None = None        # legacy single-zone (kept for backward compat)
+    add_zone: str | None = None    # add this zone_id to device's zones array
+    remove_zone: str | None = None # remove this zone_id from device's zones array
 
 
 @router.put("/devices/{sn}")
@@ -228,8 +231,31 @@ async def admin_update_device(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not owned by this admin")
 
         updated = await mongo.update_device(sn, payload.name, payload.client, payload.region)
+
+        if payload.zone is not None:
+            zone_val = payload.zone.strip() or None
+            await mongo.devices.update_one({"sn": sn}, {"$set": {"zone": zone_val}})
+
+        if payload.add_zone:
+            zone_val = payload.add_zone.strip()
+            if zone_val:
+                result = await mongo.devices.update_one({"sn": sn}, {"$addToSet": {"fence_zone_ids": zone_val}})
+                logger.info("add_zone sn=%s zone=%s matched=%d modified=%d",
+                            sn, zone_val, result.matched_count, result.modified_count)
+            else:
+                logger.warning("add_zone received empty string for sn=%s", sn)
+
+        if payload.remove_zone:
+            zone_val = payload.remove_zone.strip()
+            if zone_val:
+                result = await mongo.devices.update_one({"sn": sn}, {"$pull": {"fence_zone_ids": zone_val}})
+                logger.info("remove_zone sn=%s zone=%s matched=%d modified=%d",
+                            sn, zone_val, result.matched_count, result.modified_count)
+            else:
+                logger.warning("remove_zone received empty string for sn=%s", sn)
+
         logger.info("admin_update_device completed admin=%s sn=%s", current_admin.email, sn)
-        return {"status": "ok", "device": {"id": str(updated.id), "sn": updated.sn, "name": updated.name, "client": updated.client, "region": updated.region}}
+        return {"status": "ok", "device": {"id": str(updated.id), "sn": updated.sn, "name": updated.name, "client": updated.client, "region": updated.region, "zone": payload.zone}}
     except HTTPException:
         raise
     except Exception as err:
