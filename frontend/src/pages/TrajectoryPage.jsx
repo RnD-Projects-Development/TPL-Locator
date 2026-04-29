@@ -4,6 +4,7 @@ import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { tplGeocode } from "../utils/tplGeocode.js";
+import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import "./TrajectoryPage.css";
 
 function isDuplicate(p1, p2) {
@@ -84,6 +85,8 @@ export default function TrajectoryPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation, getTrajectory } = useCityTag();
   const [label, setLabel] = useState("");
+  const { zones } = useZoneCache();
+  const [showFences, setShowFences] = useState(false);
 
   const [sn, setSn]                         = useState(searchParams.get("device") || "");
   const [sessionTraj, setSessionTraj]       = useState([]);
@@ -284,6 +287,16 @@ export default function TrajectoryPage() {
               Historical
             </button>
           </div>
+          <button
+            className={`tr-fence-btn${showFences ? " active" : ""}`}
+            onClick={() => setShowFences(v => !v)}
+            title={showFences ? "Hide fences" : "Show fences"}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/>
+            </svg>
+            Fences
+          </button>
         </div>
       </div>
 
@@ -302,7 +315,7 @@ export default function TrajectoryPage() {
 
         <div className="tr-map-area">
           <div className="tr-map-wrap">
-            <MapView sn={sn} label={label} latest={activeLatest} trajectory={activeTraj} playbackPoint={null} />
+            <MapView sn={sn} label={label} latest={activeLatest} trajectory={activeTraj} playbackPoint={null} showFences={showFences} zones={zones} />
           </div>
 
           {sn && (

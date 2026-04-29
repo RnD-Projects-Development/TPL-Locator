@@ -1,119 +1,100 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
-import DeviceSidebar from "../components/Devicesidebar.jsx";
+import MultiDeviceSidebar from "../components/MultiDeviceSidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
+import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
+import { useZoneCache } from "../context/ZoneCacheContext.jsx";
+import { deviceColor } from "../utils/zonePolygonManager.js";
 import "./MapViewPage.css";
-
-function isDuplicate(p1, p2) {
-  if (!p1 || !p2) return false;
-  const ts  = (p) => p?.timestamp ?? p?.time ?? p?.locTime;
-  const lat = (p) => p?.lat ?? p?.latitude ?? p?.gpsLat ?? p?.wgLat;
-  const lng = (p) => p?.lng ?? p?.lon ?? p?.longitude ?? p?.gpsLng ?? p?.wgLng;
-  return lat(p1) === lat(p2) && lng(p1) === lng(p2) && ts(p1) === ts(p2);
-}
-
-function safe(v) { return v == null || v === "" ? "—" : String(v); }
-function formatTs(point) {
-  const ts = point?.timestamp ?? point?.time ?? point?.locTime;
-  if (!ts) return "—";
-  try { const d = new Date(ts); return isNaN(d.getTime()) ? String(ts) : d.toLocaleString(); }
-  catch { return "—"; }
-}
 
 export default function MapViewPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation } = useCityTag();
+  const { devices } = useDeviceCache();
+  const { zones } = useZoneCache();
 
-  const [sn, setSn]                   = useState(searchParams.get("device") || "");
-  const [label, setLabel]             = useState("");
-  const [latest, setLatest]           = useState(null);
-  const [trajectory, setTrajectory]   = useState([]);
+  const [selectedSns, setSelectedSns] = useState(() => {
+    const param = searchParams.get("device");
+    return param ? new Set([param]) : new Set();
+  });
+  const [deviceLocations, setDeviceLocations] = useState({});
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [intervalSec, setIntervalSec] = useState(15);
-  const [geocodeLabel, setGeocodeLabel] = useState("");
+  const [showFences, setShowFences]   = useState(false);
+
   const intervalRef = useRef(null);
 
-  const refresh = useCallback(async (target) => {
-    const dev = target ?? sn;
-    if (!dev) return;
+  const refresh = useCallback(async () => {
+    if (selectedSns.size === 0) return;
     setLoading(true);
     setError("");
     try {
-      const res   = await getLatestLocation(dev);
-      const point = res?.latest ?? res ?? null;
-      setLatest(point);
-      setLastUpdated(new Date());
-      if (point) {
-        setTrajectory((prev) => {
-          if (isDuplicate(prev[prev.length - 1], point)) return prev;
-          const next = [...prev, point];
-          return next.length > 500 ? next.slice(-500) : next;
+      const results = await Promise.allSettled(
+        [...selectedSns].map(sn =>
+          getLatestLocation(sn).then(res => ({ sn, point: res?.latest ?? res ?? null }))
+        )
+      );
+      setDeviceLocations(prev => {
+        const next = { ...prev };
+        results.forEach(r => {
+          if (r.status === "fulfilled" && r.value.point) {
+            next[r.value.sn] = r.value.point;
+          }
         });
-      }
+        return next;
+      });
+      setLastUpdated(new Date());
     } catch (err) {
-      setError(err.message || "Failed to fetch location");
+      setError(err.message || "Failed to fetch locations");
     } finally {
       setLoading(false);
     }
-  }, [sn, getLatestLocation]);
+  }, [selectedSns, getLatestLocation]);
 
-  // Immediate fetch whenever sn changes (covers URL-param init + sidebar select)
+  // Fetch immediately when selection changes
   useEffect(() => {
-    if (!sn) return;
-    console.log('[MapViewPage] sn changed → immediate refresh for', sn);
-    refresh(sn);
-  }, [sn]); // intentionally omitting refresh — sn change is the trigger
+    if (selectedSns.size === 0) return;
+    refresh();
+  }, [selectedSns]); // intentionally omitting refresh — selection change is the trigger
 
+  // Auto-refresh interval
   useEffect(() => {
     clearInterval(intervalRef.current);
-    if (autoRefresh && sn) {
-      intervalRef.current = setInterval(() => {
-        console.log('[MapViewPage] interval refresh for', sn);
-        refresh();
-      }, intervalSec * 1000);
+    if (autoRefresh && selectedSns.size > 0) {
+      intervalRef.current = setInterval(refresh, intervalSec * 1000);
     }
     return () => clearInterval(intervalRef.current);
-  }, [autoRefresh, intervalSec, sn, refresh]);
+  }, [autoRefresh, intervalSec, selectedSns.size, refresh]);
 
-  const handleSelectDevice = (device) => {
-    const newSn    = typeof device === "string" ? device : (device?.sn ?? device?.serialNumber ?? "");
-    const newLabel = typeof device === "string" ? "" : (device?.assignedUser ?? "");
-    setSn(newSn);
-    setLabel(newLabel);
-    setLatest(null);
-    setTrajectory([]);
-    setError("");
-    refresh(newSn);
-  };
+  // When selection changes, clean up locations for deselected devices
+  function handleSelectionChange(newSns) {
+    setSelectedSns(newSns);
+    setDeviceLocations(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(sn => { if (!newSns.has(sn)) delete next[sn]; });
+      return next;
+    });
+  }
 
-  const latestWithOffset = useMemo(() => {
-    if (!latest) return null;
-    return latest;
-  }, [latest]);
+  // Build the multiDevices array that MapView renders
+  const multiDevices = useMemo(() => {
+    return [...selectedSns].map(sn => {
+      const device = devices.find(d => d.sn === sn);
+      const label  = device?.assigned_user_name ?? device?.assignedUser ?? sn;
+      return {
+        sn,
+        label,
+        latest: deviceLocations[sn] ?? null,
+        color:  deviceColor(sn),
+      };
+    });
+  }, [selectedSns, deviceLocations, devices]);
 
-  const lat = latest?.lat ?? latest?.latitude ?? latest?.gpsLat ?? latest?.wgLat;
-  const lng = latest?.lng ?? latest?.lon ?? latest?.longitude ?? latest?.gpsLng ?? latest?.wgLng;
-
-  // Reverse geocode latest position for the info strip landmark label
-  useEffect(() => {
-    if (lat == null || lng == null) { setGeocodeLabel(""); return; }
-    let cancelled = false;
-    import("../utils/tplGeocode.js").then(({ tplGeocode }) =>
-      tplGeocode(Number(lat), Number(lng))
-    ).then((result) => {
-      if (cancelled) return;
-      if (result?.primary) {
-        setGeocodeLabel(result.secondary ? `${result.primary} — ${result.secondary}` : result.primary);
-      } else {
-        setGeocodeLabel("");
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [lat, lng]);
+  const onlineCount = multiDevices.filter(d => d.latest != null).length;
 
   return (
     <div className="mv-page">
@@ -121,15 +102,20 @@ export default function MapViewPage() {
       <div className="mv-topbar">
         <div className="mv-topbar-left">
           <span className="mv-topbar-label">Map View</span>
-          {sn && <span className="mv-topbar-sn">{label || sn}</span>}
-          {label && <span className="mv-topbar-sn" style={{ color: '#71717a', fontFamily: 'monospace', fontSize: 11 }}>{sn}</span>}
-          {sn && (
-            <span className={`mv-pill ${latest ? "pill-online" : "pill-searching"}`}>
-              <span className="mv-pill-dot" />
-              {loading ? "Fetching…" : latest ? "Live" : "Searching…"}
+          {selectedSns.size > 0 && (
+            <span className="mv-topbar-sn">
+              {selectedSns.size} device{selectedSns.size !== 1 ? "s" : ""}
             </span>
           )}
-          {lastUpdated && <span className="mv-pill pill-time">Updated {lastUpdated.toLocaleTimeString()}</span>}
+          {selectedSns.size > 0 && (
+            <span className={`mv-pill ${onlineCount > 0 ? "pill-online" : "pill-searching"}`}>
+              <span className="mv-pill-dot" />
+              {loading ? "Fetching…" : `${onlineCount} / ${selectedSns.size} live`}
+            </span>
+          )}
+          {lastUpdated && (
+            <span className="mv-pill pill-time">Updated {lastUpdated.toLocaleTimeString()}</span>
+          )}
         </div>
 
         <div className="mv-topbar-right">
@@ -146,11 +132,21 @@ export default function MapViewPage() {
             onChange={(e) => setIntervalSec(Number(e.target.value))}
           />
           <span className="mv-unit">sec</span>
-          <button className="mv-refresh-btn" onClick={() => refresh()} disabled={loading || !sn}>
+          <button className="mv-refresh-btn" onClick={() => refresh()} disabled={loading || selectedSns.size === 0}>
             <svg viewBox="0 0 20 20" fill="currentColor" className={loading ? "mv-spin" : ""}>
               <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
             </svg>
             Refresh
+          </button>
+          <button
+            className={`mv-fence-btn${showFences ? " active" : ""}`}
+            onClick={() => setShowFences(v => !v)}
+            title={showFences ? "Hide fences" : "Show fences"}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/>
+            </svg>
+            Fences
           </button>
         </div>
       </div>
@@ -164,24 +160,45 @@ export default function MapViewPage() {
       )}
 
       <div className="mv-body">
-        <DeviceSidebar selectedSn={sn} onSelect={handleSelectDevice} />
+        <MultiDeviceSidebar
+          selectedSns={selectedSns}
+          onSelectionChange={handleSelectionChange}
+        />
 
         <div className="mv-map-area">
           <div className="mv-map-wrap">
-            <MapView sn={sn} label={label} latest={latestWithOffset} trajectory={[]} playbackPoint={null} />
+            <MapView
+              sn=""
+              label=""
+              latest={null}
+              trajectory={[]}
+              playbackPoint={null}
+              multiDevices={multiDevices}
+              showFences={showFences}
+              zones={zones}
+            />
           </div>
 
-          {sn && (
+          {selectedSns.size > 0 && (
             <div className="mv-info-strip">
-              <div className="mv-info-item" style={{ flex: 1 }}>
-                <span className="mv-info-label">Landmark</span>
-                <span className="mv-info-val">{geocodeLabel || (lat != null ? `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}` : "—")}</span>
+              <div className="mv-info-item">
+                <span className="mv-info-label">Selected</span>
+                <span className="mv-info-val">{selectedSns.size} device{selectedSns.size !== 1 ? "s" : ""}</span>
               </div>
               <div className="mv-info-sep" />
               <div className="mv-info-item">
-                <span className="mv-info-label">Last seen</span>
-                <span className="mv-info-val">{formatTs(latestWithOffset)}</span>
+                <span className="mv-info-label">Live location</span>
+                <span className="mv-info-val mono">{onlineCount} / {selectedSns.size}</span>
               </div>
+              {lastUpdated && (
+                <>
+                  <div className="mv-info-sep" />
+                  <div className="mv-info-item">
+                    <span className="mv-info-label">Last updated</span>
+                    <span className="mv-info-val">{lastUpdated.toLocaleTimeString()}</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
