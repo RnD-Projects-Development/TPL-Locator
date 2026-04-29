@@ -22,6 +22,9 @@
 .mv-toggle.on  .mv-toggle-knob { left:19px; }
 .mv-toggle.off .mv-toggle-knob { left:2px; }
 .mv-interval-input { width:52px; padding:5px 8px; background:var(--surface-inset); border:1px solid var(--border-default); border-radius:var(--radius-sm); color:var(--text-primary); font-size:13px; font-family:var(--font-mono); text-align:center; }
+.mv-fence-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 11px; border-radius:var(--radius-sm); font-size:12px; font-weight:600; cursor:pointer; transition:var(--transition-fast); border:1px solid var(--border-default); background:transparent; color:var(--text-secondary); white-space:nowrap; }
+.mv-fence-btn:hover { border-color:var(--brand); color:var(--text-primary); }
+.mv-fence-btn.active { background:var(--brand); border-color:var(--brand); color:white; }
 .mv-interval-input:focus { outline:none; border-color:var(--brand); }
 .mv-interval-input:disabled { opacity:.4; }
 .mv-unit { font-size:12px; color:var(--text-tertiary); }

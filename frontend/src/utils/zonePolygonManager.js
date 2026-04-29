@@ -26,20 +26,20 @@ const DOT_STYLE = {
 };
 
 // ── Per-device color palette ──────────────────────────────────────────────────
-// 12 visually distinct colors that all read well on a dark map
+// 12 vivid, high-contrast colors visible on both light and dark map tiles
 const DEVICE_PALETTE = [
-  '#60a5fa', // blue
-  '#34d399', // emerald
-  '#f59e0b', // amber
-  '#a78bfa', // violet
-  '#f87171', // red
-  '#22d3ee', // cyan
-  '#fb923c', // orange
-  '#e879f9', // fuchsia
-  '#4ade80', // green
-  '#facc15', // yellow
-  '#818cf8', // indigo
-  '#f472b6', // pink
+  '#2563eb', // bold blue
+  '#059669', // strong emerald
+  '#d97706', // deep amber
+  '#7c3aed', // vivid violet
+  '#dc2626', // strong red
+  '#0891b2', // deep cyan
+  '#ea580c', // vivid orange
+  '#c026d3', // strong fuchsia
+  '#16a34a', // vivid green
+  '#ca8a04', // rich yellow-gold
+  '#4f46e5', // deep indigo
+  '#db2777', // vivid pink
 ];
 
 /**

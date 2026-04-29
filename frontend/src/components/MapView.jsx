@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import loadTPLMaps from "./loadTPLMaps.js";
 import { tplGeocode } from "../utils/tplGeocode.js";
+import { deviceColor } from "../utils/zonePolygonManager.js";
 
 function safe(v) { return v == null || v === '' ? '—' : String(v); }
 
@@ -91,6 +92,46 @@ function buildPopupHtml({ displayName, sn, label, coords, point, geocode }) {
     </div>`;
 }
 
+// ── Multi-device helpers ──────────────────────────────────────────────────────
+function buildColoredPinHtml(color) {
+  return `<div style="width:28px;height:28px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="${color}" width="28" height="28">
+      <path d="M14,10a2,2,0,1,1-2-2A2.006,2.006,0,0,1,14,10Zm5.5,0c0,6.08-4.67,9.89-6.67,11.24a1.407,1.407,0,0,1-.83.26,1.459,1.459,0,0,1-.84-.26C9.16,19.89,4.5,16.09,4.5,10A7.33,7.33,0,0,1,12,2.5,7.336,7.336,0,0,1,19.5,10ZM16,10a4,4,0,1,0-4,4A4,4,0,0,0,16,10Z"/>
+    </svg>
+  </div>`;
+}
+
+function buildMultiDevicePopupHtml({ sn, label, point, geocode, coords }) {
+  const ts      = formatTimestamp(point);
+  const name    = label && label !== sn ? label : sn;
+  const primary    = geocode?.primary    ?? null;
+  const secondary  = geocode?.secondary  ?? null;
+  const isSpecific = geocode?.isSpecific ?? false;
+
+  let locationHtml;
+  if (primary && isSpecific) {
+    locationHtml =
+      `<div style="color:#fff;font-weight:600;margin-bottom:2px;">${safe(primary)}</div>` +
+      (secondary ? `<div style="color:#fca5a5;font-size:10px;">${safe(secondary)}</div>` : '');
+  } else if (primary) {
+    locationHtml =
+      `<div style="color:#fff;font-weight:600;margin-bottom:2px;">Near ${safe(primary)}</div>` +
+      (secondary ? `<div style="color:#fca5a5;font-size:10px;">${safe(secondary)}</div>` : '');
+  } else {
+    locationHtml = coords
+      ? `<div style="color:rgba(255,255,255,0.4);font-size:10px;font-family:'JetBrains Mono',monospace;">${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}</div>`
+      : '';
+  }
+
+  return `
+    <div style="font-family:ui-sans-serif;font-size:12px;min-width:170px;color:#fff;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.18);">${safe(name)}</div>
+      ${label && label !== sn ? `<div style="color:rgba(255,255,255,0.4);font-size:10px;font-family:'JetBrains Mono',monospace;margin-bottom:6px;">${safe(sn)}</div>` : ''}
+      <div style="margin-bottom:6px;">${locationHtml}</div>
+      <div style="color:rgba(255,255,255,0.5);font-size:10px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1);">${ts}</div>
+    </div>`;
+}
+
 // ── Persistent map cache ──────────────────────────────────────────────────────
 let _cachedMap       = null;
 let _cachedContainer = null;
@@ -155,7 +196,7 @@ const DEVICE_ICON_HTML = `
   </div>`;
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function MapView({ sn, label, latest, trajectory = [], playbackPoint = null, showLine = true }) {
+export default function MapView({ sn, label, latest, trajectory = [], playbackPoint = null, showLine = true, showFences = false, zones = [], multiDevices = [] }) {
   const containerRef   = useRef(null);
   const mapRef         = useRef(null);
   const markerRef      = useRef(null);
@@ -172,6 +213,14 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
   const dotsRef     = useRef([]);
   const trajLenRef  = useRef(0);
   const canvasRef   = useRef(null);
+
+  // Fence overlay refs
+  const fenceLayersRef = useRef([]);
+
+  // Multi-device marker refs
+  const multiMarkersRef  = useRef(new Map()); // sn → { marker, pointHolder }
+  const multiGeocodeRef  = useRef(new Map()); // sn → geocode result (cached)
+  const multiSnsRef      = useRef(new Set()); // tracks prev selection for change detection
 
   const [mapLoaded, setMapLoaded] = useState(false);
 
@@ -307,9 +356,15 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
         if (markerRef.current && _cachedMap) { _cachedMap.removeLayer(markerRef.current);    markerRef.current = null; }
         if (polylineRef.current && _cachedMap) { _cachedMap.removeLayer(polylineRef.current); polylineRef.current = null; }
         dotsRef.current.forEach(d => { try { _cachedMap.removeLayer(d); } catch {} });
+        fenceLayersRef.current.forEach(p => { try { _cachedMap.removeLayer(p); } catch {} });
+        multiMarkersRef.current.forEach(({ marker }) => { try { _cachedMap.removeLayer(marker); } catch {} });
       } catch {}
       dotsRef.current  = [];
       trajLenRef.current = 0;
+      fenceLayersRef.current = [];
+      multiMarkersRef.current.clear();
+      multiGeocodeRef.current.clear();
+      multiSnsRef.current = new Set();
       detachMap();
       mapRef.current = null;
     };
@@ -447,11 +502,144 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
     console.log(`[Trajectory] render complete — total dots: ${dotsRef.current.length} | showLine: ${showLine}`);
   }, [trajectory, mapLoaded, showLine]);
 
+  /* ── FENCE OVERLAY ── */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+
+    fenceLayersRef.current.forEach(p => { try { map.removeLayer(p); } catch {} });
+    fenceLayersRef.current = [];
+
+    if (!showFences || zones.length === 0) return;
+
+    zones.forEach((zone) => {
+      const isMulti = Array.isArray(zone.polygons) && zone.polygons.length > 0;
+      if (!isMulti && (!zone.polygon || zone.polygon.length === 0)) return;
+
+      const latLngs = isMulti
+        ? zone.polygons.map(ring => ring.map(({ lat, lng }) => [lat, lng]))
+        : zone.polygon.map(({ lat, lng }) => [lat, lng]);
+
+      const poly = window.L.polygon(latLngs, {
+        color: '#C1121F', fillColor: '#C1121F', fillOpacity: 0.18, weight: 2,
+        interactive: false,
+      });
+      poly.addTo(map);
+      fenceLayersRef.current.push(poly);
+    });
+  }, [showFences, zones, mapLoaded]);
+
+  /* ── MULTI-DEVICE MARKERS ── */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+
+    const incomingSns = new Set(multiDevices.map(d => d.sn));
+    const prevSns     = multiSnsRef.current;
+
+    // Detect if the set of selected devices changed (not just position updates)
+    const selectionChanged =
+      incomingSns.size !== prevSns.size ||
+      [...incomingSns].some(sn => !prevSns.has(sn)) ||
+      [...prevSns].some(sn => !incomingSns.has(sn));
+    multiSnsRef.current = incomingSns;
+
+    // Remove markers for devices no longer selected
+    multiMarkersRef.current.forEach(({ marker }, sn) => {
+      if (!incomingSns.has(sn)) {
+        try { map.removeLayer(marker); } catch {}
+        multiMarkersRef.current.delete(sn);
+      }
+    });
+
+    if (multiDevices.length === 0) return;
+
+    // Clean up geocode cache for deselected devices
+    multiGeocodeRef.current.forEach((_, sn) => {
+      if (!incomingSns.has(sn)) multiGeocodeRef.current.delete(sn);
+    });
+
+    multiDevices.forEach(({ sn, label: devLabel, latest: point, color }) => {
+      const c = extractCoords(point);
+      if (!c) return;
+
+      if (multiMarkersRef.current.has(sn)) {
+        const entry = multiMarkersRef.current.get(sn);
+        entry.marker.setLatLng([c.lat, c.lng]);
+        entry.pointHolder.current = point; // keep current for popup
+
+        // Pre-geocode new position if it changed significantly
+        tplGeocode(c.lat, c.lng).then(geo => {
+          multiGeocodeRef.current.set(sn, geo);
+        }).catch(() => {});
+      } else {
+        // First time: create marker
+        const icon = window.L.divIcon({
+          html: buildColoredPinHtml(color),
+          className: '', iconSize: [28, 28], iconAnchor: [14, 25],
+        });
+        const marker      = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
+        const pointHolder = { current: point }; // mutable — updated on every position refresh
+
+        marker.on('mouseover', () => {
+          const latlng     = marker.getLatLng();
+          const coords     = { lat: latlng.lat, lng: latlng.lng };
+          const cachedGeo  = multiGeocodeRef.current.get(sn) ?? null;
+          const currentPt  = pointHolder.current;
+
+          if (popupRef.current) popupRef.current.remove();
+          popupRef.current = window.L.popup({
+            offset: [0, -26], closeButton: false, autoClose: false, className: 'mv-popup',
+          })
+            .setLatLng(latlng)
+            .setContent(buildMultiDevicePopupHtml({ sn, label: devLabel, point: currentPt, geocode: cachedGeo, coords }))
+            .openOn(map);
+
+          if (!cachedGeo) {
+            let active = true;
+            tplGeocode(latlng.lat, latlng.lng).then(geo => {
+              multiGeocodeRef.current.set(sn, geo);
+              if (!active || !popupRef.current) return;
+              popupRef.current.setContent(
+                buildMultiDevicePopupHtml({ sn, label: devLabel, point: pointHolder.current, geocode: geo, coords })
+              );
+            }).catch(() => {});
+            marker.once('mouseout', () => { active = false; });
+          }
+        });
+
+        marker.on('mouseout', () => {
+          if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
+        });
+
+        // Pre-geocode eagerly so first hover has data immediately
+        tplGeocode(c.lat, c.lng).then(geo => {
+          multiGeocodeRef.current.set(sn, geo);
+        }).catch(() => {});
+
+        multiMarkersRef.current.set(sn, { marker, pointHolder });
+      }
+    });
+
+    // Only pan/zoom when the selection itself changes, not on every position refresh
+    if (selectionChanged) {
+      const validCoords = multiDevices.map(d => extractCoords(d.latest)).filter(Boolean);
+      if (validCoords.length === 1) {
+        map.setView([validCoords[0].lat, validCoords[0].lng], Math.max(map.getZoom(), 14), { animate: true, duration: 0.4 });
+      } else if (validCoords.length > 1) {
+        try {
+          const bounds = window.L.latLngBounds(validCoords.map(c => [c.lat, c.lng]));
+          if (bounds.isValid()) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+        } catch {}
+      }
+    }
+  }, [multiDevices, mapLoaded]);
+
   /* ── UI ── */
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
 
-      {!sn && (
+      {!sn && multiDevices.length === 0 && (
         <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, pointerEvents:'none' }}>
           <div style={{ background:'rgba(0,0,0,0.9)', backdropFilter:'blur(10px)', border:'1px solid #1f1f1f', borderRadius:14, padding:'24px 36px', boxShadow:'0 8px 30px rgba(0,0,0,0.6)', textAlign:'center' }}>
             <div style={{ fontSize:32, marginBottom:8, opacity:0.5 }}>📍</div>
