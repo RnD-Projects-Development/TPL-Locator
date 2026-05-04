@@ -18,11 +18,13 @@ class CreateUserRequest(BaseModel):
     email: EmailStr
     password: str
     name: str = ""
+    role: Optional[str] = "user"
 
 
 class UpdateUserRequest(BaseModel):
     name: Optional[str] = None
     password: Optional[str] = None
+    role: Optional[str] = None
 
 
 def _to_oid(value) -> Optional[ObjectId]:
@@ -84,7 +86,7 @@ async def admin_create_user(
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
-        user = await mongo.create_user(payload.email, payload.password, payload.name)
+        user = await mongo.create_user(payload.email, payload.password, payload.name, payload.role or "user")
         created_at = datetime.now(timezone.utc)
         await mongo.users.update_one(
             {"_id": ObjectId(str(user.id))},
@@ -97,6 +99,7 @@ async def admin_create_user(
             "id":         str(updated.id),
             "email":      updated.email,
             "name":       updated.name,
+            "role":       updated.role or "user",
             "admin_id":   str(updated.admin_id) if updated.admin_id else None,
             "devices":    devices,
             "created_at": created_at.isoformat(),
@@ -143,6 +146,7 @@ async def admin_list_users(
                 "id":         str(user_dict.get("_id", "")),
                 "email":      user_dict.get("email", ""),
                 "name":       user_dict.get("name", ""),
+                "role":       user_dict.get("role", "user"),
                 "admin_id":   str(user_dict.get("admin_id", "")) if user_dict.get("admin_id") else None,
                 "devices":    devices,
                 "created_at": created_at,
@@ -193,6 +197,8 @@ async def admin_update_user(
     if payload.password is not None:
         from app.auth_utils import hash_password
         update_fields["password"] = hash_password(payload.password)
+    if payload.role is not None:
+        update_fields["role"] = payload.role
 
     if update_fields:
         await mongo.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_fields})
@@ -203,6 +209,7 @@ async def admin_update_user(
         "id":         str(updated.id),
         "email":      updated.email,
         "name":       updated.name,
+        "role":       updated.role or "user",
         "admin_id":   str(updated.admin_id) if updated.admin_id else None,
         "devices":    devices,
         "created_at": updated.created_at.isoformat() if updated.created_at else None,

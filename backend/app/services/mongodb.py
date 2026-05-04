@@ -76,7 +76,7 @@ class MongoService:
         from app.models.user import UserInDB
         return UserInDB(**doc)
 
-    async def create_user(self, email: str, password: str, name: Optional[str] = None) -> 'UserInDB':
+    async def create_user(self, email: str, password: str, name: Optional[str] = None, role: str = "user") -> 'UserInDB':
         from app.models.user import UserInDB
         payload = {
             "email": email.strip().lower(),
@@ -84,6 +84,7 @@ class MongoService:
             "name": name or "",
             "admin_id": None,
             "devices": [],
+            "role": role,
             "created_at": datetime.now(timezone.utc),
         }
         result = await self.users.insert_one(payload)

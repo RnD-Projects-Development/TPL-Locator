@@ -34,8 +34,8 @@ SEED_ADMINS = [
 
 # demo user accounts (will be linked to admin when they add a device)
 SEED_USERS = [
-    {"email": "user1@example.com", "password": "userpass", "name": "Alice"},
-    {"email": "user2@example.com", "password": "userpass", "name": "Bob"},
+    {"email": "user1@example.com", "password": "userpass", "name": "Alice", "role": "user"},
+    {"email": "user2@example.com", "password": "userpass", "name": "Bob", "role": "user"},
 ]
 
 
@@ -80,7 +80,7 @@ async def main() -> None:
             {"email": u["email"]},
             {
                 "$setOnInsert": {"email": u["email"], "created_at": now},
-                "$set": {"password": hash_password(u["password"]), "name": u.get("name", ""), "admin_id": None, "devices": []},
+                "$set": {"password": hash_password(u["password"]), "name": u.get("name", ""), "admin_id": None, "devices": [], "role": u.get("role", "user")},
             },
             upsert=True,
         )
