@@ -61,18 +61,18 @@ export function useCityTag() {
   const { accessToken, logout } = useAuth();
 
   const login = useCallback(
-    async ({ email, password }) =>
-      apiFetch("/api/login", { method: "POST", body: { email, password } }, null), []
+    async ({ identifier, password }) =>
+      apiFetch("/api/login", { method: "POST", body: { identifier, password } }, null), []
   );
 
   const adminLogin = useCallback(
     async ({ email, password }) =>
-      apiFetch("/api/login", { method: "POST", body: { email, password, uid: "" } }, null), []
+      apiFetch("/api/login", { method: "POST", body: { identifier: email, password, uid: "" } }, null), []
   );
 
   const signup = useCallback(
-    async ({ email, password, name }) =>
-      apiFetch("/api/register", { method: "POST", body: { email, password, name: name || "" } }, null), []
+    async ({ email, password, name, phone }) =>
+      apiFetch("/api/register", { method: "POST", body: { email, password, name: name || "", phone: phone || "" } }, null), []
   );
 
   const getDevices = useCallback(
@@ -80,18 +80,23 @@ export function useCityTag() {
     [accessToken, logout]
   );
 
+  const getAvailableDevices = useCallback(
+    async () => apiFetch("/api/devices/available", {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
   // User bind — hits /api/devices (user endpoint)
   const bindDevice = useCallback(
-    async ({ sn, label, client }) =>
-      apiFetch("/api/devices", { method: "POST", body: { sn, name: label, client: client || "" } }, accessToken, logout),
+    async ({ sn, label, client, category }) =>
+      apiFetch("/api/devices", { method: "POST", body: { sn, name: label, client: client || "", category: category || undefined } }, accessToken, logout),
     [accessToken, logout]
   );
 
   const bindDeviceByEmail = useCallback(
-    async ({ sn, email, name = "", client = "" }) =>
+    async ({ sn, email, name = "", client = "", category }) =>
       apiFetch(
         "/api/devices",
-        { method: "POST", body: { sn, email: email || undefined, user_id: undefined, name, client } },
+        { method: "POST", body: { sn, email: email || undefined, user_id: undefined, name, client, category: category || undefined } },
         accessToken, logout
       ),
     [accessToken, logout]
@@ -123,10 +128,10 @@ export function useCityTag() {
 
   // Admin assigns a device to a user via unified endpoint.
   const adminAssignDeviceToUser = useCallback(
-    async (userId, sn, { name = "", client = "" } = {}) =>
+    async (userId, sn, { name = "", client = "", category } = {}) =>
       apiFetch(
         "/api/devices",
-        { method: "POST", body: { sn, user_id: userId, name, client } },
+        { method: "POST", body: { sn, user_id: userId, name, client, category: category || undefined } },
         accessToken, logout
       ),
     [accessToken, logout]
@@ -203,7 +208,7 @@ export function useCityTag() {
 
   return {
     login, adminLogin, signup,
-    getDevices, getUsers, adminGetUsers, adminCreateUser,
+    getDevices, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice,
     bindDevice, bindDeviceByEmail, unbindDevice, adminUnbindDevice,

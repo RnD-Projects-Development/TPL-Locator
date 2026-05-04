@@ -51,6 +51,7 @@ const DevicesTable = ({
   const COLUMNS = [
     { key: 'sn',                label: 'Serial Number' },
     { key: 'name',              label: 'Locator Name' },
+    { key: 'category',          label: 'Category' },
     ...(isAdmin ? [
       { key: 'client',              label: 'Client' },
       { key: 'assigned_user_name',  label: 'Assigned User' },
@@ -65,7 +66,8 @@ const DevicesTable = ({
       (d.sn || "").toLowerCase().includes(term) ||
       (d.client || d.assigned_name || "").toLowerCase().includes(term) ||
       (d.assigned_user_name || d.assignedUser || "").toLowerCase().includes(term) ||
-      (d.name || "").toLowerCase().includes(term);
+      (d.name || "").toLowerCase().includes(term) ||
+      (d.category || "").toLowerCase().includes(term);
     const matchStatus = filterStatus === 'all' || d.status === filterStatus;
     return matchSearch && matchStatus;
   });
@@ -182,6 +184,28 @@ const DevicesTable = ({
                     </span>
                   );
                 })()}
+              </td>
+
+              {/* Category */}
+              <td>
+                {device.category ? (
+                  <span style={{
+                    display: 'inline-block',
+                    padding: '2px 9px',
+                    borderRadius: 99,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.03em',
+                    background: 'rgba(128,0,0,0.18)',
+                    color: '#fca5a5',
+                    border: '1px solid rgba(128,0,0,0.35)',
+                    textTransform: 'capitalize',
+                  }}>
+                    {device.category}
+                  </span>
+                ) : (
+                  <span style={{ color: '#52525b', fontStyle: 'italic', fontSize: 12 }}>—</span>
+                )}
               </td>
 
               {/* Client — admin only */}

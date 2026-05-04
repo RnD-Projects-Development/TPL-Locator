@@ -52,6 +52,7 @@ async def bind_device_service(
     user_id: Optional[str] = None,
     name: Optional[str] = None,
     client: Optional[str] = None,
+    category: Optional[str] = None,
 ) -> dict:
     logger.info(
         "bind_device_service started account_email=%s sn=%s target_email=%s target_user_id=%s",
@@ -96,6 +97,8 @@ async def bind_device_service(
         update_fields["name"] = name.strip()
     if client:
         update_fields["client"] = client.strip()
+    if category:
+        update_fields["category"] = category.strip()
     if update_fields:
         update_fields["bound_at"] = datetime.now(timezone.utc)
         await mongo.devices.update_one({"sn": sn}, {"$set": update_fields})
