@@ -5,26 +5,42 @@ import { useAuth } from "../context/AuthContext.jsx";
 
 const MODE = { LOGIN: "login", SIGNUP: "signup" };
 
+// ── Phone validation helpers ───────────────────────────────────────────────────
+function normalizePhone(raw) {
+  return raw.replace(/[\s\-\(\)]/g, '');
+}
+
+function isValidPakistaniPhone(raw) {
+  const p = normalizePhone(raw);
+  return /^03\d{9}$/.test(p) || /^\+92\d{10}$/.test(p);
+}
+
 export default function LoginForm() {
   const navigate = useNavigate();
   const { login, signup } = useCityTag();
   const { loginSuccess } = useAuth();
 
   const [mode, setMode] = useState(MODE.LOGIN);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [name, setName]                       = useState("");
+  const [phone, setPhone]                     = useState("");
+  const [identifier, setIdentifier]           = useState(""); // email or phone for login
+  const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [loading, setLoading]                 = useState(false);
+  const [error, setError]                     = useState("");
 
   const isSignup = mode === MODE.SIGNUP;
-  const isLogin = mode === MODE.LOGIN;
+  const isLogin  = mode === MODE.LOGIN;
+
+  const phoneError = isSignup && phone && !isValidPakistaniPhone(phone);
 
   const canSubmit = (() => {
     if (loading) return false;
-    if (!email.trim() || !password) return false;
-    if (isSignup && (!name.trim() || !confirmPassword || password !== confirmPassword)) return false;
+    if (isLogin) return identifier.trim() && password;
+    // signup
+    if (!name.trim() || !phone.trim() || !identifier.trim() || !password) return false;
+    if (!isValidPakistaniPhone(phone)) return false;
+    if (!confirmPassword || password !== confirmPassword) return false;
     return true;
   })();
 
@@ -32,6 +48,7 @@ export default function LoginForm() {
     setMode(newMode);
     setError("");
     setConfirmPassword("");
+    setPhone("");
   }
 
   async function onSubmit(e) {
@@ -40,14 +57,16 @@ export default function LoginForm() {
     setLoading(true);
     try {
       if (isSignup) {
-        // 1) Create the user account
+        // 1) Create the user account (email is the identifier field in signup mode)
         await signup({
-          email: email.trim(),
+          email: identifier.trim(),
           password,
           name: name.trim(),
+          phone: normalizePhone(phone.trim()),
         });
+        // 2) Auto-login after signup
         const res = await login({
-          email: email.trim(),
+          identifier: identifier.trim(),
           password,
         });
         loginSuccess({
@@ -58,7 +77,7 @@ export default function LoginForm() {
         navigate("/devices");
       } else {
         const res = await login({
-          email: email.trim(),
+          identifier: identifier.trim(),
           password,
         });
         loginSuccess({
@@ -110,6 +129,7 @@ export default function LoginForm() {
       )}
 
       <form onSubmit={onSubmit} className="space-y-4">
+
         {/* Full Name (signup only) */}
         {isSignup && (
           <div>
@@ -125,16 +145,41 @@ export default function LoginForm() {
             />
           </div>
         )}
-        {/* Email */}
+
+        {/* Phone (signup only) */}
+        {isSignup && (
+          <div>
+            <label className="block text-sm font-medium text-white">Phone Number</label>
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              style={{ borderColor: phoneError ? "#ef4444" : "" }}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              type="tel"
+              placeholder="e.g. 03001234567 or +923001234567"
+              autoComplete="tel"
+              required
+            />
+            {phoneError && (
+              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+                Enter a valid Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Email / identifier */}
         <div>
-          <label className="block text-sm font-medium text-white">Email</label>
+          <label className="block text-sm font-medium text-white">
+            {isSignup ? "Email" : "Email or Phone Number"}
+          </label>
           <input
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            type="email"
-            autoComplete="username"
-            placeholder="you@example.com"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            type={isSignup ? "email" : "text"}
+            autoComplete={isSignup ? "username" : "off"}
+            placeholder={isSignup ? "you@example.com" : "Email or phone number"}
             required
           />
         </div>
@@ -171,8 +216,6 @@ export default function LoginForm() {
             )}
           </div>
         )}
-
-
 
         {/* Error */}
         {error && (

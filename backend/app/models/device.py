@@ -20,6 +20,7 @@ class DeviceInDB(BaseModel):
     location: Optional[str] = None         # sub-region / location label (admin-defined)
     zone: Optional[str] = None             # legacy single-zone field (kept for backward compat)
     fence_zone_ids: Optional[List[str]] = Field(default_factory=list)  # many-to-many KML fence zone IDs
+    category: Optional[str] = None         # device category e.g. "car", "wallet", "bag"
 
     class Config:
         json_encoders = {ObjectId: str}

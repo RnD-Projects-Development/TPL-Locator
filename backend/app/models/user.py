@@ -12,6 +12,7 @@ class UserInDB(BaseModel):
     email: EmailStr
     password: str
     name: Optional[str] = ""
+    phone: Optional[str] = None
     admin_id: Optional[PyObjectId] = None
     devices: List[PyObjectId] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -26,11 +27,13 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class UserPublic(BaseModel):
     id: str
     email: EmailStr
     name: Optional[str] = None
+    phone: Optional[str] = None
     admin_id: Optional[str] = None
     devices: List[str] = []
