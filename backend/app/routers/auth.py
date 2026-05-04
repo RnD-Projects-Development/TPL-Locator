@@ -167,7 +167,10 @@ async def register(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
     name = (payload.name or "").strip()
+
     user = await mongo.create_user(email, payload.password, name, phone)
+
+
 
     # FIX 2: explicitly stamp name + phone + created_at on the doc.
     # create_user() may not write these fields depending on its implementation.
@@ -188,6 +191,10 @@ async def register(
             "id":    str(user.id),
             "email": user.email,
             "name":  name,
+
             "phone": phone,
+
+            "role":  "user",
+
         },
     }

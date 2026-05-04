@@ -15,6 +15,7 @@ class UserInDB(BaseModel):
     phone: Optional[str] = None
     admin_id: Optional[PyObjectId] = None
     devices: List[PyObjectId] = Field(default_factory=list)
+    role: str = "user"  # user or admin
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
@@ -28,6 +29,8 @@ class UserCreate(BaseModel):
     password: str
     name: Optional[str] = None
     phone: Optional[str] = None
+    role: Optional[str] = "user"
+
 
 
 class UserPublic(BaseModel):
@@ -37,3 +40,4 @@ class UserPublic(BaseModel):
     phone: Optional[str] = None
     admin_id: Optional[str] = None
     devices: List[str] = []
+    role: str = "user"

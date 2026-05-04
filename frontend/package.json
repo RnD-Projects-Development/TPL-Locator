@@ -4,8 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev:main": "vite --config vite.config.main.js",
+    "dev:test": "vite --config vite.config.test.js",
+    "build:main": "vite build --config vite.config.js",
+    "build:test": "vite build --config vite.config.test.js",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run"

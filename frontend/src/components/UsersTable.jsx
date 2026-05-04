@@ -37,6 +37,7 @@ export default function UsersTable() {
   const [editError, setEditError]         = useState("");
   const [editName, setEditName]           = useState("");
   const [editPassword, setEditPassword]   = useState("");
+  const [editRole, setEditRole]           = useState("user");
 
   // Search/assign state
   const [searchSN, setSearchSN]           = useState("");
@@ -70,10 +71,12 @@ export default function UsersTable() {
   useEffect(() => {
     if (editTarget) {
       setEditName(editTarget.name || "");
+      setEditRole(editTarget.role || "user");
       setEditPassword("");
       setEditError("");
     } else {
       setEditName("");
+      setEditRole("user");
       setEditPassword("");
       setEditError("");
     }
@@ -210,6 +213,7 @@ export default function UsersTable() {
             <th style={{ width:40, textAlign:'center', color:'rgba(226,160,160,0.5)', fontWeight:500, fontSize:11 }}>#</th>
             <th>Email</th>
             <th>Name</th>
+            <th>Role</th>
             <th>Devices Assigned</th>
             <th>Created</th>
             <th>Actions</th>
@@ -223,6 +227,7 @@ export default function UsersTable() {
                 <td style={{ textAlign:'center', color:'#52525b', fontSize:11, fontWeight:500, userSelect:'none' }}>{index + 1}.</td>
                 <td><span className="cell-client">{u.email ?? "—"}</span></td>
                 <td><span className="cell-serial">{u.name || "—"}</span></td>
+                <td><span className="cell-serial" style={{ textTransform: 'capitalize' }}>{u.role || "staff"}</span></td>
                 <td>
                   <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                     <span className="cell-serial">{deviceCount}</span>
@@ -391,6 +396,23 @@ export default function UsersTable() {
                   border:"1px solid #3f3f46", borderRadius:8, color:"#f4f4f5", fontSize:13, outline:"none",
                 }}
               />
+            </div>
+
+            <div>
+              <label style={{ color:"#a1a1aa", fontSize:11, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+                Role
+              </label>
+              <select
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value)}
+                style={{
+                  width:"100%", padding:"8px 12px", background:"#27272a",
+                  border:"1px solid #3f3f46", borderRadius:8, color:"#f4f4f5", fontSize:13, outline:"none",
+                }}
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
             </div>
           </div>
 
