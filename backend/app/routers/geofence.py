@@ -34,14 +34,15 @@ async def _get_assigned_devices(account, mongo: MongoService):
     Users  → scoped by their parent admin's admin_id (4-tier fallback).
     """
     ZONE_KEYS = list(KML_POLYGONS.keys())
-    PROJ = {"sn": 1, "zone": 1, "name": 1, "user_id": 1, "admin_id": 1}
+    PROJ = {"sn": 1, "zone": 1, "fence_zone_ids": 1, "name": 1, "user_id": 1, "admin_id": 1}
     user_oid = _to_oid(account.id)
+    zone_filter = {"$or": [{"fence_zone_ids": {"$in": ZONE_KEYS}}, {"zone": {"$in": ZONE_KEYS}}]}
 
     # ── Admin: direct query ────────────────────────────────────────────────────
     if isinstance(account, AdminInDB):
         admin_oid = _to_oid(account.id)
         results = await mongo.devices.find(
-            {"admin_id": admin_oid, "zone": {"$in": ZONE_KEYS}}, PROJ
+            {"admin_id": admin_oid, **zone_filter}, PROJ
         ).to_list(500)
         logger.info("[geofence] admin=%s zone_devices=%d", account.email, len(results))
         return results
@@ -87,7 +88,7 @@ async def _get_assigned_devices(account, mongo: MongoService):
         return []
 
     results = await mongo.devices.find(
-        {"admin_id": admin_oid, "zone": {"$in": ZONE_KEYS}}, PROJ
+        {"admin_id": admin_oid, "user_id": user_oid, **zone_filter}, PROJ
     ).to_list(500)
     logger.info("[geofence] user=%s admin_oid=%s zone_devices=%d", account.email, admin_oid, len(results))
     return results
@@ -121,7 +122,7 @@ async def geofence_debug(
         # Result
         "zone_devices_found":      len(devices),
         "devices": [
-            {"sn": d["sn"], "zone": d.get("zone"), "admin_id": str(d.get("admin_id", ""))}
+            {"sn": d["sn"], "fence_zone_ids": d.get("fence_zone_ids") or [], "zone": d.get("zone"), "admin_id": str(d.get("admin_id", ""))}
             for d in devices
         ],
     }
@@ -143,22 +144,34 @@ async def get_geofence_status(
     if not device_docs:
         return {"zones": {}}
 
+    # Build (sn, zone_id) pairs — a device can belong to multiple zones
+    pairs: list[tuple[str, str]] = []
+    for doc in device_docs:
+        sn = doc["sn"]
+        assigned = doc.get("fence_zone_ids") or []
+        if not assigned and doc.get("zone"):
+            assigned = [doc["zone"]]  # backward compat: old single-zone field
+        for zone_id in assigned:
+            if zone_id in KML_POLYGONS:
+                pairs.append((sn, zone_id))
+
+    if not pairs:
+        return {"zones": {}}
+
     tasks = [
-        compute_device_zone_status(doc["sn"], KML_POLYGONS[doc["zone"]], mongo.locations)
-        for doc in device_docs
+        compute_device_zone_status(sn, KML_POLYGONS[zone_id], mongo.locations)
+        for sn, zone_id in pairs
     ]
     statuses = await asyncio.gather(*tasks, return_exceptions=True)
 
     zones: dict = {}
-    for doc, status in zip(device_docs, statuses):
+    for (sn, zone_id), status in zip(pairs, statuses):
         if isinstance(status, Exception):
-            logger.warning("Status computation failed for sn=%s: %s", doc["sn"], status)
+            logger.warning("Status computation failed for sn=%s zone=%s: %s", sn, zone_id, status)
             status = {"status": "OFFLINE", "latest": None, "first_seen": None, "last_seen": None}
-
-        zone_id = doc["zone"]
         if zone_id not in zones:
             zones[zone_id] = []
-        zones[zone_id].append({"sn": doc["sn"], **status})
+        zones[zone_id].append({"sn": sn, **status})
 
     return {"zones": zones}
 
@@ -179,7 +192,10 @@ async def get_zone_report(
         raise HTTPException(status_code=404, detail="Zone not found")
 
     device_docs  = await _get_assigned_devices(account, mongo)
-    zone_devices = [d for d in device_docs if d["zone"] == zone_id]
+    zone_devices = [
+        d for d in device_docs
+        if zone_id in (d.get("fence_zone_ids") or []) or d.get("zone") == zone_id
+    ]
 
     if not zone_devices:
         return {"zone_id": zone_id, "events": [], "first_seen": None, "last_seen": None}
@@ -249,7 +265,10 @@ async def get_zone_tracks(
                 role, account.email, zone_id, admin_scope, start.isoformat(), end.isoformat())
 
     device_docs  = await _get_assigned_devices(account, mongo)
-    zone_devices = [d for d in device_docs if d["zone"] == zone_id]
+    zone_devices = [
+        d for d in device_docs
+        if zone_id in (d.get("fence_zone_ids") or []) or d.get("zone") == zone_id
+    ]
 
     logger.info("[tracks] zone=%s devices_in_zone=%d", zone_id, len(zone_devices))
 

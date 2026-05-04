@@ -26,20 +26,20 @@ const DOT_STYLE = {
 };
 
 // ── Per-device color palette ──────────────────────────────────────────────────
-// 12 visually distinct colors that all read well on a dark map
+// 12 vivid, high-contrast colors visible on both light and dark map tiles
 const DEVICE_PALETTE = [
-  '#60a5fa', // blue
-  '#34d399', // emerald
-  '#f59e0b', // amber
-  '#a78bfa', // violet
-  '#f87171', // red
-  '#22d3ee', // cyan
-  '#fb923c', // orange
-  '#e879f9', // fuchsia
-  '#4ade80', // green
-  '#facc15', // yellow
-  '#818cf8', // indigo
-  '#f472b6', // pink
+  '#2563eb', // bold blue
+  '#059669', // strong emerald
+  '#d97706', // deep amber
+  '#7c3aed', // vivid violet
+  '#dc2626', // strong red
+  '#0891b2', // deep cyan
+  '#ea580c', // vivid orange
+  '#c026d3', // strong fuchsia
+  '#16a34a', // vivid green
+  '#ca8a04', // rich yellow-gold
+  '#4f46e5', // deep indigo
+  '#db2777', // vivid pink
 ];
 
 /**
@@ -57,10 +57,10 @@ export function deviceColor(sn) {
 
 /**
  * Ray-casting point-in-polygon test.
- * @param {number} lat - Latitude of the point
- * @param {number} lng - Longitude of the point
- * @param {Array<{lat: number, lng: number}>} polygon - Zone polygon vertices
- * @returns {boolean} True if point is inside the polygon
+ * @param {number} lat
+ * @param {number} lng
+ * @param {Array<{lat: number, lng: number}>} polygon
+ * @returns {boolean}
  */
 export function pointInPolygon(lat, lng, polygon) {
   if (!polygon || polygon.length === 0) return false;
@@ -80,6 +80,18 @@ export function pointInPolygon(lat, lng, polygon) {
     j = i;
   }
   return inside;
+}
+
+/**
+ * Multi-polygon point test — true if inside any of the sub-polygons.
+ * @param {number} lat
+ * @param {number} lng
+ * @param {Array<Array<{lat: number, lng: number}>>} polygons
+ * @returns {boolean}
+ */
+export function pointInMultiPolygon(lat, lng, polygons) {
+  if (!polygons || polygons.length === 0) return false;
+  return polygons.some((poly) => pointInPolygon(lat, lng, poly));
 }
 
 function _fmt(ts) {
@@ -213,10 +225,18 @@ export function createPolygonManager(map) {
     const allLatLngs = [];
 
     zones.forEach((zone) => {
-      if (!zone.polygon || zone.polygon.length === 0) return;
+      // Multi-polygon zone (e.g. uc_216): pass all rings as a Leaflet multi-polygon
+      const isMulti = Array.isArray(zone.polygons) && zone.polygons.length > 0;
+      if (!isMulti && (!zone.polygon || zone.polygon.length === 0)) return;
 
-      const latLngs = zone.polygon.map(({ lat, lng }) => [lat, lng]);
-      allLatLngs.push(...latLngs);
+      let latLngs;
+      if (isMulti) {
+        latLngs = zone.polygons.map((ring) => ring.map(({ lat, lng }) => [lat, lng]));
+        latLngs.flat().forEach((ll) => allLatLngs.push(ll));
+      } else {
+        latLngs = zone.polygon.map(({ lat, lng }) => [lat, lng]);
+        allLatLngs.push(...latLngs);
+      }
 
       const polygon = window.L.polygon(latLngs, { ...DEFAULT_STYLE });
       polygon.addTo(map);
@@ -277,7 +297,7 @@ export function createPolygonManager(map) {
         console.warn('[ZonePolygonManager] selectZone fitBounds failed:', e);
       }
 
-      _renderDots(zone);
+      if (!zone.polygons) _renderDots(zone);
     }
   }
 

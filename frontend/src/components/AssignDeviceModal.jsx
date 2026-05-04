@@ -26,12 +26,18 @@ const SELECT_STYLE = {
  *   onClose     — () => void
  */
 export default function AssignDeviceModal({ zone, devices, assignments, onAssign, onClose }) {
-  // Memoize so this doesn't recompute on every render (fixes sluggishness).
-  // A device is available if it has no zone, or its zone is not a beat_ KML zone.
-  const available = useMemo(
-    () => devices.filter((d) => !d.zone || !d.zone.startsWith('beat_')),
-    [devices]
+  // Show all devices except those already assigned to THIS zone.
+  // A device can be in multiple zones simultaneously.
+  const alreadyInZone = useMemo(
+    () => new Set((assignments[zone.zone_id] || []).map((e) => e.sn)),
+    [assignments, zone.zone_id]
   );
+  const available = useMemo(() => {
+    const list = devices.filter((d) => !alreadyInZone.has(d.sn));
+    console.log('[AssignModal] zone=%s total=%d excluded=%d available=%d',
+      zone.zone_id, devices.length, alreadyInZone.size, list.length);
+    return list;
+  }, [devices, alreadyInZone, zone.zone_id]);
 
   // BUG FIX: initialize to the sn string (guaranteed) or null.
   // Never fall back to '' — an empty string is falsy and breaks the disabled check.
@@ -93,7 +99,7 @@ export default function AssignDeviceModal({ zone, devices, assignments, onAssign
             <label>Select Device <span className="required">*</span></label>
             {available.length === 0 ? (
               <p style={{ color: '#71717a', fontSize: 12, margin: '4px 0 0' }}>
-                No unassigned devices available
+                All devices are already assigned to this zone
               </p>
             ) : (
               <select

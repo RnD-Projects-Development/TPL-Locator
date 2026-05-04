@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
+import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import "./PlaybackPage.css";
 
 
@@ -61,6 +62,8 @@ export default function PlaybackPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation, getPlayback } = useCityTag();
   const [label, setLabel] = useState("");
+  const { zones } = useZoneCache();
+  const [showFences, setShowFences] = useState(false);
 
   const [sn, setSn]                         = useState(searchParams.get("device") || "");
   const [sessionTraj, setSessionTraj]       = useState([]);
@@ -272,6 +275,16 @@ export default function PlaybackPage() {
               >Historical</button>
             </div>
           )}
+          <button
+            className={`pb-fence-btn${showFences ? " active" : ""}`}
+            onClick={() => setShowFences(v => !v)}
+            title={showFences ? "Hide fences" : "Show fences"}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/>
+            </svg>
+            Fences
+          </button>
         </div>
       </div>
 
@@ -290,7 +303,7 @@ export default function PlaybackPage() {
 
         <div className="pb-main">
           <div className="pb-map-wrap">
-            <MapView sn={sn} label={label} latest={latest} trajectory={trajectory} playbackPoint={playbackPoint} showLine={false} />
+            <MapView sn={sn} label={label} latest={latest} trajectory={trajectory} playbackPoint={playbackPoint} showLine={false} showFences={showFences} zones={zones} />
           </div>
 
           {/* Playback controls */}
