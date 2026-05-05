@@ -15,7 +15,6 @@ import os
 
 # choose database name via environment, default to development db
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "citytag_development")
-ADMINS_COLLECTION = "admins"
 logger = logging.getLogger(__name__)
 
 
@@ -36,12 +35,9 @@ class MongoService:
         return self._client[MONGO_DB_NAME]
 
     @property
-    def admins(self):
-        return self.db[ADMINS_COLLECTION]
-
-    @property
-    def users(self):
-        return self.db["users"]
+    def accounts(self):
+        """Unified collection for users and admins with role discriminator."""
+        return self.db["accounts"]
 
     @property
     def devices(self):
@@ -51,30 +47,45 @@ class MongoService:
     def locations(self):
         return self.db["locations"]
 
-    async def get_admin_by_email(self, email: str) -> Optional[AdminInDB]:
-        doc = await self.admins.find_one({"email": email.strip().lower()})
+    async def get_account_by_email(self, email: str, role: Optional[str] = None):
+        """Get account by email. If role is specified, filter by role."""
+        from app.models.admin import AccountInDB
+        query = {"email": email.strip().lower()}
+        if role:
+            query["role"] = role
+        doc = await self.accounts.find_one(query)
         if not doc:
             return None
-        return AdminInDB(**doc)
+        return AccountInDB(**doc)
 
-    # ---------- user methods ----------
+    async def get_admin_by_email(self, email: str) -> Optional[AdminInDB]:
+        """Get admin account by email."""
+        account = await self.get_account_by_email(email, role="admin")
+        if not account:
+            return None
+        return AdminInDB(**account.dict())
+
     async def get_user_by_email(self, email: str):
-        doc = await self.users.find_one({"email": email.strip().lower()})
-        if not doc:
+        """Get user account by email."""
+        account = await self.get_account_by_email(email, role="user")
+        if not account:
             return None
         from app.models.user import UserInDB
-        return UserInDB(**doc)
+        return UserInDB(**account.dict())
 
     async def get_user_by_id(self, user_id: str):
+        """Get user account by ID."""
         try:
             oid = ObjectId(user_id)
         except Exception:
             return None
-        doc = await self.users.find_one({"_id": oid})
+        from app.models.admin import AccountInDB
+        from app.models.user import UserInDB
+        doc = await self.accounts.find_one({"_id": oid, "role": "user"})
         if not doc:
             return None
-        from app.models.user import UserInDB
-        return UserInDB(**doc)
+        account = AccountInDB(**doc)
+        return UserInDB(**account.dict())
 
     async def create_user(self, email: str, password: str, name: Optional[str] = None, role: str = "user") -> 'UserInDB':
         from app.models.user import UserInDB
@@ -84,15 +95,20 @@ class MongoService:
             "name": name or "",
             "admin_id": None,
             "devices": [],
-            "role": role,
+            "role": "user",  # Always "user" for this method
             "created_at": datetime.now(timezone.utc),
         }
-        result = await self.users.insert_one(payload)
-        created = await self.users.find_one({"_id": result.inserted_id})
-        return UserInDB(**created)
+        result = await self.accounts.insert_one(payload)
+        created = await self.accounts.find_one({"_id": result.inserted_id})
+        from app.models.admin import AccountInDB
+        account = AccountInDB(**created)
+        return UserInDB(**account.dict())
 
     async def update_user_admin(self, user_id: str, admin_id: str):
-        await self.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"admin_id": ObjectId(admin_id)}})
+        await self.accounts.update_one(
+            {"_id": ObjectId(user_id), "role": "user"},
+            {"$set": {"admin_id": ObjectId(admin_id)}}
+        )
 
     async def delete_user(self, user_id: str) -> bool:
         """Unassign all devices from this user, then delete the user. Returns True if deleted."""
@@ -101,7 +117,7 @@ class MongoService:
         except Exception:
             return False
         await self.devices.update_many({"user_id": oid}, {"$set": {"user_id": None, "bound_at": None}})
-        result = await self.users.delete_one({"_id": oid})
+        result = await self.accounts.delete_one({"_id": oid, "role": "user"})
         return result.deleted_count == 1
 
     # ---------- device methods ----------
@@ -135,7 +151,10 @@ class MongoService:
             {"sn": sn},
             {"$set": {"user_id": ObjectId(user_id), "bound_at": datetime.now(timezone.utc)}},
         )
-        await self.users.update_one({"_id": ObjectId(user_id)}, {"$push": {"devices": device_doc["_id"]}})
+        await self.accounts.update_one(
+            {"_id": ObjectId(user_id), "role": "user"},
+            {"$push": {"devices": device_doc["_id"]}}
+        )
         updated = await self.devices.find_one({"sn": sn})
         return DeviceInDB(**updated)
 
@@ -145,7 +164,10 @@ class MongoService:
             return None
         user_id = device_doc["user_id"]
         await self.devices.update_one({"sn": sn}, {"$set": {"user_id": None, "bound_at": None}})
-        await self.users.update_one({"_id": user_id}, {"$pull": {"devices": device_doc["_id"]}})
+        await self.accounts.update_one(
+            {"_id": user_id, "role": "user"},
+            {"$pull": {"devices": device_doc["_id"]}}
+        )
         return True
 
     async def update_device(self, sn: str, name: Optional[str] = None, client: Optional[str] = None, region: Optional[str] = None):
@@ -166,10 +188,12 @@ class MongoService:
             oid = ObjectId(admin_id)
         except Exception:
             return None
-        doc = await self.admins.find_one({"_id": oid})
+        from app.models.admin import AccountInDB
+        doc = await self.accounts.find_one({"_id": oid, "role": "admin"})
         if not doc:
             return None
-        return AdminInDB(**doc)
+        account = AccountInDB(**doc)
+        return AdminInDB(**account.dict())
 
     async def create_or_update_admin(
         self,
@@ -177,16 +201,19 @@ class MongoService:
         citytag_token: Optional[str] = None,
         reg_devices: Optional[List[str]] = None,
     ) -> AdminInDB:
-        # Check if email already exists in user table
-        existing_user = await self.get_user_by_email(data.email)
+        # Check if email already exists as a user
+        existing_user = await self.get_account_by_email(data.email, role="user")
         if existing_user:
             raise ValueError("Email already registered as user")
             
-        existing = await self.get_admin_by_email(data.email)
+        existing = await self.get_account_by_email(data.email, role="admin")
+        from app.models.admin import AccountInDB
+        
         payload = {
             "email": data.email.strip().lower(),
             "password": hash_password(data.password),
             "uid": data.uid,
+            "role": "admin",
         }
         if citytag_token is not None:
             payload["citytag_token"] = citytag_token
@@ -194,20 +221,22 @@ class MongoService:
             payload["reg_devices"] = reg_devices
 
         if existing:
-            await self.admins.update_one(
+            await self.accounts.update_one(
                 {"_id": existing.id},
                 {"$set": payload},
             )
-            updated = await self.admins.find_one({"_id": existing.id})
-            return AdminInDB(**updated)
+            updated = await self.accounts.find_one({"_id": existing.id})
+            account = AccountInDB(**updated)
+            return AdminInDB(**account.dict())
 
-        result = await self.admins.insert_one(payload)
-        created = await self.admins.find_one({"_id": result.inserted_id})
-        return AdminInDB(**created)
+        result = await self.accounts.insert_one(payload)
+        created = await self.accounts.find_one({"_id": result.inserted_id})
+        account = AccountInDB(**created)
+        return AdminInDB(**account.dict())
 
     async def update_admin_token(self, admin_id: str, token: str) -> None:
-        await self.admins.update_one(
-            {"_id": ObjectId(admin_id)},
+        await self.accounts.update_one(
+            {"_id": ObjectId(admin_id), "role": "admin"},
             {"$set": {"citytag_token": token}},
         )
 

@@ -88,8 +88,8 @@ async def admin_create_user(
 
         user = await mongo.create_user(payload.email, payload.password, payload.name, payload.role or "user")
         created_at = datetime.now(timezone.utc)
-        await mongo.users.update_one(
-            {"_id": ObjectId(str(user.id))},
+        await mongo.accounts.update_one(
+            {"_id": ObjectId(str(user.id)), "role": "user"},
             {"$set": {"created_at": created_at}},
         )
         await mongo.update_user_admin(str(user.id), str(current_admin.id))
@@ -121,7 +121,8 @@ async def admin_list_users(
     logger.info("admin_list_users started admin=%s", current_admin.email)
     try:
         admin_id_obj = _to_oid(current_admin.id)
-        users_cursor = mongo.users.find({
+        users_cursor = mongo.accounts.find({
+            "role": "user",
             "$or": [
                 {"admin_id": admin_id_obj},
                 {"admin_id": None},
@@ -201,7 +202,7 @@ async def admin_update_user(
         update_fields["role"] = payload.role
 
     if update_fields:
-        await mongo.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_fields})
+        await mongo.accounts.update_one({"_id": ObjectId(user_id), "role": "user"}, {"$set": update_fields})
 
     updated = await mongo.get_user_by_id(user_id)
     devices = await _populate_devices(mongo, updated.devices or [])

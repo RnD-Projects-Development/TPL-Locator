@@ -57,7 +57,7 @@ async def _get_assigned_devices(account, mongo: MongoService):
 
     # Method 2: re-fetch user doc directly from DB (bypass Pydantic deserialization)
     if not admin_oid:
-        raw = await mongo.users.find_one({"_id": user_oid}, {"admin_id": 1})
+        raw = await mongo.accounts.find_one({"_id": user_oid, "role": "user"}, {"admin_id": 1})
         if raw and raw.get("admin_id"):
             admin_oid = _to_oid(raw["admin_id"])
             logger.info("[geofence] user=%s method=db_refetch admin_oid=%s", account.email, admin_oid)
@@ -106,7 +106,7 @@ async def geofence_debug(
     # Raw user doc from DB (unfiltered by Pydantic)
     raw_user = None
     if role == "user":
-        raw_user = await mongo.users.find_one({"_id": _to_oid(account.id)}, {"admin_id": 1, "devices": 1})
+        raw_user = await mongo.accounts.find_one({"_id": _to_oid(account.id), "role": "user"}, {"admin_id": 1, "devices": 1})
 
     devices = await _get_assigned_devices(account, mongo)
 

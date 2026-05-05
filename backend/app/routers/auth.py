@@ -101,25 +101,21 @@ async def register(
     email = payload.email.strip().lower()
     logger.info("register started email=%s", email)
     
-    # Check if email already exists in admin table
-    existing_admin = await mongo.get_admin_by_email(email)
-    logger.info("register check admin email=%s found=%s", email, existing_admin is not None)
-    if existing_admin:
-        logger.warning("register blocked: email already registered as admin: %s", email)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered as admin")
+    # Check if email already exists in accounts collection with any role
+    existing_account = await mongo.get_account_by_email(email)
+    logger.info("register check email=%s found=%s", email, existing_account is not None)
+    if existing_account:
+        role = existing_account.role if hasattr(existing_account, 'role') else existing_account.get("role")
+        logger.warning("register blocked: email already registered as %s: %s", role, email)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Email already registered as {role}")
     
-    # Check if email already exists in user table
-    existing_user = await mongo.get_user_by_email(email)
-    if existing_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-
     name = (payload.name or "").strip()
     user = await mongo.create_user(email, payload.password, name, "user")
 
     # FIX 2: explicitly stamp name + created_at on the doc.
     # create_user() may not write these fields depending on its implementation.
-    await mongo.users.update_one(
-        {"_id": ObjectId(str(user.id))},
+    await mongo.accounts.update_one(
+        {"_id": ObjectId(str(user.id)), "role": "user"},
         {"$set": {
             "name":       name,
             "created_at": datetime.now(timezone.utc),

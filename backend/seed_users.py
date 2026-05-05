@@ -29,13 +29,22 @@ SEED_ADMINS = [
         "email": "tpl@gmail.com",
         "password": "Trakker123",
         "uid": "251000",
+
+    },
+    {
+        "email": "tpl123@gmail.com",
+        "password": "Trakker123",
+        "uid": "251001",
+
     },
 ]
 
 # demo user accounts (will be linked to admin when they add a device)
 SEED_USERS = [
-    {"email": "user1@example.com", "password": "userpass", "name": "Alice", "role": "user"},
-    {"email": "user2@example.com", "password": "userpass", "name": "Bob", "role": "user"},
+    {"email": "abdul.saboor@tpltrakker.com", "password": "Trakker123", "name": "Abdul Saboor", "role": "user"},
+    {"email": "sheikhabdulbaseer786@gmail.com", "password": "Trakker123", "name": "Sheikh Abdul Baseer", "role": "user"},
+    {"email": "suthra.punjab@tpltrakker.com", "password": "Trakker123", "name": "Suthra Punjab", "role": "user"},
+    {"email": "demo@tpltrakker.com", "password": "Trakker123", "name": "Demo User", "role": "user"},
 ]
 
 
@@ -53,48 +62,65 @@ async def main() -> None:
     db = client[DB_NAME]
 
     # ────────────────────────────────────────────────
-    # Seed admins and users collections
+    # Create unified accounts collection (users + admins)
     # ────────────────────────────────────────────────
 
     now = datetime.now(timezone.utc)
 
-    admins = db["admins"]
-    users = db["users"]
+    accounts = db["accounts"]
     devices = db["devices"]
+    locations = db["locations"]
 
     print("Seeding admin accounts...")
     for a in SEED_ADMINS:
-        await admins.update_one(
-            {"email": a["email"]},
+        await accounts.update_one(
+            {"email": a["email"], "role": "admin"},
             {
-                "$setOnInsert": {"email": a["email"], "created_at": now},
-                "$set": {"password": hash_password(a["password"]), "uid": a["uid"], "reg_devices": []},
+                "$setOnInsert": {
+                    "email": a["email"],
+                    "role": "admin",
+                    "created_at": now
+                },
+                "$set": {
+                    "password": hash_password(a["password"]),
+                    "uid": a["uid"],
+                    "reg_devices": []
+                },
             },
             upsert=True,
         )
-    print(f"Admins count after seed: {await admins.count_documents({})}")
+    print(f"Admins count after seed: {await accounts.count_documents({'role': 'admin'})}")
 
     print("Seeding demo user accounts (unlinked)")
     for u in SEED_USERS:
-        await users.update_one(
-            {"email": u["email"]},
+        await accounts.update_one(
+            {"email": u["email"], "role": "user"},
             {
-                "$setOnInsert": {"email": u["email"], "created_at": now},
-                "$set": {"password": hash_password(u["password"]), "name": u.get("name", ""), "admin_id": None, "devices": [], "role": u.get("role", "user")},
+                "$setOnInsert": {
+                    "email": u["email"],
+                    "role": "user",
+                    "created_at": now
+                },
+                "$set": {
+                    "password": hash_password(u["password"]),
+                    "name": u.get("name", ""),
+                    "admin_id": None,
+                    "devices": []
+                },
             },
             upsert=True,
         )
-    print(f"Users count after seed: {await users.count_documents({})}")
-
-    # Remove legacy role field from any existing user documents.
-    await users.update_many({"role": {"$exists": True}}, {"$unset": {"role": ""}})
+    print(f"Users count after seed: {await accounts.count_documents({'role': 'user'})}")
+    print(f"Total accounts: {await accounts.count_documents({})}")
 
     # ────────────────────────────────────────────────
-    # Create / ensure locations and devices collections + indexes
+    # Create / ensure locations, devices, and accounts collection indexes
     # ────────────────────────────────────────────────
 
-    locations = db["locations"]
-    print("\nEnsuring indexes on locations collection...")
+    print("\nEnsuring indexes on accounts collection...")
+    await accounts.create_index([("email", 1)], name="email_idx", unique=True, background=True)
+    await accounts.create_index([("role", 1)], name="role_idx", background=True)
+    await accounts.create_index([("email", 1), ("role", 1)], name="email_role_idx", background=True)
 
     print("\nEnsuring indexes on devices collection...")
     await devices.create_index([("admin_id", 1)], name="admin_idx", background=True)

@@ -107,7 +107,7 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
     This keeps GET /api/devices stable even if CityTag is down, because it only relies on:
     - mongo.devices (binding/name/client/region/user assignment)
     - mongo.locations (latest timestamp -> status + dataRetrievalTime)
-    - mongo.users (assigned user display name)
+    - mongo.accounts (assigned user display name, filtered by role="user")
     """
     logger.info("enrich_admin_devices started admin=%s", admin.email)
 
@@ -139,7 +139,7 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
 
     users_by_id: dict[str, dict] = {}
     if user_oids:
-        async for user_doc in mongo.users.find({"_id": {"$in": user_oids}}):
+        async for user_doc in mongo.accounts.find({"_id": {"$in": user_oids}, "role": "user"}):
             users_by_id[str(user_doc["_id"])] = user_doc
 
     def resolve_user_display(user_oid) -> tuple[str | None, str | None]:

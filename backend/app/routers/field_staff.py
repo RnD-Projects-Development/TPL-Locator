@@ -98,7 +98,7 @@ async def get_live_devices(
 
     users_by_id: dict[str, dict] = {}
     if user_oid_map:
-        async for user_doc in mongo.users.find({"_id": {"$in": list(user_oid_map.values())}}):
+        async for user_doc in mongo.accounts.find({"_id": {"$in": list(user_oid_map.values())}, "role": "user"}):
             users_by_id[str(user_doc["_id"])] = user_doc
 
     # ── Build response ───────────────────────────────────────────────────

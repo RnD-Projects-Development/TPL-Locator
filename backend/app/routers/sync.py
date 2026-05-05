@@ -38,7 +38,7 @@ async def try_relogin(email: str, uid: str, mongo: MongoService, citytag: CityTa
             logger.warning("sync try_relogin token_missing email=%s", email)
             return None
 
-        admin_doc = await mongo.admins.find_one({"email": email})
+        admin_doc = await mongo.accounts.find_one({"email": email, "role": "admin"})
         if not admin_doc:
             logger.warning("sync try_relogin admin_missing email=%s", email)
             return None
@@ -177,7 +177,7 @@ async def sync_zoqin_vendor_locations(mongo: MongoService) -> tuple[int, int]:
         logger.info("sync zoqin_no_devices_in_json")
         return (0, 0)
 
-    admin_doc = await mongo.admins.find_one({"email": "tpl@gmail.com"})
+    admin_doc = await mongo.accounts.find_one({"email": "tpl@gmail.com", "role": "admin"})
     if not admin_doc:
         logger.warning("sync zoqin_admin_missing email=tpl@gmail.com")
         return (0, 0)
@@ -272,7 +272,7 @@ async def sync_all_admin_locations(
     start_time = datetime.utcnow() - timedelta(minutes=10)
     end_time = datetime.utcnow()
 
-    async for admin in mongo.admins.find({}):
+    async for admin in mongo.accounts.find({"role": "admin"}):
 
         total_admins += 1
 

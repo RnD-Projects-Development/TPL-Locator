@@ -74,7 +74,7 @@ async def _lookup_user_name(mongo: MongoService, raw_user_id) -> tuple[str | Non
     user_oid = _to_oid(raw_user_id)
     if not user_oid:
         return None, None
-    user_doc = await mongo.users.find_one({"_id": user_oid})
+    user_doc = await mongo.accounts.find_one({"_id": user_oid, "role": "user"})
     if not user_doc:
         return str(raw_user_id), None
     name = (user_doc.get("name") or "").strip()
@@ -115,7 +115,7 @@ async def _bulk_prefetch(mongo: MongoService, sns: list[str]) -> tuple[dict, dic
 
     users_by_id = {}
     if user_oids:
-        async for user_doc in mongo.users.find({"_id": {"$in": user_oids}}):
+        async for user_doc in mongo.accounts.find({"_id": {"$in": user_oids}, "role": "user"}):
             users_by_id[str(user_doc["_id"])] = user_doc
 
     return local_by_sn, latest_by_sn, users_by_id
