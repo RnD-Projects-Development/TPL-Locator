@@ -9,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.auth_utils import hash_password
 
 
-# use a dedicated development database and drop existing data each run
+# use a dedicated development database and preserve existing data on each run
 DB_NAME = os.getenv("SEED_DB_NAME", "citytag_development")
 
 
@@ -55,11 +55,9 @@ async def main() -> None:
     mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/" + DB_NAME)
     client = AsyncIOMotorClient(mongo_uri)
 
-    # drop existing database to start fresh (development only)
-    print(f"Dropping database '{DB_NAME}' (if it exists)...")
-    client.drop_database(DB_NAME)
-
     db = client[DB_NAME]
+
+    print(f"Using database '{DB_NAME}' without dropping existing data...")
 
     # ────────────────────────────────────────────────
     # Create unified accounts collection (users + admins)

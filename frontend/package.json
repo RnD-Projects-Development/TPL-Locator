@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev:main": "vite --config vite.config.main.js",
+    "dev:main": "vite --config vite.config.js",
     "dev:test": "vite --config vite.config.test.js",
     "build:main": "vite build --config vite.config.js",
     "build:test": "vite build --config vite.config.test.js",
