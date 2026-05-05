@@ -78,6 +78,7 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
         "name":               doc.get("name", ""),
         "assigned_name":     assigned_name,
         "client":             client,
+        "category":           doc.get("category") or None,
         "status":             device_status,
         "assigned_user_name": assigned_user_name,
         "assigned_user_id":   str(user.id),
@@ -182,6 +183,7 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
             "name": device_name,
             "assigned_name": assigned_name,
             "client": doc.get("client") or None,
+            "category": doc.get("category") or None,
             "status": device_status,
             "assigned_user_name": assigned_user_name,
             "assigned_user_id": assigned_user_id,
@@ -235,10 +237,11 @@ async def list_user_devices(
 
 class BindDeviceRequest(BaseModel):
     sn: str
-    email: Optional[str] = None  # optional, admin can set user by email
-    name: Optional[str] = None    # label shown in table; stamped on device doc at bind time
-    client: Optional[str] = None  # optional client/company name
-    user_id: Optional[str] = None # admin-only: assign to a specific user
+    email: Optional[str] = None      # optional, admin can set user by email
+    name: Optional[str] = None       # label shown in table; stamped on device doc at bind time
+    client: Optional[str] = None     # optional client/company name
+    user_id: Optional[str] = None    # admin-only: assign to a specific user
+    category: Optional[str] = None   # device category e.g. "car", "wallet", "bag"
 
 
 @router.post("/devices")
@@ -272,6 +275,7 @@ async def bind_device(
             user_id=payload.user_id,
             name=payload.name,
             client=payload.client,
+            category=payload.category,
             mongo=mongo,
         )
         logger.info("bind_device route completed actor=%s sn=%s", current_account.email, payload.sn)
@@ -285,6 +289,43 @@ async def bind_device(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error: {str(err)}",
         )
+
+
+@router.get("/devices/available")
+async def list_available_devices(
+    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+) -> List[dict]:
+    """
+    Return unbound devices that the current account can bind.
+
+    - Admin: only their own unbound devices.
+    - User with admin_id: unbound devices under their admin.
+    - User without admin_id (new user): all unbound devices in the system —
+      the binding service auto-links the user to the device's admin on first bind,
+      so no admin restriction is needed at discovery time.
+    """
+    if isinstance(account, AdminInDB):
+        # Admin sees only their own unbound devices
+        query = {"admin_id": account.id, "user_id": None}
+    elif account.admin_id:
+        # User already linked to an admin — show that admin's unbound devices
+        query = {"admin_id": account.admin_id, "user_id": None}
+    else:
+        # New user not yet linked to any admin — show all unbound devices
+        query = {"user_id": None}
+
+    docs = await mongo.devices.find(query).to_list(None)
+
+    return [
+        {
+            "sn":     d.get("sn"),
+            "name":   d.get("name") or "",
+            "client": d.get("client") or "",
+        }
+        for d in docs
+        if d.get("sn")
+    ]
 
 
 @router.delete("/devices/{sn}")

@@ -163,6 +163,8 @@ export default function MapViewPage() {
         <MultiDeviceSidebar
           selectedSns={selectedSns}
           onSelectionChange={handleSelectionChange}
+          deviceLocations={deviceLocations}
+          fetchingAll={loading}
         />
 
         <div className="mv-map-area">

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import tplLogo from "../assets/tpl.png";
 import DevicesTable from "../components/DevicesTable.jsx";
 import UsersTable from "../components/UsersTable.jsx";
@@ -33,6 +33,7 @@ const HomePage = () => {
   const {
     bindDevice, unbindDevice,
     adminCreateUser, adminAssignDeviceToUser, adminUpdateDevice,
+    getAvailableDevices,
   } = useCityTag();
 
   const { devices, loading: devicesLoading, error: devicesError, refresh: refreshDevices } = useDeviceCache();
@@ -43,11 +44,21 @@ const HomePage = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewMode, setViewMode]         = useState('devices');
 
+  // ── Available (unbound) devices for user bind dropdown ────────────────────
+  const [availableDevices, setAvailableDevices] = useState([]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      getAvailableDevices().then(setAvailableDevices).catch(() => setAvailableDevices([]));
+    }
+  }, [isAdmin, getAvailableDevices]);
+
   // ── Bind modal state ───────────────────────────────────────────────────────
   const [showBindModal, setShowBindModal] = useState(false);
   const [bindSn, setBindSn]               = useState('');
   const [bindName, setBindName]           = useState('');
   const [bindClient, setBindClient]       = useState('');
+  const [bindCategory, setBindCategory]   = useState('');
   const [bindUserId, setBindUserId]       = useState('');
   const [bindLoading, setBindLoading]     = useState(false);
   const [bindError, setBindError]         = useState('');
@@ -75,7 +86,7 @@ const HomePage = () => {
   const loading = viewMode === 'users' ? usersLoading : devicesLoading;
 
   const openBindModal = (sn = '') => {
-    setBindError(''); setBindClient(''); setBindName('');
+    setBindError(''); setBindClient(''); setBindName(''); setBindCategory('');
 
     if (isAdmin) {
       const unbound   = devices.filter((d) => !d.assigned_user_name && !d.user_id);
@@ -84,6 +95,7 @@ const HomePage = () => {
       const defaultUserId = users.length > 0 ? users[0].id : '';
       setBindUserId(defaultUserId);
     } else {
+      // Leave SN blank so the datalist placeholder + hint are visible
       setBindSn(sn || '');
     }
 
@@ -92,15 +104,15 @@ const HomePage = () => {
 
   const closeBindModal = () => {
     setShowBindModal(false);
-    setBindSn(''); setBindName(''); setBindClient(''); setBindUserId(''); setBindError('');
+    setBindSn(''); setBindName(''); setBindClient(''); setBindCategory(''); setBindUserId(''); setBindError('');
   };
 
   const handleBind = async () => {
     if (isAdmin) {
-      if (!bindSn || !bindUserId) { setBindError('Please select a device and a user'); return; }
+      if (!bindSn || !bindUserId || !bindCategory) { setBindError('Please select a device, a user, and a category'); return; }
       setBindError(''); setBindLoading(true);
       try {
-        await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim() });
+        await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory });
         refreshDevices(); refreshUsers(); closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
@@ -108,11 +120,14 @@ const HomePage = () => {
         setBindLoading(false);
       }
     } else {
-      if (!bindSn.trim()) { setBindError('Please enter a locator serial number'); return; }
+      if (!bindSn.trim() || !bindCategory) { setBindError('Please select a locator and a category'); return; }
       setBindError(''); setBindLoading(true);
       try {
-        await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined });
-        refreshDevices(); closeBindModal();
+        await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory });
+        refreshDevices();
+        // Refresh available devices so the just-bound SN disappears from the dropdown
+        getAvailableDevices().then(setAvailableDevices).catch(() => {});
+        closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
       } finally {
@@ -374,6 +389,15 @@ const HomePage = () => {
                     <input type="text" placeholder="e.g. My Car, Office Van…" value={bindName} onChange={(e) => setBindName(e.target.value)} />
                   </div>
                   <div className="hp-modal-field">
+                    <label>Category <span className="required">*</span></label>
+                    <select value={bindCategory} onChange={(e) => setBindCategory(e.target.value)} style={SELECT_STYLE}>
+                      <option value="" disabled style={SELECT_OPTION_STYLE}>— Select category —</option>
+                      {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
+                        <option key={cat} value={cat} style={SELECT_OPTION_STYLE}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="hp-modal-field">
                     <label>Client <span style={{ fontWeight:400, color:'#71717a' }}>(optional)</span></label>
                     <input type="text" placeholder="e.g. TPL Trakker" value={bindClient} onChange={(e) => setBindClient(e.target.value)} />
                   </div>
@@ -384,11 +408,13 @@ const HomePage = () => {
                     <label>Locator Serial Number <span className="required">*</span></label>
                     <input
                       type="text"
-                      placeholder="e.g. 201404628953"
+                      list="bind-sn-datalist"
+                      placeholder="Type or select a serial number…"
                       value={bindSn}
                       onChange={(e) => setBindSn(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleBind()}
                       autoFocus
+                      autoComplete="off"
                       style={{
                         width: '100%', padding: '10px 12px', background: '#27272a',
                         border: `1px solid ${bindError ? '#7f1d1d' : '#3f3f46'}`,
@@ -396,11 +422,18 @@ const HomePage = () => {
                         outline: 'none', boxSizing: 'border-box',
                       }}
                     />
-                    {devices.length > 0 && (
-                      <p style={{ margin: '6px 0 0', fontSize: 11, color: '#52525b' }}>
-                        You have {devices.length} locator{devices.length !== 1 ? 's' : ''} already bound. Enter a serial number to add another.
-                      </p>
-                    )}
+                    <datalist id="bind-sn-datalist">
+                      {availableDevices.map((d) => (
+                        <option key={d.sn} value={d.sn}>
+                          {d.name || d.client || ''}
+                        </option>
+                      ))}
+                    </datalist>
+                    <p style={{ margin: '6px 0 0', fontSize: 11, color: '#52525b' }}>
+                      {availableDevices.length > 0
+                        ? `${availableDevices.length} locator${availableDevices.length !== 1 ? 's' : ''} available — click the field to browse or type to search`
+                        : 'Enter the serial number printed on your locator.'}
+                    </p>
                   </div>
                   <div className="hp-modal-field">
                     <label>Locator Name <span style={{ fontWeight:400, color:'#71717a' }}>(optional)</span></label>
@@ -418,6 +451,15 @@ const HomePage = () => {
                       }}
                     />
                   </div>
+                  <div className="hp-modal-field">
+                    <label>Category <span className="required">*</span></label>
+                    <select value={bindCategory} onChange={(e) => setBindCategory(e.target.value)} style={SELECT_STYLE}>
+                      <option value="" disabled style={SELECT_OPTION_STYLE}>— Select category —</option>
+                      {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
+                        <option key={cat} value={cat} style={SELECT_OPTION_STYLE}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
                 </>
               )}
             </div>
@@ -427,7 +469,7 @@ const HomePage = () => {
               <button
                 className="hp-modal-confirm"
                 onClick={handleBind}
-                disabled={bindLoading || (isAdmin ? (!bindSn || !bindUserId) : !bindSn.trim())}
+                disabled={bindLoading || (isAdmin ? (!bindSn || !bindUserId || !bindCategory) : (!bindSn.trim() || !bindCategory))}
               >
                 {bindLoading ? "Saving…" : "Bind Locator"}
               </button>

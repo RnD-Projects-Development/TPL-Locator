@@ -13,12 +13,23 @@ const inputCls = `
 
 const labelCls = "block text-xs font-semibold text-zinc-400 uppercase tracking-widest";
 
+// ── Phone validation helpers ───────────────────────────────────────────────────
+function normalizePhone(raw) {
+  return raw.replace(/[\s\-\(\)]/g, '');
+}
+
+function isValidPakistaniPhone(raw) {
+  const p = normalizePhone(raw);
+  return /^03\d{9}$/.test(p) || /^\+92\d{10}$/.test(p);
+}
+
 export default function SignupForm() {
   const navigate = useNavigate();
   const { signup } = useCityTag();
   const { loginSuccess } = useAuth();
 
   const [name, setName]                       = useState("");
+  const [phone, setPhone]                     = useState("");
   const [email, setEmail]                     = useState("");
   const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,20 +37,23 @@ export default function SignupForm() {
   const [error, setError]                     = useState("");
 
   const passwordsMatch = !confirmPassword || password === confirmPassword;
+  const phoneError = phone && !isValidPakistaniPhone(phone);
 
   const canSubmit = useMemo(
     () =>
       name.trim() &&
+      phone.trim() && isValidPakistaniPhone(phone) &&
       email.trim() &&
       password &&
       password === confirmPassword &&
       !loading,
-    [name, email, password, confirmPassword, loading]
+    [name, phone, email, password, confirmPassword, loading]
   );
 
   async function onSubmit(e) {
     e.preventDefault();
     if (!passwordsMatch) return;
+    if (!isValidPakistaniPhone(phone)) return;
     setError("");
     setLoading(true);
     try {
@@ -47,6 +61,7 @@ export default function SignupForm() {
         email: email.trim(),
         password,
         name: name.trim(),
+        phone: normalizePhone(phone.trim()),
       });
       loginSuccess({
         user: res.user,
@@ -82,6 +97,28 @@ export default function SignupForm() {
           autoComplete="name"
           required
         />
+      </div>
+
+      {/* Phone Number ──────────────────────────────────────────── */}
+      <div>
+        <label className={labelCls}>
+          Phone Number <span style={{ color: "#ef4444" }}>*</span>
+        </label>
+        <input
+          className={inputCls}
+          style={phoneError ? { borderColor: "#ef4444" } : {}}
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          type="tel"
+          placeholder="e.g. 03001234567 or +923001234567"
+          autoComplete="tel"
+          required
+        />
+        {phoneError && (
+          <p style={{ fontSize: 11, color: "#fca5a5", marginTop: 4 }}>
+            Enter a valid Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
+          </p>
+        )}
       </div>
 
       {/* Email ─────────────────────────────────────────────────── */}

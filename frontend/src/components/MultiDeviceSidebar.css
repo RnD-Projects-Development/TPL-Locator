@@ -275,3 +275,55 @@
   color: var(--text-tertiary);
   font-weight: 600;
 }
+
+/* ─── Per-device live location row ────────────────── */
+.mdsb-live-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mdsb-live-row.live      { color: #86efac; }
+.mdsb-live-row.fetching  { color: #a1a1aa; animation: mdsbFetchPulse 1.2s ease-in-out infinite; }
+.mdsb-live-row.no-signal { color: #52525b; font-style: italic; }
+
+@keyframes mdsbFetchPulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1;   }
+}
+
+.mdsb-spin-icon {
+  flex-shrink: 0;
+  animation: mdsbSpin 0.9s linear infinite;
+}
+
+.mdsb-live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #86efac;
+  flex-shrink: 0;
+  animation: mdsbDotPulse 2s ease-in-out infinite;
+}
+
+.mdsb-live-coords {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #86efac;
+  font-size: 10px;
+}
+
+.mdsb-live-time {
+  color: #52525b;
+  font-size: 9px;
+  flex-shrink: 0;
+  margin-left: 2px;
+}

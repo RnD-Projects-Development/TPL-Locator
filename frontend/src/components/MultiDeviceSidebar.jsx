@@ -3,23 +3,47 @@ import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
 import tplLogo from "../assets/tpl.png";
 import "./MultiDeviceSidebar.css";
 
-export default function MultiDeviceSidebar({ selectedSns, onSelectionChange }) {
+function fmtTs(point) {
+  const ts = point?.timestamp ?? point?.time ?? point?.locTime;
+  if (!ts) return null;
+  try {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch { return null; }
+}
+
+function fmtCoords(point) {
+  const lat = point?.lat ?? point?.latitude ?? point?.gpsLat;
+  const lng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng;
+  if (lat == null || lng == null) return null;
+  return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`;
+}
+
+export default function MultiDeviceSidebar({
+  selectedSns,
+  onSelectionChange,
+  deviceLocations = {},
+  fetchingAll = false,
+}) {
   const { devices, loading, error, refresh } = useDeviceCache();
   const [search, setSearch] = useState("");
 
   const filtered = devices.filter((d) => {
-    const sn     = (d.sn ?? "").toLowerCase();
-    const client = (d.client ?? "").toLowerCase();
-    const user   = (d.assigned_user_name ?? d.assignedUser ?? "").toLowerCase();
-    const term   = search.toLowerCase();
-    return sn.includes(term) || client.includes(term) || user.includes(term);
+    const term = search.toLowerCase();
+    return (
+      (d.sn ?? "").toLowerCase().includes(term) ||
+      (d.client ?? "").toLowerCase().includes(term) ||
+      (d.assigned_user_name ?? d.assignedUser ?? "").toLowerCase().includes(term) ||
+      (d.name ?? "").toLowerCase().includes(term)
+    );
   });
 
   const online  = devices.filter((d) => d.status === "online").length;
   const offline = devices.length - online;
 
-  const filteredSns          = filtered.map(d => d.sn ?? "").filter(Boolean);
-  const allFilteredSelected  = filteredSns.length > 0 && filteredSns.every(sn => selectedSns.has(sn));
+  const filteredSns         = filtered.map(d => d.sn ?? "").filter(Boolean);
+  const allFilteredSelected = filteredSns.length > 0 && filteredSns.every(sn => selectedSns.has(sn));
 
   function toggleDevice(sn) {
     const next = new Set(selectedSns);
@@ -140,8 +164,14 @@ export default function MultiDeviceSidebar({ selectedSns, onSelectionChange }) {
           const status       = d.status ?? "offline";
           const client       = d.client ?? null;
           const assignedUser = d.assigned_user_name ?? d.assignedUser ?? null;
-          const battery      = d.batteryLevel ?? d.battery ?? null;
           const isSelected   = selectedSns.has(sn);
+
+          // Per-device live location state
+          const point        = deviceLocations[sn] ?? null;
+          const isFetching   = isSelected && !point && fetchingAll;
+          const hasLocation  = isSelected && point != null;
+          const locTime      = hasLocation ? fmtTs(point) : null;
+          const locCoords    = hasLocation ? fmtCoords(point) : null;
 
           return (
             <label key={sn} className={`mdsb-item ${isSelected ? "selected" : ""}`}>
@@ -164,7 +194,28 @@ export default function MultiDeviceSidebar({ selectedSns, onSelectionChange }) {
                   <div className="mdsb-sub">{sn}</div>
                 )}
                 {client && <div className="mdsb-client">{client}</div>}
-                {!assignedUser && (
+
+                {/* Live location status — only when selected */}
+                {isFetching && (
+                  <div className="mdsb-live-row fetching">
+                    <svg className="mdsb-spin-icon" viewBox="0 0 20 20" fill="currentColor" width={9} height={9}>
+                      <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+                    </svg>
+                    Fetching location…
+                  </div>
+                )}
+                {hasLocation && locCoords && (
+                  <div className="mdsb-live-row live">
+                    <span className="mdsb-live-dot" />
+                    <span className="mdsb-live-coords">{locCoords}</span>
+                    {locTime && <span className="mdsb-live-time">{locTime}</span>}
+                  </div>
+                )}
+                {isSelected && !isFetching && !hasLocation && (
+                  <div className="mdsb-live-row no-signal">No GPS signal</div>
+                )}
+
+                {!assignedUser && !isSelected && (
                   <div style={{ fontSize: 9, color: "#52525b", marginTop: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     Unbound
                   </div>
@@ -173,7 +224,6 @@ export default function MultiDeviceSidebar({ selectedSns, onSelectionChange }) {
 
               <div className="mdsb-right">
                 <span className={`mdsb-dot ${status === "online" ? "dot-online" : "dot-offline"}`} />
-                {battery != null && <span className="mdsb-battery">{battery}</span>}
               </div>
             </label>
           );

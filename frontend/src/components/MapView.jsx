@@ -221,6 +221,7 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
   const multiMarkersRef  = useRef(new Map()); // sn → { marker, pointHolder }
   const multiGeocodeRef  = useRef(new Map()); // sn → geocode result (cached)
   const multiSnsRef      = useRef(new Set()); // tracks prev selection for change detection
+  const pannedForCountRef = useRef(0);        // # of devices that had coords at last pan
 
   const [mapLoaded, setMapLoaded] = useState(false);
 
@@ -365,6 +366,7 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       multiMarkersRef.current.clear();
       multiGeocodeRef.current.clear();
       multiSnsRef.current = new Set();
+      pannedForCountRef.current = 0;
       detachMap();
       mapRef.current = null;
     };
@@ -621,12 +623,32 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       }
     });
 
-    // Only pan/zoom when the selection itself changes, not on every position refresh
+    // ── Pan / fit-bounds ───────────────────────────────────────────────────────
+    // Reset the "panned-for" counter whenever the set of selected devices changes.
+    // This arms the deferred pan so it fires on the NEXT render that has coords,
+    // even if selectionChanged is already false by then (async fetch resolves later).
     if (selectionChanged) {
-      const validCoords = multiDevices.map(d => extractCoords(d.latest)).filter(Boolean);
+      pannedForCountRef.current = 0;
+    }
+
+    const validCoords = multiDevices
+      .map(d => extractCoords(d.latest))
+      .filter(Boolean);
+
+    // Pan whenever more devices have locations than the last time we panned.
+    //   • fires immediately if coords exist at selection time
+    //   • fires deferred when location fetch resolves (selectionChanged is false by then)
+    //   • does NOT re-pan on routine auto-refresh (count stays the same)
+    //   • does re-fit if user adds more devices and their locations arrive incrementally
+    if (validCoords.length > pannedForCountRef.current) {
+      pannedForCountRef.current = validCoords.length;
       if (validCoords.length === 1) {
-        map.setView([validCoords[0].lat, validCoords[0].lng], Math.max(map.getZoom(), 14), { animate: true, duration: 0.4 });
-      } else if (validCoords.length > 1) {
+        map.setView(
+          [validCoords[0].lat, validCoords[0].lng],
+          Math.max(map.getZoom(), 15),
+          { animate: true, duration: 0.5 }
+        );
+      } else {
         try {
           const bounds = window.L.latLngBounds(validCoords.map(c => [c.lat, c.lng]));
           if (bounds.isValid()) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });

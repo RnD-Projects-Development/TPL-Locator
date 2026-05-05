@@ -12,6 +12,7 @@ class UserInDB(BaseModel):
     email: EmailStr
     password: str
     name: Optional[str] = ""
+    phone: Optional[str] = None
     admin_id: Optional[PyObjectId] = None
     devices: List[PyObjectId] = Field(default_factory=list)
     role: str = "user"  # user or admin
@@ -27,13 +28,16 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: Optional[str] = None
+    phone: Optional[str] = None
     role: Optional[str] = "user"
+
 
 
 class UserPublic(BaseModel):
     id: str
     email: EmailStr
     name: Optional[str] = None
+    phone: Optional[str] = None
     admin_id: Optional[str] = None
     devices: List[str] = []
     role: str = "user"
