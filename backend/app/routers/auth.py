@@ -45,11 +45,41 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    admin: Optional[AdminPublic] = None
-    user: Optional["UserPublic"] = None
-    role: str
+    account: Optional[dict] = None
     access_token: str
     token_type: str = "bearer"
+
+
+def _admin_account_payload(admin: AdminPublic) -> dict:
+    return {
+        "id": admin.id,
+        "email": admin.email,
+        "role": "admin",
+        "uid": admin.uid,
+        "created_at": admin.created_at,
+        "reg_device": admin.reg_device,
+        "reg_devices": admin.reg_devices,
+        "name": None,
+        "phone": None,
+        "admin_id": None,
+        "devices": [],
+    }
+
+
+def _user_account_payload(user: UserPublic) -> dict:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "role": "user",
+        "name": user.name,
+        "phone": user.phone,
+        "admin_id": user.admin_id,
+        "devices": user.devices,
+        "uid": None,
+        "created_at": None,
+        "reg_device": None,
+        "reg_devices": [],
+    }
 
 
 class RegisterRequest(BaseModel):
@@ -98,14 +128,14 @@ async def login(
                 logger.info("admin login completed email=%s admin_id=%s", email, admin.id)
 
                 access_token = create_access_token(str(admin.id))
-                return LoginResponse(admin=admin_to_public(admin), role="admin", access_token=access_token)
+                return LoginResponse(account=_admin_account_payload(admin_to_public(admin)), access_token=access_token)
 
             # User by email
             user = await mongo.get_user_by_email(email)
             if user and verify_password(payload.password, user.password):
                 access_token = create_access_token(str(user.id))
                 logger.info("user login completed email=%s user_id=%s", email, user.id)
-                return LoginResponse(user=user_to_public(user), role="user", access_token=access_token)
+                return LoginResponse(account=_user_account_payload(user_to_public(user)), access_token=access_token)
 
         else:
             # Phone path — users only, skip admin table
@@ -114,7 +144,7 @@ async def login(
             if user and verify_password(payload.password, user.password):
                 access_token = create_access_token(str(user.id))
                 logger.info("user login by phone completed phone=%s user_id=%s", phone, user.id)
-                return LoginResponse(user=user_to_public(user), role="user", access_token=access_token)
+                return LoginResponse(account=_user_account_payload(user_to_public(user)), access_token=access_token)
 
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
@@ -171,14 +201,17 @@ async def register(
     logger.info("register completed email=%s user_id=%s", payload.email, user.id)
     return {
         "access_token": access_token,
-        "user": {
-            "id":    str(user.id),
+        "account": {
+            "id": str(user.id),
             "email": user.email,
-            "name":  name,
-
+            "role": "user",
+            "name": name,
             "phone": phone,
-
-            "role":  "user",
-
+            "admin_id": None,
+            "devices": [],
+            "uid": None,
+            "created_at": None,
+            "reg_device": None,
+            "reg_devices": [],
         },
     }

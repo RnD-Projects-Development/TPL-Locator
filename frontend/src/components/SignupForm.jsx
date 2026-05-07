@@ -64,9 +64,9 @@ export default function SignupForm() {
         phone: normalizePhone(phone.trim()),
       });
       loginSuccess({
-        user: res.user,
+        user: res.account,
         accessToken: res.access_token,
-        role: res.role ?? "user",
+        role: res.account?.role ?? "user",
       });
       localStorage.setItem(
         "citytag_last_login",

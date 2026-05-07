@@ -70,9 +70,9 @@ export default function LoginForm() {
           password,
         });
         loginSuccess({
-          user: res.user ?? res.admin ?? null,
+          user: res.account ?? null,
           accessToken: res.access_token,
-          role: res.admin ? "admin" : "user",
+          role: res.account?.role ?? "user",
         });
         navigate("/devices");
       } else {
@@ -81,9 +81,9 @@ export default function LoginForm() {
           password,
         });
         loginSuccess({
-          user: res.user ?? res.admin ?? null,
+          user: res.account ?? null,
           accessToken: res.access_token,
-          role: res.admin ? "admin" : "user",
+          role: res.account?.role ?? "user",
         });
         navigate("/Homepage");
       }
