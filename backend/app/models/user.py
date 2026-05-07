@@ -40,4 +40,3 @@ class UserPublic(BaseModel):
     phone: Optional[str] = None
     admin_id: Optional[str] = None
     devices: List[str] = []
-    role: str = "user"

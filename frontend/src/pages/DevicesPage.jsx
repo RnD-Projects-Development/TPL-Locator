@@ -76,6 +76,7 @@ const HomePage = () => {
   const [editDeviceName, setEditDeviceName]       = useState('');
   const [editDeviceClient, setEditDeviceClient]   = useState('');
   const [editDeviceRegion, setEditDeviceRegion]   = useState('');
+  const [editDeviceCategory, setEditDeviceCategory] = useState('');
   const [editDeviceLoading, setEditDeviceLoading] = useState(false);
   const [editDeviceError, setEditDeviceError]     = useState('');
 
@@ -181,13 +182,14 @@ const HomePage = () => {
     setEditDeviceName(device.name || '');
     setEditDeviceClient(device.client || '');
     setEditDeviceRegion(device.region || '');
+    setEditDeviceCategory(device.category || '');
     setEditDeviceError('');
     setEditDevice(device);
   };
 
   const closeEditDevice = () => {
     setEditDevice(null);
-    setEditDeviceName(''); setEditDeviceClient(''); setEditDeviceRegion(''); setEditDeviceError('');
+    setEditDeviceName(''); setEditDeviceClient(''); setEditDeviceRegion(''); setEditDeviceCategory(''); setEditDeviceError('');
   };
 
   const handleEditDevice = async () => {
@@ -195,9 +197,10 @@ const HomePage = () => {
     setEditDeviceLoading(true); setEditDeviceError('');
     try {
       await adminUpdateDevice(editDevice.sn, {
-        name:   editDeviceName.trim()   || undefined,
-        client: editDeviceClient.trim() || undefined,
-        region: editDeviceRegion.trim() || undefined,
+        name:     editDeviceName.trim()   || undefined,
+        client:   editDeviceClient.trim() || undefined,
+        region:   editDeviceRegion.trim() || undefined,
+        category: editDeviceCategory.trim() || undefined,
       });
       closeEditDevice(); refreshDevices();
     } catch (err) {
@@ -529,8 +532,16 @@ const HomePage = () => {
                   placeholder="e.g. Wagha Town"
                   value={editDeviceRegion}
                   onChange={(e) => setEditDeviceRegion(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleEditDevice()}
                 />
+              </div>
+              <div className="hp-modal-field">
+                <label>Category</label>
+                <select value={editDeviceCategory} onChange={(e) => setEditDeviceCategory(e.target.value)} style={SELECT_STYLE}>
+                  <option value="" style={SELECT_OPTION_STYLE}>— Select category —</option>
+                  {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
+                    <option key={cat} value={cat} style={SELECT_OPTION_STYLE}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="hp-modal-footer">

@@ -210,6 +210,7 @@ class UpdateDeviceRequest(BaseModel):
     name: str | None = None
     client: str | None = None
     region: str | None = None
+    category: str | None = None    # device category e.g. "car", "wallet", "bag"
     zone: str | None = None        # legacy single-zone (kept for backward compat)
     add_zone: str | None = None    # add this zone_id to device's zones array
     remove_zone: str | None = None # remove this zone_id from device's zones array
@@ -230,7 +231,7 @@ async def admin_update_device(
         if str(device.admin_id) != str(current_admin.id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not owned by this admin")
 
-        updated = await mongo.update_device(sn, payload.name, payload.client, payload.region)
+        updated = await mongo.update_device(sn, payload.name, payload.client, payload.region, payload.category)
 
         if payload.zone is not None:
             zone_val = payload.zone.strip() or None
@@ -255,7 +256,7 @@ async def admin_update_device(
                 logger.warning("remove_zone received empty string for sn=%s", sn)
 
         logger.info("admin_update_device completed admin=%s sn=%s", current_admin.email, sn)
-        return {"status": "ok", "device": {"id": str(updated.id), "sn": updated.sn, "name": updated.name, "client": updated.client, "region": updated.region, "zone": payload.zone}}
+        return {"status": "ok", "device": {"id": str(updated.id), "sn": updated.sn, "name": updated.name, "client": updated.client, "region": updated.region, "category": updated.category, "zone": payload.zone}}
     except HTTPException:
         raise
     except Exception as err:

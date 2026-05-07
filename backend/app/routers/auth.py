@@ -47,6 +47,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     admin: Optional[AdminPublic] = None
     user: Optional["UserPublic"] = None
+    role: str
     access_token: str
     token_type: str = "bearer"
 
@@ -97,14 +98,14 @@ async def login(
                 logger.info("admin login completed email=%s admin_id=%s", email, admin.id)
 
                 access_token = create_access_token(str(admin.id))
-                return LoginResponse(admin=admin_to_public(admin), access_token=access_token)
+                return LoginResponse(admin=admin_to_public(admin), role="admin", access_token=access_token)
 
             # User by email
             user = await mongo.get_user_by_email(email)
             if user and verify_password(payload.password, user.password):
                 access_token = create_access_token(str(user.id))
                 logger.info("user login completed email=%s user_id=%s", email, user.id)
-                return LoginResponse(user=user_to_public(user), access_token=access_token)
+                return LoginResponse(user=user_to_public(user), role="user", access_token=access_token)
 
         else:
             # Phone path — users only, skip admin table
@@ -113,7 +114,7 @@ async def login(
             if user and verify_password(payload.password, user.password):
                 access_token = create_access_token(str(user.id))
                 logger.info("user login by phone completed phone=%s user_id=%s", phone, user.id)
-                return LoginResponse(user=user_to_public(user), access_token=access_token)
+                return LoginResponse(user=user_to_public(user), role="user", access_token=access_token)
 
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 

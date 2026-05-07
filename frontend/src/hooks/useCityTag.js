@@ -162,10 +162,10 @@ export function useCityTag() {
   );
 
   const adminUpdateDevice = useCallback(
-    async (sn, { name, client, region } = {}) =>
+    async (sn, { name, client, region, category } = {}) =>
       apiFetch(
         `/api/admin/devices/${encodeURIComponent(sn)}`,
-        { method: "PUT", body: { name, client, region } },
+        { method: "PUT", body: { name, client, region, category } },
         accessToken, logout
       ),
     [accessToken, logout]

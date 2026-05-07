@@ -31,6 +31,7 @@ class AdminInDB(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
     email: EmailStr
     password: str
+    role: str = "admin"
     uid: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     reg_devices: List[str] = Field(default_factory=list)  # new field

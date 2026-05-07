@@ -178,7 +178,6 @@ def user_to_public(user: UserInDB) -> UserPublic:
         name=user.name,
         admin_id=str(user.admin_id) if user.admin_id else None,
         devices=[str(d) for d in user.devices],
-        role=user.role or "user",
     )
 
 

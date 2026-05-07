@@ -180,7 +180,7 @@ class MongoService:
         )
         return True
 
-    async def update_device(self, sn: str, name: Optional[str] = None, client: Optional[str] = None, region: Optional[str] = None):
+    async def update_device(self, sn: str, name: Optional[str] = None, client: Optional[str] = None, region: Optional[str] = None, category: Optional[str] = None):
         update_fields = {}
         if name is not None:
             update_fields["name"] = name.strip() if name else ""
@@ -188,6 +188,8 @@ class MongoService:
             update_fields["client"] = client.strip() if client else None
         if region is not None:
             update_fields["region"] = region.strip() if region else None
+        if category is not None:
+            update_fields["category"] = category.strip() if category else None
         if update_fields:
             await self.devices.update_one({"sn": sn}, {"$set": update_fields})
         updated = await self.devices.find_one({"sn": sn})
