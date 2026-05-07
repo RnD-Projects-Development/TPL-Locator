@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import loadTPLMaps from "./loadTPLMaps.js";
 import { tplGeocode } from "../utils/tplGeocode.js";
 import { deviceColor } from "../utils/zonePolygonManager.js";
@@ -28,7 +28,6 @@ function buildTrajDotPopup({ ts, geocode, coords }) {
       `<div style="color:#fff;font-weight:600;margin-bottom:2px;">Near ${safe(primary)}</div>` +
       (secondary ? `<div style="color:#fca5a5;font-size:10px;">${safe(secondary)}</div>` : '');
   } else {
-    // Geocode still resolving or unavailable — show coords as placeholder
     locationHtml = `<div style="color:rgba(255,255,255,0.45);font-size:10px;font-family:'JetBrains Mono',monospace;">${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}</div>`;
   }
 
@@ -195,8 +194,38 @@ const DEVICE_ICON_HTML = `
     </svg>
   </div>`;
 
+// ── Smooth animation between two lat/lng points ───────────────────────────────
+// Linear interpolation = constant velocity = looks like a car navigating.
+// No ease-in/out so there are no micro-pauses between steps.
+function smoothMoveTo(marker, fromLat, fromLng, toLat, toLng, duration, onTick) {
+  const start = performance.now();
+  let rafId;
+
+  function frame(now) {
+    const elapsed = now - start;
+    const t = Math.min(elapsed / duration, 1); // linear — no easing
+
+    const lat = fromLat + (toLat - fromLat) * t;
+    const lng = fromLng + (toLng - fromLng) * t;
+
+    try { marker.setLatLng([lat, lng]); } catch {}
+    if (onTick) onTick(lat, lng);
+
+    if (t < 1) {
+      rafId = requestAnimationFrame(frame);
+    }
+  }
+
+  rafId = requestAnimationFrame(frame);
+  return () => cancelAnimationFrame(rafId);
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function MapView({ sn, label, latest, trajectory = [], playbackPoint = null, showLine = true, showFences = false, zones = [], multiDevices = [] }) {
+export default function MapView({
+  sn, label, latest, trajectory = [], playbackPoint = null,
+  showLine = true, showFences = false, zones = [], multiDevices = [],
+  playbackSpeed = 3000,
+}) {
   const containerRef   = useRef(null);
   const mapRef         = useRef(null);
   const markerRef      = useRef(null);
@@ -209,51 +238,57 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
   const labelRef       = useRef('');
 
   // Trajectory refs
-  const polylineRef = useRef(null);
-  const dotsRef     = useRef([]);
-  const trajLenRef  = useRef(0);
-  const canvasRef   = useRef(null);
+  const polylineRef  = useRef(null);
+  const dotsRef      = useRef([]);
+  const trajLenRef   = useRef(0);   // how many items are currently rendered
+  const canvasRef    = useRef(null);
 
   // Fence overlay refs
   const fenceLayersRef = useRef([]);
 
   // Multi-device marker refs
-  const multiMarkersRef  = useRef(new Map()); // sn → { marker, pointHolder }
-  const multiGeocodeRef  = useRef(new Map()); // sn → geocode result (cached)
-  const multiSnsRef      = useRef(new Set()); // tracks prev selection for change detection
-  const pannedForCountRef = useRef(0);        // # of devices that had coords at last pan
+  const multiMarkersRef   = useRef(new Map());
+  const multiGeocodeRef   = useRef(new Map());
+  const multiSnsRef       = useRef(new Set());
+  const pannedForCountRef = useRef(0);
+
+  // ── Smooth playback animation refs ───────────────────────────────────────
+  const animFromRef    = useRef(null);
+  const cancelTweenRef = useRef(null);
 
   const [mapLoaded, setMapLoaded] = useState(false);
 
-  // During playback, drive the marker from playbackPoint instead of latest
   const activePoint = playbackPoint ?? latest;
   const isPlayback  = playbackPoint != null;
 
   const coords      = useMemo(() => extractCoords(activePoint), [activePoint]);
   const displayName = label || sn;
 
-  console.log(`[MapView] render — sn:${sn} | isPlayback:${isPlayback} | coords:`, coords, '| traj pts:', trajectory.length);
+  // ── Helper: wipe all trajectory layers from the map ──────────────────────
+  const clearTrajectoryLayers = useCallback((map) => {
+    if (!map) return;
+    if (polylineRef.current) {
+      try { map.removeLayer(polylineRef.current); } catch {}
+      polylineRef.current = null;
+    }
+    dotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
+    dotsRef.current  = [];
+    trajLenRef.current = 0;
+  }, []);
 
-  // Stable function — creates or moves the marker, wires up hover once
-  const ensureMarker = React.useCallback((map, c) => {
+  // Stable marker creation / hover wiring
+  const ensureMarker = useCallback((map, c) => {
     if (!window.L || !map || !c) return;
     if (!markerRef.current) {
-      // iconAnchor: pin tip in the SVG is at y≈21.5/24 of viewBox → 21.5/24*32 ≈ 29px from top
-      // popupAnchor: open popup just above the pin tip (offset matches iconAnchor)
       const icon = window.L.divIcon({
         html: DEVICE_ICON_HTML, className: '', iconSize: [32, 32], iconAnchor: [16, 29],
       });
-      console.log('[Marker] creating new marker with iconAnchor [16, 29]');
       markerRef.current = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
+      animFromRef.current = { lat: c.lat, lng: c.lng };
+
       markerRef.current.on('mouseover', () => {
-        // Read the marker's own latLng — always in sync with its visual position,
-        // avoids any coordsRef staleness if latest updated between renders
         const latlng = markerRef.current.getLatLng();
         const popupCoords = { lat: latlng.lat, lng: latlng.lng };
-        console.log('[Popup] hover — marker latlng:', latlng, '| coordsRef:', coordsRef.current, '| geocode:', geocodeRef.current);
-        if (Math.abs(latlng.lat - (coordsRef.current?.lat ?? 0)) > 0.0001 || Math.abs(latlng.lng - (coordsRef.current?.lng ?? 0)) > 0.0001) {
-          console.warn('[Popup] ⚠️ marker latlng differs from coordsRef — marker was not yet moved to latest coords');
-        }
         if (popupRef.current) popupRef.current.remove();
         popupRef.current = window.L.popup({ offset: [0, -30], closeButton: false, autoClose: false, className: 'mv-popup' })
           .setLatLng(latlng)
@@ -267,27 +302,21 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       markerRef.current.on('mouseout', () => {
         if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
       });
-    } else {
-      markerRef.current.setLatLng([c.lat, c.lng]);
     }
   }, []);
 
-  // Keep refs in sync so hover handler always has latest values without recreating listeners
+  // Keep refs in sync
   useEffect(() => { coordsRef.current      = coords;      }, [coords]);
-  useEffect(() => { latestRef.current      = activePoint; }, [activePoint]); // popup shows playback point data during playback
+  useEffect(() => { latestRef.current      = activePoint; }, [activePoint]);
   useEffect(() => { displayNameRef.current = displayName; }, [displayName]);
   useEffect(() => { snRef.current          = sn;          }, [sn]);
   useEffect(() => { labelRef.current       = label;       }, [label]);
 
-  // Reverse geocode eagerly whenever active coords change — result ready before hover
-  // During fast playback this fires frequently but tplGeocode caches so no repeat API calls
+  // Reverse geocode eagerly
   useEffect(() => {
     if (!coords) { geocodeRef.current = null; return; }
-    console.log('[Geocode] kicking off for', coords.lat, coords.lng, isPlayback ? '(playback)' : '(live)');
     tplGeocode(coords.lat, coords.lng).then(result => {
       geocodeRef.current = result;
-      console.log('[Geocode] result:', result, isPlayback ? '(playback)' : '(live)');
-      // If popup is already open, refresh it with the resolved geocode
       if (popupRef.current && mapRef.current) {
         popupRef.current.setContent(buildPopupHtml({
           displayName: displayNameRef.current,
@@ -299,22 +328,18 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
     });
   }, [coords?.lat, coords?.lng]);
 
-  /* ── INVALIDATE SIZE after paint so Leaflet/Tangram pixel math is correct ── */
+  /* ── INVALIDATE SIZE ── */
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
-    // rAF ensures we're after the browser paint — container has its real pixel size
     const raf = requestAnimationFrame(() => {
       try {
         mapRef.current.invalidateSize();
-        console.log('[MapView] invalidateSize() called after paint — coordinate↔pixel mapping refreshed');
-        // If coords already arrived, re-apply the view so the marker lands at correct pixels
         if (coordsRef.current) {
           mapRef.current.setView(
             [coordsRef.current.lat, coordsRef.current.lng],
             Math.max(mapRef.current.getZoom(), 15),
             { animate: false }
           );
-          console.log('[MapView] re-applied setView after invalidateSize for', coordsRef.current);
         }
       } catch (e) {
         console.warn('[MapView] invalidateSize failed:', e);
@@ -323,15 +348,12 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
     return () => cancelAnimationFrame(raf);
   }, [mapLoaded]);
 
-  /* ── RESIZE OBSERVER — keep Leaflet in sync if container dimensions change ── */
+  /* ── RESIZE OBSERVER ── */
   useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver(() => {
       if (!mapRef.current) return;
-      try {
-        mapRef.current.invalidateSize();
-        console.log('[MapView] ResizeObserver → invalidateSize()');
-      } catch {}
+      try { mapRef.current.invalidateSize(); } catch {}
     });
     ro.observe(containerRef.current);
     return () => ro.disconnect();
@@ -352,90 +374,135 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       });
     });
     return () => {
+      if (cancelTweenRef.current) { cancelTweenRef.current(); cancelTweenRef.current = null; }
       try {
         if (popupRef.current  && _cachedMap) { popupRef.current.remove();                    popupRef.current  = null; }
         if (markerRef.current && _cachedMap) { _cachedMap.removeLayer(markerRef.current);    markerRef.current = null; }
-        if (polylineRef.current && _cachedMap) { _cachedMap.removeLayer(polylineRef.current); polylineRef.current = null; }
-        dotsRef.current.forEach(d => { try { _cachedMap.removeLayer(d); } catch {} });
+        clearTrajectoryLayers(_cachedMap);
         fenceLayersRef.current.forEach(p => { try { _cachedMap.removeLayer(p); } catch {} });
         multiMarkersRef.current.forEach(({ marker }) => { try { _cachedMap.removeLayer(marker); } catch {} });
       } catch {}
-      dotsRef.current  = [];
-      trajLenRef.current = 0;
       fenceLayersRef.current = [];
       multiMarkersRef.current.clear();
       multiGeocodeRef.current.clear();
       multiSnsRef.current = new Set();
       pannedForCountRef.current = 0;
+      animFromRef.current = null;
       detachMap();
       mapRef.current = null;
     };
-  }, []);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── DEVICE MARKER — runs when coords update after map is ready ── */
+  /* ── DEVICE MARKER — with smooth playback animation ── */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.L) return;
 
     if (!coords) {
-      console.log('[Marker] no coords — removing marker');
+      if (cancelTweenRef.current) { cancelTweenRef.current(); cancelTweenRef.current = null; }
       if (popupRef.current)  { popupRef.current.remove();  popupRef.current  = null; }
       if (markerRef.current) { map.removeLayer(markerRef.current); markerRef.current = null; }
+      animFromRef.current = null;
       return;
     }
 
-    const targetZoom = Math.max(map.getZoom(), 15);
-
-    // Check if target is already within the current visible bounds
-    // If it is → smooth animate (live position update nearby)
-    // If it isn't → snap instantly so marker appears in view immediately, no lag
-    let inView = false;
-    try { inView = map.getBounds().contains([coords.lat, coords.lng]); } catch {}
-
-    const shouldAnimate = !isPlayback && inView;
-    console.log(`[Marker] moving to`, coords.lat, coords.lng,
-      `| inView:${inView} | isPlayback:${isPlayback} | animate:${shouldAnimate}`);
-
-    if (!shouldAnimate) {
-      // Snap map to target first so marker appears centred immediately
-      map.setView([coords.lat, coords.lng], targetZoom, { animate: false });
+    if (cancelTweenRef.current) {
+      cancelTweenRef.current();
+      cancelTweenRef.current = null;
     }
-    ensureMarker(map, coords);
-    if (shouldAnimate) {
-      map.setView([coords.lat, coords.lng], targetZoom, { animate: true, duration: 0.4 });
-    }
-  }, [coords, mapLoaded, isPlayback]);
 
-  /* ── TRAJECTORY ── */
+    if (isPlayback) {
+      ensureMarker(map, coords);
+
+      const from = animFromRef.current ?? coords;
+      const to   = coords;
+
+      const distSq = (to.lat - from.lat) ** 2 + (to.lng - from.lng) ** 2;
+      if (distSq < 1e-14) {
+        markerRef.current?.setLatLng([to.lat, to.lng]);
+        animFromRef.current = to;
+        return;
+      }
+
+      // 98% of the step interval — tween ends just as the next one fires,
+      // so the marker moves continuously with no visible snap between steps.
+      const tweenDuration = Math.max(playbackSpeed * 0.98, 100);
+
+      cancelTweenRef.current = smoothMoveTo(
+        markerRef.current,
+        from.lat, from.lng,
+        to.lat,   to.lng,
+        tweenDuration,
+        null,
+      );
+
+      // Seed animFromRef immediately at destination so the next tween always
+      // starts from the correct logical position, even if the rAF is still running.
+      const timeoutId = setTimeout(() => {
+        animFromRef.current = to;
+        cancelTweenRef.current = null;
+      }, tweenDuration);
+
+      const targetZoom = Math.max(map.getZoom(), 15);
+      let inView = false;
+      try { inView = map.getBounds().contains([to.lat, to.lng]); } catch {}
+      if (!inView) {
+        map.setView([to.lat, to.lng], targetZoom, { animate: true, duration: 0.5 });
+      }
+
+      const originalCancel = cancelTweenRef.current;
+      cancelTweenRef.current = () => {
+        if (originalCancel) originalCancel();
+        clearTimeout(timeoutId);
+      };
+
+    } else {
+      // Live mode: reset animation origin
+      animFromRef.current = coords;
+
+      const targetZoom = Math.max(map.getZoom(), 15);
+      let inView = false;
+      try { inView = map.getBounds().contains([coords.lat, coords.lng]); } catch {}
+
+      const shouldAnimate = inView;
+
+      if (!shouldAnimate) {
+        map.setView([coords.lat, coords.lng], targetZoom, { animate: false });
+      }
+      ensureMarker(map, coords);
+      if (!markerRef.current) return;
+      markerRef.current.setLatLng([coords.lat, coords.lng]);
+      if (shouldAnimate) {
+        map.setView([coords.lat, coords.lng], targetZoom, { animate: true, duration: 0.4 });
+      }
+    }
+  }, [coords, mapLoaded, isPlayback, playbackSpeed, ensureMarker]);
+
+  /* ── TRAJECTORY (progressive) ── */
   useEffect(() => {
     const map = mapRef.current;
-    console.log(`[Trajectory] effect fired — mapReady:${!!map} | points:${trajectory?.length ?? 0} | prevRendered:${trajLenRef.current}`);
-    if (!map || !window.L) {
-      console.warn('[Trajectory] skipping — map or L not ready');
-      return;
-    }
+    if (!map || !window.L) return;
 
+    // Build valid { c, p } items from the (already-sliced) trajectory prop
     const items = (trajectory ?? [])
       .map(p => { const c = extractCoords(p); return c ? { c, p } : null; })
       .filter(Boolean);
 
-    console.log(`[Trajectory] valid coords: ${items.length} / ${trajectory?.length ?? 0}`);
-
-    // Empty trajectory — clear everything
-    if (items.length === 0) {
-      console.log('[Trajectory] empty — clearing polyline + dots');
-      if (polylineRef.current) { try { map.removeLayer(polylineRef.current); } catch {} polylineRef.current = null; }
-      dotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
-      dotsRef.current  = [];
-      trajLenRef.current = 0;
-      return;
+    // ── Full reset: trajectory shrank (seek back / reset / new load) ──────
+    // This handles: playback reset, slider scrub backwards, new data load.
+    if (items.length < trajLenRef.current || items.length === 0) {
+      clearTrajectoryLayers(map);
+      // Fall through — will re-draw all items from scratch below
     }
+
+    if (items.length === 0) return;
 
     const latLngs = items.map(({ c }) => [c.lat, c.lng]);
 
-    // Polyline — skipped when showLine=false (playback mode)
-    if (showLine) {
-      console.log('[Trajectory] drawing/updating polyline with', latLngs.length, 'pts');
+    // ── Polyline: always keep it covering the full visible slice ──────────
+    // In playback mode the trajectory prop is already sliced to [0..index],
+    // so updating setLatLngs is all we need; no future path is ever included.
+    if (showLine || isPlayback) {
       if (!polylineRef.current) {
         polylineRef.current = window.L.polyline(latLngs, {
           color: '#b91c1c', weight: 2.5, opacity: 0.65, interactive: false,
@@ -444,24 +511,27 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
         polylineRef.current.setLatLngs(latLngs);
       }
     } else {
-      // Remove polyline if it was previously drawn (e.g. mode switch)
       if (polylineRef.current) {
-        console.log('[Trajectory] showLine=false — removing existing polyline');
         try { map.removeLayer(polylineRef.current); } catch {}
         polylineRef.current = null;
       }
     }
 
-    // One canvas renderer per map lifecycle for performance
+    // ── Dots: only add the newly-arrived items (incremental) ─────────────
     if (!canvasRef.current) canvasRef.current = window.L.canvas({ padding: 0.5 });
 
-    // Only add dots that are new since the last render (incremental)
+    // Dot sub-sampling threshold: for very large datasets skip intermediate dots
+    // to avoid DOM bloat. Show every Nth dot so we cap at ~300 visible dots.
+    const MAX_DOTS  = 300;
+    const stepSize  = items.length > MAX_DOTS ? Math.ceil(items.length / MAX_DOTS) : 1;
+
     const newItems = items.slice(trajLenRef.current);
-    console.log(`[Trajectory] adding ${newItems.length} new dots (total now ${items.length})`);
 
     newItems.forEach(({ c, p }, relIdx) => {
       const absIdx = trajLenRef.current + relIdx;
-      console.log(`[Trajectory] creating dot #${absIdx} at`, c.lat, c.lng);
+
+      // Sub-sample: only add a dot every `stepSize` points, always include last
+      if (absIdx % stepSize !== 0 && absIdx !== items.length - 1) return;
 
       const dot = window.L.circleMarker([c.lat, c.lng], {
         radius: 4, color: '#7f1d1d', fillColor: '#fca5a5',
@@ -472,27 +542,16 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       const ts = formatTimestamp(p);
 
       dot.on('mouseover', () => {
-        console.log(`[TrajDot] hover on dot #${absIdx} at`, c.lat, c.lng);
-
-        // Open popup immediately with coords as placeholder
         const popup = window.L.popup({ offset: [0, 0], closeButton: false, className: 'mv-popup' })
           .setLatLng([c.lat, c.lng])
           .setContent(buildTrajDotPopup({ ts, geocode: null, coords: c }))
           .openOn(map);
 
-        // Fetch geocode — if cached this resolves synchronously on next tick
-        console.log(`[TrajDot] fetching geocode for dot #${absIdx}...`);
         let hoverActive = true;
         tplGeocode(c.lat, c.lng).then(geocode => {
-          console.log(`[TrajDot] geocode resolved for dot #${absIdx}:`, geocode);
-          if (!hoverActive) {
-            console.log(`[TrajDot] mouse already left dot #${absIdx}, skipping popup update`);
-            return;
-          }
+          if (!hoverActive) return;
           popup.setContent(buildTrajDotPopup({ ts, geocode, coords: c }));
-        }).catch(err => {
-          console.warn(`[TrajDot] geocode failed for dot #${absIdx}:`, err);
-        });
+        }).catch(() => {});
 
         dot.once('mouseout', () => { hoverActive = false; });
       });
@@ -500,9 +559,9 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       dot.on('mouseout', () => map.closePopup());
       dotsRef.current.push(dot);
     });
+
     trajLenRef.current = items.length;
-    console.log(`[Trajectory] render complete — total dots: ${dotsRef.current.length} | showLine: ${showLine}`);
-  }, [trajectory, mapLoaded, showLine]);
+  }, [trajectory, mapLoaded, showLine, isPlayback, clearTrajectoryLayers]);
 
   /* ── FENCE OVERLAY ── */
   useEffect(() => {
@@ -539,14 +598,12 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
     const incomingSns = new Set(multiDevices.map(d => d.sn));
     const prevSns     = multiSnsRef.current;
 
-    // Detect if the set of selected devices changed (not just position updates)
     const selectionChanged =
       incomingSns.size !== prevSns.size ||
       [...incomingSns].some(sn => !prevSns.has(sn)) ||
       [...prevSns].some(sn => !incomingSns.has(sn));
     multiSnsRef.current = incomingSns;
 
-    // Remove markers for devices no longer selected
     multiMarkersRef.current.forEach(({ marker }, sn) => {
       if (!incomingSns.has(sn)) {
         try { map.removeLayer(marker); } catch {}
@@ -556,7 +613,6 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
 
     if (multiDevices.length === 0) return;
 
-    // Clean up geocode cache for deselected devices
     multiGeocodeRef.current.forEach((_, sn) => {
       if (!incomingSns.has(sn)) multiGeocodeRef.current.delete(sn);
     });
@@ -568,20 +624,17 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       if (multiMarkersRef.current.has(sn)) {
         const entry = multiMarkersRef.current.get(sn);
         entry.marker.setLatLng([c.lat, c.lng]);
-        entry.pointHolder.current = point; // keep current for popup
-
-        // Pre-geocode new position if it changed significantly
+        entry.pointHolder.current = point;
         tplGeocode(c.lat, c.lng).then(geo => {
           multiGeocodeRef.current.set(sn, geo);
         }).catch(() => {});
       } else {
-        // First time: create marker
         const icon = window.L.divIcon({
           html: buildColoredPinHtml(color),
           className: '', iconSize: [28, 28], iconAnchor: [14, 25],
         });
         const marker      = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
-        const pointHolder = { current: point }; // mutable — updated on every position refresh
+        const pointHolder = { current: point };
 
         marker.on('mouseover', () => {
           const latlng     = marker.getLatLng();
@@ -614,7 +667,6 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
           if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
         });
 
-        // Pre-geocode eagerly so first hover has data immediately
         tplGeocode(c.lat, c.lng).then(geo => {
           multiGeocodeRef.current.set(sn, geo);
         }).catch(() => {});
@@ -623,10 +675,6 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       }
     });
 
-    // ── Pan / fit-bounds ───────────────────────────────────────────────────────
-    // Reset the "panned-for" counter whenever the set of selected devices changes.
-    // This arms the deferred pan so it fires on the NEXT render that has coords,
-    // even if selectionChanged is already false by then (async fetch resolves later).
     if (selectionChanged) {
       pannedForCountRef.current = 0;
     }
@@ -635,11 +683,6 @@ export default function MapView({ sn, label, latest, trajectory = [], playbackPo
       .map(d => extractCoords(d.latest))
       .filter(Boolean);
 
-    // Pan whenever more devices have locations than the last time we panned.
-    //   • fires immediately if coords exist at selection time
-    //   • fires deferred when location fetch resolves (selectionChanged is false by then)
-    //   • does NOT re-pan on routine auto-refresh (count stays the same)
-    //   • does re-fit if user adds more devices and their locations arrive incrementally
     if (validCoords.length > pannedForCountRef.current) {
       pannedForCountRef.current = validCoords.length;
       if (validCoords.length === 1) {
