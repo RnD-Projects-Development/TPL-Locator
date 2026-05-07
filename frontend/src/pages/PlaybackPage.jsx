@@ -44,10 +44,12 @@ function normalisePlayback(data) {
 }
 
 const SPEEDS = [
-  { label: "Slow",   value: 1500 },
-  { label: "Normal", value: 800  },
-  { label: "Fast",   value: 300  },
-  { label: "Rapid",  value: 100  },
+  { label: "Slow",   value: 6000 },
+  { label: "Normal", value: 3000 },
+  { label: "Fast",   value: 1200 },
+  { label: "2×",     value: 600  },
+  { label: "4×",     value: 300  },
+  { label: "8×",     value: 150  },
 ];
 
 const TIME_SHORTCUTS = [
@@ -79,7 +81,7 @@ export default function PlaybackPage() {
 
   const [playbackIndex, setPlaybackIndex]   = useState(0);
   const [playing, setPlaying]               = useState(false);
-  const [speed, setSpeed]                   = useState(800);
+  const [speed, setSpeed]                   = useState(3000);
 
   const [histLoading, setHistLoading]       = useState(false);
   const [histError, setHistError]           = useState("");
@@ -188,6 +190,16 @@ export default function PlaybackPage() {
     if (!isLiveMode && playbackIndex < trajectory.length) return trajectory[playbackIndex];
     return null;
   }, [isLiveMode, playbackIndex, trajectory]);
+
+  // ── Progressive trajectory ────────────────────────────────────────────────
+  // During historical playback: only expose points up to current index so
+  // MapView's incremental renderer draws the line as the marker travels.
+  // In live/session mode: pass the full array (points arrive one-by-one anyway).
+  const visibleTrajectory = useMemo(() => {
+    if (isLiveMode || dataSource !== "historical") return trajectory;
+    // +1 so the current point is always included in the drawn segment
+    return trajectory.slice(0, playbackIndex + 1);
+  }, [isLiveMode, dataSource, trajectory, playbackIndex]);
 
   const handlePlay   = () => {
     if (trajectory.length === 0) { setHistError("No data yet. Collect live points or load historical."); return; }
@@ -303,7 +315,17 @@ export default function PlaybackPage() {
 
         <div className="pb-main">
           <div className="pb-map-wrap">
-            <MapView sn={sn} label={label} latest={latest} trajectory={trajectory} playbackPoint={playbackPoint} showLine={false} showFences={showFences} zones={zones} />
+            <MapView
+              sn={sn}
+              label={label}
+              latest={latest}
+              trajectory={visibleTrajectory}
+              playbackPoint={playbackPoint}
+              showLine={false}
+              showFences={showFences}
+              zones={zones}
+              playbackSpeed={speed}
+            />
           </div>
 
           {/* Playback controls */}
