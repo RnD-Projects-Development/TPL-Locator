@@ -16,6 +16,16 @@ from app.services.location import LocationService
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 
+def _env_strip(key: str, default: str | None = None) -> str | None:
+    raw = os.getenv(key, default)
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
+        s = s[1:-1].strip()
+    return s
+
+
 def get_settings():
     return {
         "mongo_uri": os.getenv("MONGO_URI", "mongodb://localhost:27017"),
@@ -23,6 +33,35 @@ def get_settings():
         "jwt_secret_key": os.getenv("JWT_SECRET_KEY", "change_this_secret_key"),
         "jwt_algorithm": os.getenv("JWT_ALGORITHM", "HS256"),
         "jwt_expire_minutes": int(os.getenv("JWT_EXPIRE_MINUTES", "1440")),
+        # CityTag sync account (device registry + polling)
+        "citytag_sync_email": _env_strip("CITYTAG_SYNC_EMAIL", "abdulsaboornaeem@gmail.com"),
+        "citytag_sync_password": _env_strip("CITYTAG_SYNC_PASSWORD")
+        or _env_strip("CITYTAG_PASSWORD")
+        or "Trakker123",
+        "citytag_sync_uid": _env_strip("CITYTAG_SYNC_UID", "251799"),
+        # TrackSolid / Jimi
+        "tracksolid_app_key": _env_strip("TRACKSOLID_APP_KEY") or _env_strip("APP_KEY", ""),
+        "tracksolid_app_secret": _env_strip("TRACKSOLID_APP_SECRET") or _env_strip("APP_SECRET", ""),
+        "tracksolid_account": _env_strip("TRACKSOLID_ACCOUNT") or _env_strip("ACCOUNT", ""),
+        "tracksolid_password_md5": _env_strip("TRACKSOLID_PASSWORD_MD5") or _env_strip("PASSWORD_MD5", ""),
+        "tracksolid_base_url": _env_strip("TRACKSOLID_BASE_URL") or _env_strip(
+            "BASE_URL", "https://eu-open.tracksolidpro.com/route/rest"
+        ),
+        # Zoqin
+        "zoqin_login_url": _env_strip("ZOQIN_LOGIN_URL", "https://www.zoqin.com/ZQGPS/User/Login"),
+        "zoqin_bind_url": _env_strip(
+            "ZOQIN_BIND_URL", "https://www.zoqin.com/ZQGPS/Bind/allBind"
+        ),
+        "zoqin_location_url": _env_strip(
+            "ZOQIN_LOCATION_URL", "https://www.zoqin.com/ZQGPS/Device/getLocationListByTimeAndSN"
+        ),
+        "zoqin_admin_email": _env_strip("ZOQIN_ADMIN_EMAIL", "abdul.saboor@tpltrakker.com"),
+        "zoqin_admin_password": _env_strip("ZOQIN_ADMIN_PASSWORD", "Trakker123"),
+        # Device registry admins
+        "vendor_admin_tpl_email": _env_strip("VENDOR_ADMIN_TPL_EMAIL", "tpl@gmail.com"),
+        "vendor_admin_citytag_email": _env_strip(
+            "VENDOR_ADMIN_CITYTAG_EMAIL", "abdulsaboornaeem@gmail.com"
+        ),
     }
 
 

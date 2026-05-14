@@ -1,6 +1,8 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 motor==3.6.0
+# Motor 3.6.x requires pymongo>=4.9,<4.10 — pin so `pip install -U pymongo` does not break Motor.
+pymongo>=4.9,<4.10
 python-dotenv==1.0.1
 pyjwt==2.9.0
 pycryptodome==3.21.0

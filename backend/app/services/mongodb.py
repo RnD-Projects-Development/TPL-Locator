@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Any, List, Optional
 from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from bson import ObjectId
@@ -16,6 +16,9 @@ import os
 # choose database name via environment, default to development db
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "citytag_development")
 logger = logging.getLogger(__name__)
+
+# Sentinel: omit batteryStatus from $set (legacy callers). Any other value includes the field (None = BSON null).
+_BATTERY_STATUS_OMIT = object()
 
 
 class MongoService:
@@ -257,12 +260,15 @@ class MongoService:
         history_item: dict,
         uid: str,
         sn: Optional[str] = None,
+        battery_status: Any = _BATTERY_STATUS_OMIT,
+        *,
+        time_adjust_hours: float = -3.0,
     ) -> bool:
         ts_raw = history_item.get("gpstime") or history_item.get("time") or history_item.get("timestamp")
         timestamp = self._parse_citytag_timestamp(ts_raw)
-        # Adjust incoming timestamp by subtracting 3 hours before persisting
+        # Per-vendor wall-clock adjustment before persist (CityTag/Zoqin default -3h, TrackSolid +5h).
         if timestamp is not None:
-            timestamp = timestamp - timedelta(hours=3)
+            timestamp = timestamp + timedelta(hours=time_adjust_hours)
 
         doc = {
             "uid": uid,
@@ -271,6 +277,8 @@ class MongoService:
             "lat": float(history_item.get("lat") or history_item.get("latitude") or 0),
             "lng": float(history_item.get("lng") or history_item.get("lon") or history_item.get("longitude") or 0),
         }
+        if battery_status is not _BATTERY_STATUS_OMIT:
+            doc["batteryStatus"] = battery_status
 
         if doc["lat"] == 0 or doc["lng"] == 0 or not doc["sn"]:
             return False

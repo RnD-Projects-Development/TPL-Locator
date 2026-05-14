@@ -108,6 +108,30 @@ class CityTagClient:
 
         return []
 
+    async def get_all_devices(
+        self,
+        uid: str,
+        token: str,
+        *,
+        page_size: int = 50,
+        max_pages: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Page through CityTag device list until exhausted (for sync jobs).
+
+        CityTag API rejects pageSize > 50 for /api2/v4/device/{uid}.
+        """
+        merged: List[Dict[str, Any]] = []
+        page_no = 1
+        while page_no <= max_pages:
+            batch = await self.get_devices(uid=uid, token=token, sn=None, page_no=page_no, page_size=page_size)
+            if not batch:
+                break
+            merged.extend(batch)
+            if len(batch) < page_size:
+                break
+            page_no += 1
+        return merged
+
     async def get_latest_location(self, uid: str, token: str, sn: str, page_no: int = 1, page_size: int = 20) -> Optional[Dict[str, Any]]:
         """Get latest location for a specific device SN."""
         url = f"{self.base_url}/api/interface/v2/device/{uid}"
@@ -128,7 +152,11 @@ class CityTagClient:
         return history[-1] if history else None
 
     async def get_location_history(self, uid: str, token: str, sn: str, start_time: datetime, end_time: datetime, page_no: int = 1, page_size: int = 500) -> list[dict]:
-        """Fetch location history for a device in a time range."""
+        """Fetch location history for a device in a time range.
+
+        POST ``/api/interface/v2/device/{uid}`` (encrypted). Decrypted ``history`` items may include
+        ``latitude``, ``longitude``, ``timestamp`` / ``gpstime``, and ``batteryLevel`` (persist as ``batteryStatus``).
+        """
         url = f"{self.base_url}/api/interface/v2/device/{uid}"
         payload = {
             "uid": int(uid),
