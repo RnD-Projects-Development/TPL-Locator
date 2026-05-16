@@ -64,15 +64,9 @@ async def get_latest_location(
         local_doc = await mongo.locations.find_one({"sn": sn}, sort=[("timestamp", -1)])
         latest = None
         if local_doc:
-            latest = {
-                "lat":       local_doc.get("lat"),
-                "lng":       local_doc.get("lng"),
-                "timestamp": local_doc.get("timestamp"),
-                "speed":     local_doc.get("speed"),
-                "heading":   local_doc.get("heading"),
-                "altitude":  local_doc.get("altitude"),
-                "accuracy":  local_doc.get("accuracy"),
-            }
+            logger.info("get_latest_location raw_doc sn=%s fields=%s", sn, list(local_doc.keys()))
+            local_doc["_id"] = str(local_doc["_id"])
+            latest = local_doc
             logger.info("get_latest_location mongodb_hit sn=%s", sn)
         else:
             logger.info("get_latest_location mongodb_miss sn=%s", sn)

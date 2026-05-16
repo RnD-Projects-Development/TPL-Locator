@@ -143,14 +143,18 @@ async def admin_list_users(
                     created_at = None
             elif isinstance(created_at, datetime):
                 created_at = created_at.isoformat()
+            last_logged_in = user_dict.get("last_logged_in")
+            if isinstance(last_logged_in, datetime):
+                last_logged_in = last_logged_in.isoformat()
             result.append({
-                "id":         str(user_dict.get("_id", "")),
-                "email":      user_dict.get("email", ""),
-                "name":       user_dict.get("name", ""),
-                "role":       user_dict.get("role", "user"),
-                "admin_id":   str(user_dict.get("admin_id", "")) if user_dict.get("admin_id") else None,
-                "devices":    devices,
-                "created_at": created_at,
+                "id":             str(user_dict.get("_id", "")),
+                "email":          user_dict.get("email", ""),
+                "name":           user_dict.get("name", ""),
+                "role":           user_dict.get("role", "user"),
+                "admin_id":       str(user_dict.get("admin_id", "")) if user_dict.get("admin_id") else None,
+                "devices":        devices,
+                "created_at":     created_at,
+                "last_logged_in": last_logged_in,
             })
         logger.info("admin_list_users completed admin=%s count=%s", current_admin.email, len(result))
         return result

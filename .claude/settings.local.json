@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python main.py)",
+      "Bash(cat \"/mnt/c/Users/Test-August2023/Downloads/CSM PBL/main.py\")",
+      "mcp__Claude_in_Chrome__tabs_context_mcp"
+    ]
+  }
+}

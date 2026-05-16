@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Any, Optional, List
 from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from bson import ObjectId
@@ -257,6 +257,7 @@ class MongoService:
         history_item: dict,
         uid: str,
         sn: Optional[str] = None,
+        battery_status: Any = None,
     ) -> bool:
         ts_raw = history_item.get("gpstime") or history_item.get("time") or history_item.get("timestamp")
         timestamp = self._parse_citytag_timestamp(ts_raw)
@@ -271,6 +272,8 @@ class MongoService:
             "lat": float(history_item.get("lat") or history_item.get("latitude") or 0),
             "lng": float(history_item.get("lng") or history_item.get("lon") or history_item.get("longitude") or 0),
         }
+        if battery_status is not None:
+            doc["batteryStatus"] = battery_status
 
         if doc["lat"] == 0 or doc["lng"] == 0 or not doc["sn"]:
             return False

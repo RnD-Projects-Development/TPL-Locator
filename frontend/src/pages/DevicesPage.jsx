@@ -6,6 +6,7 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
 import { useUserCache } from "../context/Usercachecontext.jsx";
+import { useHomePageCache } from "../context/HomePageCacheContext.jsx";
 import "./DevicesPage.css";
 
 const SELECT_STYLE = {
@@ -38,6 +39,7 @@ const HomePage = () => {
 
   const { devices, loading: devicesLoading, error: devicesError, refresh: refreshDevices } = useDeviceCache();
   const { users, loading: usersLoading, refresh: refreshUsers } = useUserCache();
+  const { locations } = useHomePageCache();
 
   const [error, setError]               = useState("");
   const [searchTerm, setSearchTerm]     = useState('');
@@ -321,6 +323,7 @@ const HomePage = () => {
           ) : (
             <DevicesTable
               devices={devices}
+              locations={locations}
               searchTerm={searchTerm}
               filterStatus={filterStatus}
               isAdmin={isAdmin}

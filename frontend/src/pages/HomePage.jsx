@@ -152,28 +152,44 @@ function StatCard({ title, value, icon, iconBg, iconColor, accentColor, loading,
 // ══════════════════════════════════════════════════════════════════════
 // FIX 3: BATTERY STATUS CARD — bigger donut (90×90), tighter legend
 // ══════════════════════════════════════════════════════════════════════
-function BatteryStatusCard() {
-  const data = [
-    { label: 'High',   pct: 68, color: '#4CAF50' }, // Desaturated Green
-    { label: 'Medium', pct: 22, color: '#F4A261' }, // Soft Amber
-    { label: 'Low',    pct: 10, color: '#3A86FF' }, // Muted Blue
+function BatteryStatusCard({ locations = {} }) {
+  const { high, medium, low, total, noData } = useMemo(() => {
+    const vals = Object.values(locations)
+      .map(loc => loc?.batteryStatus)
+      .filter(v => v != null);
+    return {
+      high:   vals.filter(v => v >= 60).length,
+      medium: vals.filter(v => v >= 20 && v < 60).length,
+      low:    vals.filter(v => v < 20).length,
+      total:  vals.length,
+      noData: vals.length === 0,
+    };
+  }, [locations]);
+
+  const tiers = [
+    { label: 'High',   range: '≥ 60%', count: high,   color: '#4CAF50' },
+    { label: 'Medium', range: '20–59%', count: medium, color: '#F4A261' },
+    { label: 'Low',    range: '< 20%',  count: low,    color: '#ef4444' },
   ];
-  // Bigger donut: 90×90, radius 38
-  const CX = 45, CY = 45, R = 38;
+
+  // Donut slices based on device counts
+  const CX = 60, CY = 60, R = 48, HOLE = 28, GAP = 2;
   const toRad = deg => (deg * Math.PI) / 180;
   let cursor = -90;
-  const slices = data.map(d => {
-    const deg   = (d.pct / 100) * 356;
-    const start = cursor;
-    const end   = start + deg;
-    cursor      = end + 1.5;
-    const large = deg > 180 ? 1 : 0;
-    const x1 = CX + R * Math.cos(toRad(start));
-    const y1 = CY + R * Math.sin(toRad(start));
-    const x2 = CX + R * Math.cos(toRad(end));
-    const y2 = CY + R * Math.sin(toRad(end));
-    return { ...d, path: `M ${CX} ${CY} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z` };
-  });
+  const slices = noData
+    ? [{ color: '#27272a', path: `M ${CX} ${CY} L ${CX} ${CY - R} A ${R} ${R} 0 1 1 ${CX - 0.01} ${CY - R} Z` }]
+    : tiers.filter(t => t.count > 0).map(t => {
+        const deg   = (t.count / total) * (360 - tiers.filter(x => x.count > 0).length * GAP);
+        const start = cursor;
+        const end   = start + deg;
+        cursor      = end + GAP;
+        const large = deg > 180 ? 1 : 0;
+        const x1 = CX + R * Math.cos(toRad(start));
+        const y1 = CY + R * Math.sin(toRad(start));
+        const x2 = CX + R * Math.cos(toRad(end));
+        const y2 = CY + R * Math.sin(toRad(end));
+        return { ...t, path: `M ${CX} ${CY} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z` };
+      });
 
   return (
     <div className="hp-stat-card hp-battery-card">
@@ -181,19 +197,46 @@ function BatteryStatusCard() {
         <div className="hp-stat-accent" style={{ background: '#4CAF50' }} />
       </div>
       <div className="hp-battery-inner">
-        {/* Bigger SVG: 90×90 (was 80×80) — pushed closer to legend */}
-        <svg width={90} height={90} style={{ flexShrink: 0 }}>
-          {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} opacity={0.92} />)}
-          <text x={CX} y={CY + 4} textAnchor="middle" fontSize={9} fontWeight="700"
-            fill="rgba(255,255,255,0.65)" fontFamily="'JetBrains Mono',monospace">BAT</text>
-        </svg>
+        {/* Donut — 120×120 */}
+        <div style={{ flexShrink: 0, width: 120, height: 120 }}>
+          <svg width={120} height={120}>
+            {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} opacity={0.9} />)}
+            <circle cx={CX} cy={CY} r={HOLE} fill="#1a1a24" />
+            <text x={CX} y={CY + 1} textAnchor="middle" fontSize={15} fontWeight="800"
+              fill="rgba(255,255,255,0.95)" fontFamily="'JetBrains Mono',monospace">
+              {noData ? '—' : total}
+            </text>
+            <text x={CX} y={CY + 14} textAnchor="middle" fontSize={8} fontWeight="500"
+              fill="rgba(255,255,255,0.5)" fontFamily="'Nunito',sans-serif">
+              {noData ? 'N/A' : 'devices'}
+            </text>
+          </svg>
+        </div>
+
+        {/* Legend */}
         <div className="hp-battery-legend-col">
-          <div className="hp-stat-title" style={{ marginBottom: 6 }}>Battery Status</div>
-          {data.map(d => (
-            <div key={d.label} className="hp-battery-row">
-              <span className="hp-battery-dot" style={{ background: d.color }} />
-              <span className="hp-battery-lbl">{d.label}</span>
-              <span className="hp-battery-pct" style={{ color: d.color }}>{d.pct}%</span>
+          <div style={{ marginBottom: 10 }}>
+            <span className="hp-stat-title" style={{ margin: 0, fontSize: 13 }}>Battery Status</span>
+            {!noData && (
+              <div style={{ fontSize: 11, color: '#71717a', fontFamily: "'Nunito',sans-serif", marginTop: 2 }}>
+                {total} devices reporting
+              </div>
+            )}
+          </div>
+          {noData ? (
+            <span style={{ fontSize: 13, color: '#71717a', fontStyle: 'italic' }}>No battery data yet</span>
+          ) : tiers.map(t => (
+            <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background: t.count > 0 ? t.color : '#3f3f46', display: 'inline-block' }} />
+              <span style={{ fontSize: 13, color: '#e4e4e7', minWidth: 52, fontFamily: "'Nunito',sans-serif", fontWeight: 600 }}>{t.label}</span>
+              <span style={{ fontSize: 11, color: '#71717a', fontFamily: "'JetBrains Mono',monospace", minWidth: 40 }}>{t.range}</span>
+              <span style={{
+                marginLeft: 'auto', fontSize: 15, fontWeight: 700,
+                color: t.count > 0 ? t.color : '#52525b',
+                fontFamily: "'JetBrains Mono',monospace",
+              }}>
+                {t.count}
+              </span>
             </div>
           ))}
         </div>
@@ -1617,7 +1660,7 @@ export default function HomePage() {
             progress={totalDevices > 0 ? (offlineCount / totalDevices) * 100 : 0}
             subtitle={!isLive ? `on ${filters.date}` : null}
           />
-          <BatteryStatusCard />
+          <BatteryStatusCard locations={locations} />
         </div>
       )}
 

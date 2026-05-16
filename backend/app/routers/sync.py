@@ -231,6 +231,10 @@ async def sync_zoqin_vendor_locations(mongo: MongoService) -> tuple[int, int]:
 
             devices_processed += 1
 
+            if history:
+                logger.info("sync zoqin_first_item_keys sn=%s keys=%s", sn, list(history[0].keys()))
+                logger.info("sync zoqin_first_item_full sn=%s item=%s", sn, history[0])
+
             for item in history:
                 if not isinstance(item, dict):
                     continue
@@ -281,17 +285,20 @@ async def sync_all_admin_locations(
         admin_id = str(admin.get("_id")) if admin.get("_id") is not None else None
         token = admin.get("citytag_token")
 
+        logger.info("sync processing_admin email=%s uid=%s has_token=%s", email, uid, bool(token))
+
         if not email or not uid:
-            logger.warning("sync skipping_admin missing_email_or_uid")
+            logger.warning("sync skipping_admin missing_email_or_uid email=%s uid=%s", email, uid)
             continue
 
         current_token = token
 
         devices = await get_devices(citytag, uid, current_token, email) if current_token else None
+        logger.info("sync get_devices result email=%s devices=%s", email, len(devices) if devices else devices)
 
         # TOKEN EXPIRED
         if devices is None:
-
+            logger.warning("sync token_expired_attempting_relogin email=%s", email)
             new_token = await try_relogin(email, uid, mongo, citytag)
 
             if not new_token:
@@ -300,8 +307,10 @@ async def sync_all_admin_locations(
 
             relogins += 1
             current_token = new_token
+            logger.info("sync relogin_success email=%s", email)
 
             devices = await get_devices(citytag, uid, current_token, email)
+            logger.info("sync get_devices after_relogin email=%s devices=%s", email, len(devices) if devices else devices)
 
             if devices is None:
                 logger.warning("sync devices_still_unavailable email=%s", email)
@@ -312,23 +321,24 @@ async def sync_all_admin_locations(
             continue
 
         total_devices += len(devices)
+        logger.info("sync found_devices email=%s count=%s", email, len(devices))
 
         for device in devices:
 
             if isinstance(device, dict):
-                # Persist device metadata into Mongo so listing endpoints are CityTag-free.
                 await mongo.upsert_device_from_citytag(
                     admin_id=admin_id,
                     citytag_device=device,
                 )
 
             sn = device.get("sn")
-
             if not sn:
+                logger.warning("sync device_missing_sn device=%s", device)
                 continue
 
-            try:
+            logger.info("sync fetching_history email=%s sn=%s start=%s end=%s", email, sn, start_time, end_time)
 
+            try:
                 history = await citytag.get_location_history(
                     uid=uid,
                     token=current_token,
@@ -336,27 +346,34 @@ async def sync_all_admin_locations(
                     start_time=start_time,
                     end_time=end_time
                 )
+                logger.info("sync history_fetched email=%s sn=%s count=%s", email, sn, len(history))
 
             except (CityTagError, HTTPStatusError) as e:
                 logger.error("sync history_fetch_failed email=%s sn=%s error=%s", email, sn, e)
                 continue
 
+            if not history:
+                logger.info("sync no_history_points email=%s sn=%s", email, sn)
+                continue
+
+            logger.info("sync first_item_keys sn=%s keys=%s", sn, list(history[0].keys()))
+            logger.info("sync first_item_full sn=%s item=%s", sn, history[0])
+
             inserted_device_points = 0
 
             for item in history:
-
                 inserted = await mongo.upsert_location_from_citytag(
                     history_item=item,
                     uid=uid,
-                    sn=sn
+                    sn=sn,
+                    battery_status=item.get("batteryLevel"),
                 )
 
                 if inserted:
                     inserted_device_points += 1
                     total_points += 1
 
-            if inserted_device_points:
-                logger.info("sync inserted_points email=%s sn=%s count=%s", email, sn, inserted_device_points)
+            logger.info("sync inserted_points email=%s sn=%s count=%s", email, sn, inserted_device_points)
     try:
         zoqin_devices, zoqin_points = await sync_zoqin_vendor_locations(mongo)
         total_devices += zoqin_devices

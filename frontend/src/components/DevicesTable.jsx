@@ -36,6 +36,7 @@ function formatDateTimeWithOffset(value, offsetHours = 0) {
 
 const DevicesTable = ({
   devices = [],
+  locations = {},
   searchTerm = '',
   filterStatus = 'all',
   onUnbind,
@@ -58,6 +59,7 @@ const DevicesTable = ({
     ] : []),
     { key: 'dataRetrievalTime', label: 'Data Retrieval Time' },
     { key: 'bindTime',          label: 'Bind Time' },
+    { key: 'battery',           label: 'Battery' },
   ];
 
   const filtered = devices.filter((d) => {
@@ -223,6 +225,28 @@ const DevicesTable = ({
 
               {/* Bind Time (+5 offset) */}
               <td><span className="cell-datetime">{formatDateTimeWithOffset(device.bindTime, 5)}</span></td>
+
+              {/* Battery */}
+              {(() => {
+                const bat = locations[device.sn]?.batteryStatus;
+                if (bat == null) {
+                  return <td><span style={{ color: '#52525b', fontStyle: 'italic', fontSize: 12 }}>—</span></td>;
+                }
+                const color = bat >= 60 ? '#4CAF50' : bat >= 20 ? '#F4A261' : '#ef4444';
+                const label = bat >= 60 ? 'High' : bat >= 20 ? 'Medium' : 'Low';
+                return (
+                  <td>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600,
+                      background: `${color}18`, color, border: `1px solid ${color}35`,
+                    }}>
+                      <span style={{ fontSize: 9 }}>●</span>
+                      {bat}% {label}
+                    </span>
+                  </td>
+                );
+              })()}
 
               {/* Actions */}
               <td>

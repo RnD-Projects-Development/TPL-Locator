@@ -195,15 +195,13 @@ const DEVICE_ICON_HTML = `
   </div>`;
 
 // ── Smooth animation between two lat/lng points ───────────────────────────────
-// Linear interpolation = constant velocity = looks like a car navigating.
-// No ease-in/out so there are no micro-pauses between steps.
 function smoothMoveTo(marker, fromLat, fromLng, toLat, toLng, duration, onTick) {
   const start = performance.now();
   let rafId;
 
   function frame(now) {
     const elapsed = now - start;
-    const t = Math.min(elapsed / duration, 1); // linear — no easing
+    const t = Math.min(elapsed / duration, 1);
 
     const lat = fromLat + (toLat - fromLat) * t;
     const lng = fromLng + (toLng - fromLng) * t;
@@ -225,6 +223,11 @@ export default function MapView({
   sn, label, latest, trajectory = [], playbackPoint = null,
   showLine = true, showFences = false, zones = [], multiDevices = [],
   playbackSpeed = 3000,
+  // Playback page passes the FULL unsliced trajectory + current index.
+  // MapView owns which segments are visible so it can advance exactly one
+  // segment per step, preventing bulk-commits on seek/scrub.
+  isPlaybackPage = false,
+  playbackIndex = 0,
 }) {
   const containerRef   = useRef(null);
   const mapRef         = useRef(null);
@@ -237,11 +240,28 @@ export default function MapView({
   const snRef          = useRef('');
   const labelRef       = useRef('');
 
-  // Trajectory refs
+  // ── Standard trajectory refs (used by Trajectory page / non-playback) ────
   const polylineRef  = useRef(null);
   const dotsRef      = useRef([]);
-  const trajLenRef   = useRef(0);   // how many items are currently rendered
+  const trajLenRef   = useRef(0);
   const canvasRef    = useRef(null);
+
+  // ── Playback-isolated trajectory refs ────────────────────────────────────
+  // Architecture: "committed polyline" + "animated tip polyline"
+  //   - pbCommittedLineRef  : static polyline of all fully-completed segments
+  //                           [point_0 … point_N] — never mutated during tween
+  //   - pbTipLineRef        : tiny 2-point polyline [point_N, interpolatedPos]
+  //                           updated every animation frame — no DOM flicker
+  //                           because only the second vertex moves
+  //   - pbDotsRef           : canvas circle markers for visited waypoints
+  //   - pbCommittedIdxRef   : index of the last fully-committed point
+  //   - pbCanvasRef         : shared canvas renderer for dots
+  const pbCommittedLineRef = useRef(null); // polyline: committed path
+  const pbTipLineRef       = useRef(null); // polyline: animated tip segment
+  const pbDotsRef          = useRef([]);   // dot markers for visited waypoints
+  const pbCommittedIdxRef  = useRef(-1);   // index of last committed waypoint
+  const pbCanvasRef        = useRef(null);
+  const pbActiveRef        = useRef(false); // true while playback tween is running
 
   // Fence overlay refs
   const fenceLayersRef = useRef([]);
@@ -264,7 +284,7 @@ export default function MapView({
   const coords      = useMemo(() => extractCoords(activePoint), [activePoint]);
   const displayName = label || sn;
 
-  // ── Helper: wipe all trajectory layers from the map ──────────────────────
+  // ── Helper: wipe all standard trajectory layers ───────────────────────────
   const clearTrajectoryLayers = useCallback((map) => {
     if (!map) return;
     if (polylineRef.current) {
@@ -274,6 +294,23 @@ export default function MapView({
     dotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
     dotsRef.current  = [];
     trajLenRef.current = 0;
+  }, []);
+
+  // ── Helper: wipe all playback-specific layers ─────────────────────────────
+  const clearPlaybackLayers = useCallback((map) => {
+    if (!map) return;
+    if (pbCommittedLineRef.current) {
+      try { map.removeLayer(pbCommittedLineRef.current); } catch {}
+      pbCommittedLineRef.current = null;
+    }
+    if (pbTipLineRef.current) {
+      try { map.removeLayer(pbTipLineRef.current); } catch {}
+      pbTipLineRef.current = null;
+    }
+    pbDotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
+    pbDotsRef.current = [];
+    pbCommittedIdxRef.current = -1;
+    pbActiveRef.current = false;
   }, []);
 
   // Stable marker creation / hover wiring
@@ -379,6 +416,7 @@ export default function MapView({
         if (popupRef.current  && _cachedMap) { popupRef.current.remove();                    popupRef.current  = null; }
         if (markerRef.current && _cachedMap) { _cachedMap.removeLayer(markerRef.current);    markerRef.current = null; }
         clearTrajectoryLayers(_cachedMap);
+        clearPlaybackLayers(_cachedMap);
         fenceLayersRef.current.forEach(p => { try { _cachedMap.removeLayer(p); } catch {} });
         multiMarkersRef.current.forEach(({ marker }) => { try { _cachedMap.removeLayer(marker); } catch {} });
       } catch {}
@@ -424,23 +462,44 @@ export default function MapView({
         return;
       }
 
-      // 98% of the step interval — tween ends just as the next one fires,
-      // so the marker moves continuously with no visible snap between steps.
       const tweenDuration = Math.max(playbackSpeed * 0.98, 100);
+
+      // ── Playback page: update the animated tip polyline each frame ────────
+      // This is the key fix: instead of calling setLatLngs on the full committed
+      // polyline every frame, we only move the second vertex of the 2-point tip
+      // line. The committed polyline is never touched during the tween.
+      let onTickFn = null;
+      if (isPlaybackPage && pbTipLineRef.current) {
+        onTickFn = (lat, lng) => {
+          try {
+            pbTipLineRef.current?.setLatLngs([
+              [from.lat, from.lng],
+              [lat, lng],
+            ]);
+          } catch {}
+        };
+      }
 
       cancelTweenRef.current = smoothMoveTo(
         markerRef.current,
         from.lat, from.lng,
         to.lat,   to.lng,
         tweenDuration,
-        null,
+        onTickFn,
       );
 
-      // Seed animFromRef immediately at destination so the next tween always
-      // starts from the correct logical position, even if the rAF is still running.
       const timeoutId = setTimeout(() => {
         animFromRef.current = to;
         cancelTweenRef.current = null;
+
+        // When the tween completes, collapse the tip line back to a zero-length
+        // segment at the destination. The committed line already ends at `from`
+        // (the previous waypoint); the next effect run will extend it to `to`.
+        if (isPlaybackPage && pbTipLineRef.current) {
+          try {
+            pbTipLineRef.current.setLatLngs([[to.lat, to.lng], [to.lat, to.lng]]);
+          } catch {}
+        }
       }, tweenDuration);
 
       const targetZoom = Math.max(map.getZoom(), 15);
@@ -476,32 +535,31 @@ export default function MapView({
         map.setView([coords.lat, coords.lng], targetZoom, { animate: true, duration: 0.4 });
       }
     }
-  }, [coords, mapLoaded, isPlayback, playbackSpeed, ensureMarker]);
+  }, [coords, mapLoaded, isPlayback, playbackSpeed, ensureMarker, isPlaybackPage]);
 
-  /* ── TRAJECTORY (progressive) ── */
+  /* ── STANDARD TRAJECTORY (non-playback pages: Trajectory page etc.) ─────
+   * This block is completely bypassed when isPlaybackPage is true.
+   * The Trajectory page continues to use this untouched path.
+   */
   useEffect(() => {
+    // Skip entirely for playback page — it has its own renderer below
+    if (isPlaybackPage) return;
+
     const map = mapRef.current;
     if (!map || !window.L) return;
 
-    // Build valid { c, p } items from the (already-sliced) trajectory prop
     const items = (trajectory ?? [])
       .map(p => { const c = extractCoords(p); return c ? { c, p } : null; })
       .filter(Boolean);
 
-    // ── Full reset: trajectory shrank (seek back / reset / new load) ──────
-    // This handles: playback reset, slider scrub backwards, new data load.
     if (items.length < trajLenRef.current || items.length === 0) {
       clearTrajectoryLayers(map);
-      // Fall through — will re-draw all items from scratch below
     }
 
     if (items.length === 0) return;
 
     const latLngs = items.map(({ c }) => [c.lat, c.lng]);
 
-    // ── Polyline: always keep it covering the full visible slice ──────────
-    // In playback mode the trajectory prop is already sliced to [0..index],
-    // so updating setLatLngs is all we need; no future path is ever included.
     if (showLine || isPlayback) {
       if (!polylineRef.current) {
         polylineRef.current = window.L.polyline(latLngs, {
@@ -517,11 +575,8 @@ export default function MapView({
       }
     }
 
-    // ── Dots: only add the newly-arrived items (incremental) ─────────────
     if (!canvasRef.current) canvasRef.current = window.L.canvas({ padding: 0.5 });
 
-    // Dot sub-sampling threshold: for very large datasets skip intermediate dots
-    // to avoid DOM bloat. Show every Nth dot so we cap at ~300 visible dots.
     const MAX_DOTS  = 300;
     const stepSize  = items.length > MAX_DOTS ? Math.ceil(items.length / MAX_DOTS) : 1;
 
@@ -530,7 +585,6 @@ export default function MapView({
     newItems.forEach(({ c, p }, relIdx) => {
       const absIdx = trajLenRef.current + relIdx;
 
-      // Sub-sample: only add a dot every `stepSize` points, always include last
       if (absIdx % stepSize !== 0 && absIdx !== items.length - 1) return;
 
       const dot = window.L.circleMarker([c.lat, c.lng], {
@@ -561,7 +615,158 @@ export default function MapView({
     });
 
     trajLenRef.current = items.length;
-  }, [trajectory, mapLoaded, showLine, isPlayback, clearTrajectoryLayers]);
+  }, [trajectory, mapLoaded, showLine, isPlayback, isPlaybackPage, clearTrajectoryLayers]);
+
+  /* ── PLAYBACK-PAGE TRAJECTORY RENDERER ──────────────────────────────────
+   *
+   * Architecture: Committed path + Animated tip
+   * ─────────────────────────────────────────────
+   * pbCommittedLineRef  — polyline of all fully-completed segments up to
+   *                       (playbackIndex - 1). Never mutated during animation
+   *                       frames → zero flicker.
+   *
+   * pbTipLineRef        — 2-point polyline [waypoint_(idx-1), interpolatedPos].
+   *                       The tween's onTick slides the second vertex each rAF.
+   *                       A 2-point setLatLngs is microscopically cheap.
+   *
+   * pbDotsRef           — canvas circle markers for each committed waypoint.
+   *
+   * Key invariant:
+   *   PlaybackPage passes the FULL unsliced trajectory + playbackIndex.
+   *   This effect watches playbackIndex directly, so it always advances by
+   *   exactly ONE segment — even if the host re-renders multiple times or
+   *   the user scrubs the slider. Committed path never bulk-grows.
+   *
+   *   Committed covers indices [0 … playbackIndex-1].
+   *   Tip covers the live segment [playbackIndex-1 … marker's current pos].
+   */
+  useEffect(() => {
+    if (!isPlaybackPage) return;
+
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+
+    // ── Live / session mode on the Playback page ──────────────────────────
+    // No trajectory lines at all — just the marker.
+    if (!isPlayback) {
+      clearPlaybackLayers(map);
+      return;
+    }
+
+    // ── Build full items array from the unsliced trajectory ───────────────
+    const items = (trajectory ?? [])
+      .map(p => { const c = extractCoords(p); return c ? { c, p } : null; })
+      .filter(Boolean);
+
+    if (items.length === 0) {
+      clearPlaybackLayers(map);
+      return;
+    }
+
+    // ── Reset when playbackIndex went backwards (seek/reset/new load) ─────
+    // pbCommittedIdxRef holds the last index whose waypoint was committed.
+    // If the current playbackIndex is behind or equal to it, we must wipe
+    // and re-bootstrap from the new position.
+    if (playbackIndex <= pbCommittedIdxRef.current && pbCommittedIdxRef.current >= 0) {
+      clearPlaybackLayers(map);
+    }
+
+    if (!pbCanvasRef.current) pbCanvasRef.current = window.L.canvas({ padding: 0.5 });
+
+    // ── Bootstrap: create the two polylines on first entry ───────────────
+    if (pbCommittedIdxRef.current < 0) {
+      // Guard: need at least the starting waypoint
+      if (playbackIndex >= items.length) return;
+
+      const startItem = items[playbackIndex];
+
+      // Committed line: degenerate single point — invisible but extensible.
+      pbCommittedLineRef.current = window.L.polyline(
+        [[startItem.c.lat, startItem.c.lng]],
+        { color: '#b91c1c', weight: 2.5, opacity: 0.65, interactive: false }
+      ).addTo(map);
+
+      // Tip line: collapsed at the start point.
+      pbTipLineRef.current = window.L.polyline(
+        [[startItem.c.lat, startItem.c.lng], [startItem.c.lat, startItem.c.lng]],
+        { color: '#b91c1c', weight: 2.5, opacity: 0.65, interactive: false }
+      ).addTo(map);
+
+      pbCommittedIdxRef.current = playbackIndex;
+      return; // nothing more to commit on the very first step
+    }
+
+    // ── Commit exactly one new waypoint ───────────────────────────────────
+    // The committed line ends at pbCommittedIdxRef.current.
+    // playbackIndex is the marker's current logical position.
+    // We extend by one: commit up to playbackIndex (the just-reached waypoint).
+    // The *next* segment (playbackIndex → playbackIndex+1) is left to the tip.
+    const prevCommitted = pbCommittedIdxRef.current;
+    const nextCommitted = playbackIndex; // advance to current position
+
+    if (nextCommitted > prevCommitted && nextCommitted < items.length) {
+      // Extend committed line by the one new waypoint
+      const newPt = items[nextCommitted].c;
+      const existing = pbCommittedLineRef.current?.getLatLngs() ?? [];
+      try {
+        pbCommittedLineRef.current?.setLatLngs([
+          ...existing,
+          window.L.latLng(newPt.lat, newPt.lng),
+        ]);
+      } catch {}
+
+      // Drop a dot at the newly committed waypoint (sub-sampled)
+      const MAX_DOTS = 300;
+      const stepSize = items.length > MAX_DOTS ? Math.ceil(items.length / MAX_DOTS) : 1;
+      if (nextCommitted % stepSize === 0 || nextCommitted === items.length - 1) {
+        _addPbDot(map, newPt, items[nextCommitted].p);
+      }
+
+      pbCommittedIdxRef.current = nextCommitted;
+    }
+
+    // ── Seed the tip for the upcoming segment ─────────────────────────────
+    // Collapsed at the current position — the tween's onTick will stretch it
+    // forward toward the next waypoint.
+    if (pbTipLineRef.current && playbackIndex < items.length) {
+      const fromPt = items[pbCommittedIdxRef.current]?.c;
+      if (fromPt) {
+        try {
+          pbTipLineRef.current.setLatLngs([
+            [fromPt.lat, fromPt.lng],
+            [fromPt.lat, fromPt.lng],
+          ]);
+        } catch {}
+      }
+    }
+
+    function _addPbDot(map, c, p) {
+      if (!window.L) return;
+      const dot = window.L.circleMarker([c.lat, c.lng], {
+        radius: 4, color: '#7f1d1d', fillColor: '#fca5a5',
+        fillOpacity: 0.8, weight: 1,
+        renderer: pbCanvasRef.current,
+      }).addTo(map);
+
+      const ts = formatTimestamp(p);
+      dot.on('mouseover', () => {
+        const popup = window.L.popup({ offset: [0, 0], closeButton: false, className: 'mv-popup' })
+          .setLatLng([c.lat, c.lng])
+          .setContent(buildTrajDotPopup({ ts, geocode: null, coords: c }))
+          .openOn(map);
+
+        let hoverActive = true;
+        tplGeocode(c.lat, c.lng).then(geocode => {
+          if (!hoverActive) return;
+          popup.setContent(buildTrajDotPopup({ ts, geocode, coords: c }));
+        }).catch(() => {});
+        dot.once('mouseout', () => { hoverActive = false; });
+      });
+      dot.on('mouseout', () => map.closePopup());
+      pbDotsRef.current.push(dot);
+    }
+
+  }, [playbackIndex, trajectory, mapLoaded, isPlayback, isPlaybackPage, clearPlaybackLayers]);
 
   /* ── FENCE OVERLAY ── */
   useEffect(() => {

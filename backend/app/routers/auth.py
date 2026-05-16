@@ -103,6 +103,10 @@ async def login(
             # User by email
             user = await mongo.get_user_by_email(email)
             if user and verify_password(payload.password, user.password):
+                await mongo.accounts.update_one(
+                    {"_id": ObjectId(str(user.id))},
+                    {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
+                )
                 access_token = create_access_token(str(user.id))
                 logger.info("user login completed email=%s user_id=%s", email, user.id)
                 return LoginResponse(user=user_to_public(user), role="user", access_token=access_token)
@@ -112,6 +116,10 @@ async def login(
             phone = _normalize_phone(raw)
             user = await mongo.get_user_by_phone(phone)
             if user and verify_password(payload.password, user.password):
+                await mongo.accounts.update_one(
+                    {"_id": ObjectId(str(user.id))},
+                    {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
+                )
                 access_token = create_access_token(str(user.id))
                 logger.info("user login by phone completed phone=%s user_id=%s", phone, user.id)
                 return LoginResponse(user=user_to_public(user), role="user", access_token=access_token)

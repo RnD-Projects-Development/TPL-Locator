@@ -170,6 +170,9 @@ async def sync_zoqin(mongo: MongoService):
 
             logger.info("auto_sync zoqin API success | sn=%s items=%s", sn, len(data_list))
 
+            if data_list:
+                logger.info("auto_sync zoqin_first_item sn=%s keys=%s item=%s", sn, list(data_list[0].keys()), data_list[0])
+
             for item in data_list:
                 try:
                     history_item = {
@@ -189,7 +192,7 @@ async def sync_zoqin(mongo: MongoService):
                     inserted = await mongo.upsert_location_from_citytag(
                         history_item=history_item,
                         uid=uid,
-                        sn=sn
+                        sn=sn,
                     )
 
                     if inserted:
@@ -279,7 +282,8 @@ async def sync_all_users():
                     inserted = await mongo.upsert_location_from_citytag(
                         history_item=item,
                         uid=uid,
-                        sn=sn
+                        sn=sn,
+                        battery_status=item.get("batteryLevel"),
                     )
 
                     if inserted:

@@ -19,4 +19,4 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 .pytest_cache/
-coverage/
+coverage/.claude/ 

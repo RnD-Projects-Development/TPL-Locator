@@ -17,6 +17,7 @@ class UserInDB(BaseModel):
     devices: List[PyObjectId] = Field(default_factory=list)
     role: str = "user"  # user or admin
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_logged_in: Optional[datetime] = None
 
     class Config:
         json_encoders = {ObjectId: str}
