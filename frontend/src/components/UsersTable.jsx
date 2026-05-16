@@ -216,6 +216,7 @@ export default function UsersTable() {
             <th>Role</th>
             <th>Devices Assigned</th>
             <th>Created</th>
+            <th>Last Logged In</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -248,6 +249,11 @@ export default function UsersTable() {
                 <td>
                   <span className="cell-datetime">
                     {formatDateTimeWithOffset(u.created_at, 5)}
+                  </span>
+                </td>
+                <td>
+                  <span className="cell-datetime">
+                    {formatDateTimeWithOffset(u.last_logged_in, 5)}
                   </span>
                 </td>
                 <td>

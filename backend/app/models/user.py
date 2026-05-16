@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from bson import ObjectId
 from pydantic import BaseModel, EmailStr, Field
@@ -17,6 +17,7 @@ class UserInDB(BaseModel):
     devices: List[PyObjectId] = Field(default_factory=list)
     role: str = "user"  # user or admin
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_logged_in: Optional[datetime] = None
 
     class Config:
         json_encoders = {ObjectId: str}
