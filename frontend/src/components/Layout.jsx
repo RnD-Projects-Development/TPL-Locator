@@ -371,13 +371,13 @@ const Layout = ({ children }) => {
   return (
     <DeviceCacheProvider>
       <UserCacheProvider>
-        {isAdmin ? (
-          <HomePageCacheProvider>
+        <HomePageCacheProvider>
+          {isAdmin ? (
             <FieldStaffCacheProvider>
               {layoutBody}
             </FieldStaffCacheProvider>
-          </HomePageCacheProvider>
-        ) : layoutBody}
+          ) : layoutBody}
+        </HomePageCacheProvider>
       </UserCacheProvider>
     </DeviceCacheProvider>
   );
