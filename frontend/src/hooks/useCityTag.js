@@ -164,8 +164,18 @@ export function useCityTag() {
   const adminUpdateDevice = useCallback(
     async (sn, { name, client, region, category } = {}) =>
       apiFetch(
-        `/api/admin/devices/${encodeURIComponent(sn)}`,
+        `/api/devices/${encodeURIComponent(sn)}`,
         { method: "PUT", body: { name, client, region, category } },
+        accessToken, logout
+      ),
+    [accessToken, logout]
+  );
+
+  const updateDevice = useCallback(
+    async (sn, { name, client, category } = {}) =>
+      apiFetch(
+        `/api/devices/${encodeURIComponent(sn)}`,
+        { method: "PUT", body: { name, client, category } },
         accessToken, logout
       ),
     [accessToken, logout]
@@ -210,7 +220,7 @@ export function useCityTag() {
     login, adminLogin, signup,
     getDevices, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
-    adminUpdateDevice,
+    adminUpdateDevice, updateDevice,
     bindDevice, bindDeviceByEmail, unbindDevice, adminUnbindDevice,
     searchDevice, getLatestLocation, getTrajectory, getPlayback,
     getFieldStaffLiveDevices,

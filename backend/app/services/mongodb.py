@@ -142,8 +142,23 @@ class MongoService:
             return 0
         return await self.devices.count_documents({"admin_id": oid})
 
-    async def create_device(self, sn: str, admin_id: str, name: Optional[str] = None):
-        payload = {"sn": sn, "admin_id": ObjectId(admin_id), "name": name or ""}
+    async def create_device(
+        self,
+        sn: str,
+        admin_id: str,
+        name: Optional[str] = None,
+        client: Optional[str] = None,
+        category: Optional[str] = None,
+    ):
+        payload = {
+            "sn": sn,
+            "admin_id": ObjectId(admin_id),
+            "name": name or "",
+        }
+        if client is not None:
+            payload["client"] = client.strip() if client else None
+        if category is not None:
+            payload["category"] = category.strip() if category else None
         result = await self.devices.insert_one(payload)
         doc = await self.devices.find_one({"_id": result.inserted_id})
         return DeviceInDB(**doc)

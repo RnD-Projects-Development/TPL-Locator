@@ -23,6 +23,8 @@ class AssignDeviceRequest(BaseModel):
     sn: str
     user_id: str | None = None
     name: str = ""
+    client: str | None = None
+    category: str | None = None
 
 
 def _fmt_dt(value) -> str | None:
@@ -196,69 +198,17 @@ async def admin_add_device(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Device limit reached ({ADMIN_MAX_DEVICES}).")
 
     try:
-        device = await mongo.create_device(payload.sn, str(current_admin.id), payload.name)
+        device = await mongo.create_device(
+            payload.sn,
+            str(current_admin.id),
+            payload.name,
+            payload.client,
+            payload.category,
+        )
         if payload.user_id:
             await mongo.assign_device_to_user(payload.sn, payload.user_id)
         logger.info("admin_add_device completed admin=%s device_id=%s sn=%s", current_admin.email, device.id, payload.sn)
         return {"status": "ok", "device_id": str(device.id)}
     except Exception as err:
         logger.exception("admin_add_device failed admin=%s sn=%s", current_admin.email, payload.sn)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed: {str(err)}")
-
-
-class UpdateDeviceRequest(BaseModel):
-    name: str | None = None
-    client: str | None = None
-    region: str | None = None
-    category: str | None = None    # device category e.g. "car", "wallet", "bag"
-    zone: str | None = None        # legacy single-zone (kept for backward compat)
-    add_zone: str | None = None    # add this zone_id to device's zones array
-    remove_zone: str | None = None # remove this zone_id from device's zones array
-
-
-@router.put("/devices/{sn}")
-async def admin_update_device(
-    sn: str,
-    payload: UpdateDeviceRequest,
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
-    mongo: Annotated[MongoService, Depends(get_mongo_service)],
-):
-    logger.info("admin_update_device started admin=%s sn=%s", current_admin.email, sn)
-    try:
-        device = await mongo.get_device_by_sn(sn)
-        if not device:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-        if str(device.admin_id) != str(current_admin.id):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not owned by this admin")
-
-        updated = await mongo.update_device(sn, payload.name, payload.client, payload.region, payload.category)
-
-        if payload.zone is not None:
-            zone_val = payload.zone.strip() or None
-            await mongo.devices.update_one({"sn": sn}, {"$set": {"zone": zone_val}})
-
-        if payload.add_zone:
-            zone_val = payload.add_zone.strip()
-            if zone_val:
-                result = await mongo.devices.update_one({"sn": sn}, {"$addToSet": {"fence_zone_ids": zone_val}})
-                logger.info("add_zone sn=%s zone=%s matched=%d modified=%d",
-                            sn, zone_val, result.matched_count, result.modified_count)
-            else:
-                logger.warning("add_zone received empty string for sn=%s", sn)
-
-        if payload.remove_zone:
-            zone_val = payload.remove_zone.strip()
-            if zone_val:
-                result = await mongo.devices.update_one({"sn": sn}, {"$pull": {"fence_zone_ids": zone_val}})
-                logger.info("remove_zone sn=%s zone=%s matched=%d modified=%d",
-                            sn, zone_val, result.matched_count, result.modified_count)
-            else:
-                logger.warning("remove_zone received empty string for sn=%s", sn)
-
-        logger.info("admin_update_device completed admin=%s sn=%s", current_admin.email, sn)
-        return {"status": "ok", "device": {"id": str(updated.id), "sn": updated.sn, "name": updated.name, "client": updated.client, "region": updated.region, "category": updated.category, "zone": payload.zone}}
-    except HTTPException:
-        raise
-    except Exception as err:
-        logger.exception("admin_update_device failed admin=%s sn=%s", current_admin.email, sn)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed: {str(err)}")

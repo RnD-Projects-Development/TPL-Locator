@@ -42,6 +42,7 @@ export default function UsersTable() {
   // Search/assign state
   const [searchSN, setSearchSN]           = useState("");
   const [assignName, setAssignName]       = useState("");
+  const [assignCategory, setAssignCategory] = useState("");
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignError, setAssignError]     = useState("");
   const [assignSuccess, setAssignSuccess] = useState("");
@@ -62,6 +63,7 @@ export default function UsersTable() {
     if (!selectedUser) {
       setSearchSN("");
       setAssignName("");
+      setAssignCategory("");
       setAssignError("");
       setAssignSuccess("");
     }
@@ -129,14 +131,20 @@ export default function UsersTable() {
       return;
     }
 
+    if (!assignCategory) {
+      setAssignError("Category is required.");
+      return;
+    }
+
     setAssignLoading(true);
     setAssignError("");
     setAssignSuccess("");
     try {
-      await adminAssignDeviceToUser(selectedUser.id, sn, { name: name || undefined });
+      await adminAssignDeviceToUser(selectedUser.id, sn, { name: name || undefined, category: assignCategory });
       setAssignSuccess(`Device ${sn} assigned successfully.`);
       setSearchSN("");
       setAssignName("");
+      setAssignCategory("");
       refreshUsers();
       refreshDevices();
     } catch (err) {
@@ -505,11 +513,37 @@ export default function UsersTable() {
                 borderRadius:8, color:"#f4f4f5", fontSize:13, outline:"none",
               }}
             />
+            <select
+              value={assignCategory}
+              onChange={e => { setAssignCategory(e.target.value); setAssignError(""); setAssignSuccess(""); }}
+              style={{
+                width:"100%",
+                background:"#18181b",
+                border:`1px solid ${assignError ? "#7f1d1d" : "#3f3f46"}`,
+                borderRadius:8,
+                padding:"8px 12px",
+                color:"#f4f4f5",
+                fontSize:13,
+                outline:"none",
+                cursor:"pointer",
+                appearance:"none",
+                WebkitAppearance:"none",
+              }}
+            >
+              <option value="" style={{ background:"#27272a", color:"#a1a1aa" }}>
+                Select category…
+              </option>
+              {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
+                <option key={cat} value={cat} style={{ background:"#27272a", color:"#f4f4f5" }}>
+                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                </option>
+              ))}
+            </select>
             <button
               onClick={handleAssignDevice}
-              disabled={assignLoading || !searchSN.trim() || unboundDevices.length === 0}
+              disabled={assignLoading || !searchSN.trim() || !assignCategory || unboundDevices.length === 0}
               style={{
-                padding:"8px 14px", background: searchSN.trim() && unboundDevices.length > 0 ? "#800000" : "#27272a",
+                padding:"8px 14px", background: searchSN.trim() && assignCategory && unboundDevices.length > 0 ? "#800000" : "#27272a",
                 border:"1px solid #3f3f46", borderRadius:8, color: searchSN.trim() ? "#fff" : "#52525b",
                 fontSize:13, fontWeight:600, cursor: searchSN.trim() ? "pointer" : "not-allowed",
                 display:"flex", alignItems:"center", justifyContent:"center", gap:6, transition:"all 0.15s",

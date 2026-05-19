@@ -244,6 +244,22 @@ class BindDeviceRequest(BaseModel):
     category: Optional[str] = None   # device category e.g. "car", "wallet", "bag"
 
 
+class UpdateOwnDeviceRequest(BaseModel):
+    name: Optional[str] = None
+    client: Optional[str] = None
+    category: Optional[str] = None
+
+
+class UpdateDeviceRequest(BaseModel):
+    name: Optional[str] = None
+    client: Optional[str] = None
+    region: Optional[str] = None
+    category: Optional[str] = None
+    zone: Optional[str] = None
+    add_zone: Optional[str] = None
+    remove_zone: Optional[str] = None
+
+
 @router.post("/devices")
 async def bind_device(
     payload: BindDeviceRequest,
@@ -353,3 +369,84 @@ async def unbind_device(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(err),
         )
+
+
+async def _update_device_for_account(
+    current_account: Union[AdminInDB, UserInDB],
+    sn: str,
+    payload: UpdateDeviceRequest,
+    mongo: MongoService,
+):
+    is_admin = isinstance(current_account, AdminInDB)
+
+    if not is_admin and any([
+        payload.region is not None,
+        payload.zone is not None,
+        payload.add_zone is not None,
+        payload.remove_zone is not None,
+    ]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admins only may update region or fence zone fields",
+        )
+
+    device = await mongo.get_device_by_sn(sn)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    if is_admin:
+        if str(device.admin_id) != str(current_account.id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not owned by this admin")
+    else:
+        if not device.user_id or str(device.user_id) != str(current_account.id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This device is not assigned to you")
+
+    updated = await mongo.update_device(
+        sn,
+        name=payload.name.strip() if payload.name is not None else None,
+        client=payload.client.strip() if payload.client is not None else None,
+        region=payload.region.strip() if payload.region is not None and is_admin else None,
+        category=payload.category.strip() if payload.category is not None else None,
+    )
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update device")
+
+    if is_admin:
+        if payload.zone is not None:
+            zone_val = payload.zone.strip() or None
+            await mongo.devices.update_one({"sn": sn}, {"$set": {"zone": zone_val}})
+
+        if payload.add_zone:
+            zone_val = payload.add_zone.strip()
+            if zone_val:
+                await mongo.devices.update_one({"sn": sn}, {"$addToSet": {"fence_zone_ids": zone_val}})
+
+        if payload.remove_zone:
+            zone_val = payload.remove_zone.strip()
+            if zone_val:
+                await mongo.devices.update_one({"sn": sn}, {"$pull": {"fence_zone_ids": zone_val}})
+
+    refreshed = await mongo.get_device_by_sn(sn)
+    return {
+        "status": "ok",
+        "device": {
+            "id": str((refreshed or updated).id),
+            "sn": (refreshed or updated).sn,
+            "name": (refreshed or updated).name,
+            "client": (refreshed or updated).client,
+            "region": (refreshed or updated).region,
+            "category": (refreshed or updated).category,
+            "zone": (refreshed or updated).zone,
+        },
+    }
+
+
+@router.put("/devices/{sn}")
+async def update_device(
+    sn: str,
+    payload: UpdateDeviceRequest,
+    current_account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """Update a device for both admins and users by checking the account role."""
+    return await _update_device_for_account(current_account, sn, payload, mongo)

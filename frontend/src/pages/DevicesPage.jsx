@@ -34,6 +34,7 @@ const HomePage = () => {
   const {
     bindDevice, unbindDevice,
     adminCreateUser, adminAssignDeviceToUser, adminUpdateDevice,
+    updateDevice,
     getAvailableDevices,
   } = useCityTag();
 
@@ -198,12 +199,16 @@ const HomePage = () => {
     if (!editDevice) return;
     setEditDeviceLoading(true); setEditDeviceError('');
     try {
-      await adminUpdateDevice(editDevice.sn, {
-        name:     editDeviceName.trim()   || undefined,
-        client:   editDeviceClient.trim() || undefined,
-        region:   editDeviceRegion.trim() || undefined,
+      const payload = {
+        name: editDeviceName.trim() || undefined,
+        client: editDeviceClient.trim() || undefined,
         category: editDeviceCategory.trim() || undefined,
-      });
+      };
+      if (isAdmin) {
+        await adminUpdateDevice(editDevice.sn, { ...payload, region: editDeviceRegion.trim() || undefined });
+      } else {
+        await updateDevice(editDevice.sn, payload);
+      }
       closeEditDevice(); refreshDevices();
     } catch (err) {
       setEditDeviceError(err.message || 'Failed to update device');
@@ -329,7 +334,7 @@ const HomePage = () => {
               isAdmin={isAdmin}
               onBind={(sn) => openBindModal(sn)}
               onUnbind={isAdmin ? handleUnbind : handleUserUnbind}
-              onEdit={isAdmin ? openEditDevice : undefined}
+              onEdit={openEditDevice}
               loading={loading}
             />
           )}
@@ -528,15 +533,17 @@ const HomePage = () => {
                   onChange={(e) => setEditDeviceClient(e.target.value)}
                 />
               </div>
-              <div className="hp-modal-field">
-                <label>Region</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Wagha Town"
-                  value={editDeviceRegion}
-                  onChange={(e) => setEditDeviceRegion(e.target.value)}
-                />
-              </div>
+              {isAdmin && (
+                <div className="hp-modal-field">
+                  <label>Region</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Wagha Town"
+                    value={editDeviceRegion}
+                    onChange={(e) => setEditDeviceRegion(e.target.value)}
+                  />
+                </div>
+              )}
               <div className="hp-modal-field">
                 <label>Category</label>
                 <select value={editDeviceCategory} onChange={(e) => setEditDeviceCategory(e.target.value)} style={SELECT_STYLE}>

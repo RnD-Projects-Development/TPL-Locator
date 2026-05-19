@@ -90,6 +90,40 @@ Open:
   - body: `{ "encryption": "<3DES-ECB-PKCS7(base64)>" }`
   - decrypts response `data` and returns the list
 
+### Bind device API
+- **POST** `/api/devices` binds a device to a user.
+- **PUT** `/api/devices/{sn}` updates a device for both admins and users by checking the authenticated role.
+
+Request body fields:
+- `sn` (required): device serial number
+- `email` (optional): target user email, mainly for admin use
+- `user_id` (optional): target user id, mainly for admin use
+- `name` (optional): label saved on the device when binding
+- `client` (optional): client/company name saved on the device when binding
+- `category` (optional): device category such as `car`, `bag`, or `wallet`
+- `region` (optional, admin only): region label for the device
+- `zone` (optional, admin only): legacy single-zone field
+- `add_zone` (optional, admin only): add a fence zone id to the device
+- `remove_zone` (optional, admin only): remove a fence zone id from the device
+
+Example:
+
+```json
+{
+  "sn": "TPL-000123",
+  "user_id": "66f0c2b3e2b8c9b12a345678",
+  "name": "Delivery Locator 1",
+  "client": "TPL Logistics",
+  "category": "car"
+}
+```
+
+Notes:
+- Regular users only need `sn`, `name`, `client`, and `category`.
+- Admins should send either `user_id` or `email` to bind a device to a specific user.
+- Regular users can update only `name`, `client`, and `category` through the PUT endpoint.
+- Admins can update `name`, `client`, `region`, `category`, `zone`, `add_zone`, and `remove_zone` through the same PUT endpoint.
+
 ### Latest location
 - Frontend calls **GET** `/api/location/{sn}` (auto-refresh every 45s)
 - Backend calls trajectory endpoint:
