@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
+import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import "./PlaybackPage.css";
 
@@ -63,6 +64,7 @@ const TIME_SHORTCUTS = [
 export default function PlaybackPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation, getPlayback } = useCityTag();
+  const { ensureDevice } = useSidebarDevices();
   const [label, setLabel] = useState("");
   const { zones } = useZoneCache();
   const [showFences, setShowFences] = useState(false);
@@ -113,6 +115,11 @@ export default function PlaybackPage() {
     if (sn && isLiveMode) liveIntervalRef.current = setInterval(() => refreshLive(), 15000);
     return () => clearInterval(liveIntervalRef.current);
   }, [sn, isLiveMode, refreshLive]);
+
+  useEffect(() => {
+    const param = searchParams.get("device");
+    if (param) void ensureDevice(param);
+  }, [searchParams, ensureDevice]);
 
   const handleSelectDevice = (device) => {
     const newSn    = typeof device === "string" ? device : (device?.sn ?? "");

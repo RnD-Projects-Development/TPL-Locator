@@ -47,37 +47,26 @@ async def _get_assigned_devices(account, mongo: MongoService):
         logger.info("[geofence] admin=%s zone_devices=%d", account.email, len(results))
         return results
 
-    # ── User: find parent admin_id via 4 independent methods ──────────────────
+    # ── User: resolve parent admin_id with minimal fallback queries ───────────
     admin_oid = None
 
-    # Method 1: admin_id field on Pydantic model (set by update_user_admin)
+    # Method 1: admin_id field on the loaded account model.
     if account.admin_id:
         admin_oid = _to_oid(account.admin_id)
         logger.info("[geofence] user=%s method=model admin_oid=%s", account.email, admin_oid)
 
-    # Method 2: re-fetch user doc directly from DB (bypass Pydantic deserialization)
+    # Method 2: find a device directly assigned to this user or listed on the account.
     if not admin_oid:
-        raw = await mongo.accounts.find_one({"_id": user_oid, "role": "user"}, {"admin_id": 1})
-        if raw and raw.get("admin_id"):
-            admin_oid = _to_oid(raw["admin_id"])
-            logger.info("[geofence] user=%s method=db_refetch admin_oid=%s", account.email, admin_oid)
+        device_query = {"$or": [{"user_id": user_oid}]}
+        account_device_oids = [_to_oid(d) for d in (account.devices or [])]
+        account_device_oids = [oid for oid in account_device_oids if oid]
+        if account_device_oids:
+            device_query["$or"].append({"_id": {"$in": account_device_oids}})
 
-    # Method 3: find any device directly assigned to this user (user_id on device)
-    if not admin_oid:
-        dev = await mongo.devices.find_one({"user_id": user_oid}, {"admin_id": 1})
+        dev = await mongo.devices.find_one(device_query, {"admin_id": 1})
         if dev and dev.get("admin_id"):
             admin_oid = _to_oid(dev["admin_id"])
-            logger.info("[geofence] user=%s method=device_user_id admin_oid=%s", account.email, admin_oid)
-
-    # Method 4: check devices from account.devices ObjectId list
-    if not admin_oid and account.devices:
-        dev = await mongo.devices.find_one(
-            {"_id": {"$in": [_to_oid(d) for d in account.devices if d]}},
-            {"admin_id": 1},
-        )
-        if dev and dev.get("admin_id"):
-            admin_oid = _to_oid(dev["admin_id"])
-            logger.info("[geofence] user=%s method=account_devices admin_oid=%s", account.email, admin_oid)
+            logger.info("[geofence] user=%s method=device_fallback admin_oid=%s", account.email, admin_oid)
 
     if not admin_oid:
         logger.error(

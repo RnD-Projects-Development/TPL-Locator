@@ -6,7 +6,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from app.dependencies import get_current_admin, get_mongo_service
+from app.dependencies import get_mongo_service, require_role
 from app.models.admin import AdminInDB
 from app.services.mongodb import MongoService
 from app.routers.devices import _enrich_admin_devices
@@ -140,7 +140,7 @@ def _resolve_user(raw_user_id, users_by_id: dict) -> tuple[str | None, str | Non
 
 @router.get("/devices")
 async def list_admin_devices(
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
     sn: str | None = Query(default=None, description="Optional device SN filter"),
 ) -> List[Dict[str, Any]]:
@@ -164,7 +164,7 @@ async def list_admin_devices(
 @router.get("/devices/search/{sn}")
 async def search_device_for_binding(
     sn: str,
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
     logger.info("search_device_for_binding started admin=%s sn=%s", current_admin.email, sn)
@@ -185,7 +185,7 @@ async def search_device_for_binding(
 @router.post("/devices")
 async def admin_add_device(
     payload: AssignDeviceRequest,
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
     logger.info("admin_add_device started admin=%s sn=%s", current_admin.email, payload.sn)

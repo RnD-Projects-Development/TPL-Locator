@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 import { useBindCache } from '../context/BindCacheContext.jsx';
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
 import { useUserCache } from '../context/Usercachecontext.jsx';
 import { useCityTag } from '../hooks/useCityTag.js';
 
@@ -1328,7 +1327,6 @@ export default function HomePage() {
     refreshAll,
   } = useHomePageCache();
   const { isAdmin } = useAuth();
-  const { devices: allDevices } = useDeviceCache();
   const { users } = useUserCache();
   const { bindDevice, adminAssignDeviceToUser } = useCityTag();
 
@@ -1345,7 +1343,7 @@ export default function HomePage() {
   const [bindLoading, setBindLoading]     = useState(false);
   const [bindError, setBindError]         = useState('');
 
-  const unboundDevices = (allDevices || []).filter(d => !d.assigned_user_name && !d.user_id);
+  const unboundDevices = (devices || []).filter(d => !d.assigned_user_name && !d.user_id);
 
   const closeBindModal = () => {
     setShowBindModal(false);

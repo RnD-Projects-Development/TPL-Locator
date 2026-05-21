@@ -1,15 +1,22 @@
-from typing import Annotated, Any, Dict, Optional
+from typing import Annotated, Any, Dict, Optional, Union
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from pydantic import BaseModel
 import jwt
 
-from app.dependencies import get_mongo_service, get_settings
+from app.dependencies import get_current_account, get_mongo_service, get_settings
+from app.models.admin import AdminInDB
+from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 
 
 router = APIRouter(prefix="/api", tags=["location"])
 logger = logging.getLogger(__name__)
+
+
+class BatchLocationRequest(BaseModel):
+    sns: list[str]
 
 
 async def get_current_token_payload(request: Request):
@@ -81,3 +88,22 @@ async def get_latest_location(
     except Exception as err:
         logger.exception("get_latest_location failed sn=%s", sn)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal error: {str(err)}")
+
+
+@router.post("/location/latest-batch")
+async def get_latest_locations_batch(
+    payload: BatchLocationRequest,
+    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+) -> Dict[str, Any]:
+    """Return the latest location for multiple SNs in one request."""
+    sns = list(dict.fromkeys(sn.strip() for sn in payload.sns if sn and sn.strip()))
+    if not sns:
+        return {"locations": {}}
+
+    authorized_sns = await mongo.get_authorized_device_sns(account, sns)
+    if not authorized_sns:
+        return {"locations": {}}
+
+    latest_by_sn = await mongo.get_latest_locations_by_sns(authorized_sns)
+    return {"locations": latest_by_sn}

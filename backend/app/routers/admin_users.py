@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from bson import ObjectId
 
-from app.dependencies import get_current_admin, get_mongo_service
+from app.dependencies import get_mongo_service, require_role
 from app.models.admin import AdminInDB
 from app.services.mongodb import MongoService
 logger = logging.getLogger(__name__)
@@ -38,46 +38,47 @@ def _to_oid(value) -> Optional[ObjectId]:
         return None
 
 
-async def _clear_binding(mongo: MongoService, sn: str) -> None:
-    """
-    Atomically wipe ALL binding fields from a device doc via $unset.
-    This ensures name/client/bound_at don't linger as stale data after unbind.
-    """
-    await mongo.devices.update_one(
-        {"sn": sn},
-        {"$unset": {
-            "user_id":  "",
-            "name":     "",
-            "client":   "",
-            "bound_at": "",
-        }},
-    )
+def _device_payload(device_doc: dict | None, fallback_id: str) -> dict:
+    if not device_doc:
+        return {"id": fallback_id, "sn": fallback_id, "name": ""}
+    device_id = str(device_doc["_id"])
+    return {
+        "id": device_id,
+        "sn": device_doc.get("sn", device_id),
+        "name": device_doc.get("name", ""),
+    }
 
 
-async def _populate_devices(mongo: MongoService, device_ids: list) -> list:
-    populated = []
+async def _load_device_map(mongo: MongoService, device_ids: list) -> dict[str, dict]:
+    unique_oids = []
+    seen: set[str] = set()
     for d_id in device_ids:
-        try:
-            oid = d_id if isinstance(d_id, ObjectId) else ObjectId(str(d_id))
-            device_doc = await mongo.devices.find_one({"_id": oid})
-            if device_doc:
-                populated.append({
-                    "id":   str(device_doc["_id"]),
-                    "sn":   device_doc.get("sn", str(oid)),
-                    "name": device_doc.get("name", ""),
-                })
-            else:
-                populated.append({"id": str(d_id), "sn": str(d_id), "name": ""})
-        except Exception as err:
-            logger.exception("populate_devices failed device_id=%s", d_id)
-            populated.append({"id": str(d_id), "sn": str(d_id), "name": ""})
-    return populated
+        oid = _to_oid(d_id)
+        if not oid:
+            continue
+        key = str(oid)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_oids.append(oid)
+
+    if not unique_oids:
+        return {}
+
+    device_map: dict[str, dict] = {}
+    async for device_doc in mongo.devices.find({"_id": {"$in": unique_oids}}):
+        device_map[str(device_doc["_id"])] = device_doc
+    return device_map
+
+
+def _populate_devices(device_ids: list, device_map: dict[str, dict]) -> list:
+    return [_device_payload(device_map.get(str(d_id)), str(d_id)) for d_id in device_ids]
 
 
 @router.post("/users")
 async def admin_create_user(
     payload: CreateUserRequest,
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
     logger.info("admin_create_user started admin=%s email=%s", current_admin.email, payload.email)
@@ -94,7 +95,10 @@ async def admin_create_user(
         )
         await mongo.update_user_admin(str(user.id), str(current_admin.id))
         updated = await mongo.get_user_by_id(str(user.id))
-        devices = await _populate_devices(mongo, updated.devices or [])
+        if not updated:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Created user not found")
+        device_map = await _load_device_map(mongo, updated.devices or [])
+        devices = _populate_devices(updated.devices or [], device_map)
         response = {
             "id":         str(updated.id),
             "email":      updated.email,
@@ -115,7 +119,7 @@ async def admin_create_user(
 
 @router.get("/users")
 async def admin_list_users(
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ) -> List[dict]:
     logger.info("admin_list_users started admin=%s", current_admin.email)
@@ -131,10 +135,15 @@ async def admin_list_users(
         })
         user_dicts = await users_cursor.to_list(None)
 
+        all_device_ids = []
+        for user_dict in user_dicts:
+            all_device_ids.extend(user_dict.get("devices", []))
+        device_map = await _load_device_map(mongo, all_device_ids)
+
         result = []
         for user_dict in user_dicts:
             raw_devices = user_dict.get("devices", [])
-            devices = await _populate_devices(mongo, raw_devices)
+            devices = _populate_devices(raw_devices, device_map)
             created_at = user_dict.get("created_at")
             if not created_at:
                 try:
@@ -166,7 +175,7 @@ async def admin_list_users(
 @router.delete("/users/{user_id}")
 async def admin_delete_user(
     user_id: str,
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
     logger.info("admin_delete_user started admin=%s target_user_id=%s", current_admin.email, user_id)
@@ -186,7 +195,7 @@ async def admin_delete_user(
 async def admin_update_user(
     user_id: str,
     payload: UpdateUserRequest,
-    current_admin: Annotated[AdminInDB, Depends(get_current_admin)],
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
     logger.info("admin_update_user started admin=%s target_user_id=%s", current_admin.email, user_id)
@@ -209,7 +218,10 @@ async def admin_update_user(
         await mongo.accounts.update_one({"_id": ObjectId(user_id), "role": "user"}, {"$set": update_fields})
 
     updated = await mongo.get_user_by_id(user_id)
-    devices = await _populate_devices(mongo, updated.devices or [])
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Updated user not found")
+    device_map = await _load_device_map(mongo, updated.devices or [])
+    devices = _populate_devices(updated.devices or [], device_map)
     response = {
         "id":         str(updated.id),
         "email":      updated.email,

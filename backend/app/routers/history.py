@@ -1,8 +1,9 @@
 from typing import Annotated, Union
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
 from app.dependencies import get_current_account, get_location_service, get_mongo_service
 from app.models.admin import AdminInDB
@@ -14,6 +15,18 @@ from app.services.mongodb import MongoService
 
 router = APIRouter(prefix="/api", tags=["history"])
 logger = logging.getLogger(__name__)
+
+
+class PlaybackBatchRequest(BaseModel):
+    sns: list[str]
+    start: datetime
+    end: datetime
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 async def _resolve_uid_for_device(
@@ -122,3 +135,27 @@ async def get_device_playback(
 
     logger.info("get_device_playback completed actor=%s sn=%s count=%s", account.email, sn, result.count)
     return result
+
+
+@router.post("/devices/playback-batch")
+async def get_device_playback_batch(
+    payload: PlaybackBatchRequest,
+    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """Return playback points for multiple devices in one request."""
+    sns = list(dict.fromkeys(sn.strip() for sn in payload.sns if sn and sn.strip()))
+    if not sns:
+        return {"activityData": {}}
+
+    start = _to_naive_utc(payload.start)
+    end = _to_naive_utc(payload.end)
+    if start >= end:
+        raise HTTPException(400, "start must be before end")
+
+    authorized_sns = await mongo.get_authorized_device_sns(account, sns)
+    if not authorized_sns:
+        return {"activityData": {}}
+
+    points_by_sn = await mongo.get_playback_points_by_sns(authorized_sns, start, end)
+    return {"activityData": points_by_sn}

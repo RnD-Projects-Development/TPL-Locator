@@ -76,7 +76,15 @@ export function useCityTag() {
   );
 
   const getDevices = useCallback(
-    async () => apiFetch("/api/devices", {}, accessToken, logout),
+    async ({ page, limit, search, status } = {}) => {
+      const params = new URLSearchParams();
+      if (page != null) params.set("page", String(page));
+      if (limit != null) params.set("limit", String(limit));
+      if (search != null && String(search).trim()) params.set("search", String(search).trim());
+      if (status != null && status !== "all") params.set("status", String(status));
+      const query = params.toString();
+      return apiFetch(query ? `/api/devices?${query}` : "/api/devices", {}, accessToken, logout);
+    },
     [accessToken, logout]
   );
 
@@ -191,6 +199,16 @@ export function useCityTag() {
     [accessToken, logout]
   );
 
+  const getLatestLocationsBatch = useCallback(
+    async (sns) => apiFetch(
+      "/api/location/latest-batch",
+      { method: "POST", body: { sns: Array.isArray(sns) ? sns : [] } },
+      accessToken,
+      logout,
+    ),
+    [accessToken, logout]
+  );
+
   const getTrajectory = useCallback(
     async (sn, start, end) => {
       const params = new URLSearchParams({
@@ -211,8 +229,40 @@ export function useCityTag() {
     }, [accessToken, logout]
   );
 
+  const getPlaybackBatch = useCallback(
+    async (sns, start, end) => apiFetch(
+      "/api/devices/playback-batch",
+      {
+        method: "POST",
+        body: {
+          sns: Array.isArray(sns) ? sns : [],
+          start: start instanceof Date ? start.toISOString() : start,
+          end: end instanceof Date ? end.toISOString() : end,
+        },
+      },
+      accessToken,
+      logout,
+    ),
+    [accessToken, logout]
+  );
+
   const getFieldStaffLiveDevices = useCallback(
-    async () => apiFetch("/api/field-staff/live-devices", {}, accessToken, logout),
+    async ({ page, limit, search, zoneId, lastSeenFrom, lastSeenTo } = {}) => {
+      const params = new URLSearchParams();
+      if (page != null) params.set("page", String(page));
+      if (limit != null) params.set("limit", String(limit));
+      if (search != null && String(search).trim()) params.set("search", String(search).trim());
+      if (zoneId) params.set("zone_id", String(zoneId));
+      if (lastSeenFrom) params.set("last_seen_from", lastSeenFrom);
+      if (lastSeenTo) params.set("last_seen_to", lastSeenTo);
+      const query = params.toString();
+      return apiFetch(
+        query ? `/api/field-staff/live-devices?${query}` : "/api/field-staff/live-devices",
+        {},
+        accessToken,
+        logout,
+      );
+    },
     [accessToken, logout]
   );
 
@@ -223,6 +273,7 @@ export function useCityTag() {
     adminUpdateDevice, updateDevice,
     bindDevice, bindDeviceByEmail, unbindDevice, adminUnbindDevice,
     searchDevice, getLatestLocation, getTrajectory, getPlayback,
+    getLatestLocationsBatch, getPlaybackBatch,
     getFieldStaffLiveDevices,
   };
 }

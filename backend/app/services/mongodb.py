@@ -61,6 +61,21 @@ class MongoService:
             return None
         return AccountInDB(**doc)
 
+    async def get_account_by_id(self, account_id: str, role: Optional[str] = None):
+        """Get account by ID. If role is specified, filter by role."""
+        try:
+            oid = ObjectId(account_id)
+        except Exception:
+            return None
+        from app.models.admin import AccountInDB
+        query = {"_id": oid}
+        if role:
+            query["role"] = role
+        doc = await self.accounts.find_one(query)
+        if not doc:
+            return None
+        return AccountInDB(**doc)
+
     async def get_admin_by_email(self, email: str) -> Optional[AdminInDB]:
         """Get admin account by email."""
         account = await self.get_account_by_email(email, role="admin")
@@ -78,16 +93,10 @@ class MongoService:
 
     async def get_user_by_id(self, user_id: str):
         """Get user account by ID."""
-        try:
-            oid = ObjectId(user_id)
-        except Exception:
-            return None
-        from app.models.admin import AccountInDB
         from app.models.user import UserInDB
-        doc = await self.accounts.find_one({"_id": oid, "role": "user"})
-        if not doc:
+        account = await self.get_account_by_id(user_id, role="user")
+        if not account:
             return None
-        account = AccountInDB(**doc)
         return UserInDB(**account.dict())
 
 
@@ -169,6 +178,69 @@ class MongoService:
             return None
         return DeviceInDB(**doc)
 
+    async def get_authorized_device_sns(self, account, sns: List[str]) -> List[str]:
+        """Return the subset of SNs the account can access."""
+        if not sns:
+            return []
+
+        query = {"sn": {"$in": sns}}
+        if isinstance(account, AdminInDB):
+            query["admin_id"] = account.id
+        else:
+            from app.models.user import UserInDB
+
+            if not isinstance(account, UserInDB):
+                return []
+            query["user_id"] = account.id
+
+        cursor = self.devices.find(query, {"sn": 1, "_id": 0})
+        return [doc["sn"] async for doc in cursor if doc.get("sn")]
+
+    async def get_latest_locations_by_sns(self, sns: List[str]) -> dict[str, dict]:
+        """Fetch the latest location doc for each serial number in one aggregation."""
+        if not sns:
+            return {}
+
+        pipeline = [
+            {"$match": {"sn": {"$in": sns}}},
+            {"$sort": {"sn": 1, "timestamp": -1}},
+            {"$group": {"_id": "$sn", "latest": {"$first": "$$ROOT"}}},
+        ]
+
+        latest_by_sn: dict[str, dict] = {}
+        async for row in self.locations.aggregate(pipeline):
+            latest = row.get("latest") or {}
+            if latest.get("_id") is not None:
+                latest["_id"] = str(latest["_id"])
+            latest_by_sn[str(row["_id"])] = latest
+        return latest_by_sn
+
+    async def get_playback_points_by_sns(
+        self,
+        sns: List[str],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> dict[str, list[dict]]:
+        """Fetch playback points for multiple SNs with a single query."""
+        if not sns:
+            return {}
+
+        cursor = self.locations.find(
+            {"sn": {"$in": sns}, "timestamp": {"$gte": start_time, "$lte": end_time}},
+            {"sn": 1, "lat": 1, "lng": 1, "timestamp": 1, "speed": 1, "accuracy": 1},
+            sort=[("sn", 1), ("timestamp", 1)],
+        )
+
+        points_by_sn: dict[str, list[dict]] = {}
+        async for doc in cursor:
+            sn = doc.get("sn")
+            if not sn:
+                continue
+            if doc.get("_id") is not None:
+                doc["_id"] = str(doc["_id"])
+            points_by_sn.setdefault(sn, []).append(doc)
+        return points_by_sn
+
     async def assign_device_to_user(self, sn: str, user_id: str):
         device_doc = await self.devices.find_one({"sn": sn})
         if not device_doc:
@@ -214,15 +286,9 @@ class MongoService:
         return DeviceInDB(**updated) if updated else None
 
     async def get_admin_by_id(self, admin_id: str) -> Optional[AdminInDB]:
-        try:
-            oid = ObjectId(admin_id)
-        except Exception:
+        account = await self.get_account_by_id(admin_id, role="admin")
+        if not account:
             return None
-        from app.models.admin import AccountInDB
-        doc = await self.accounts.find_one({"_id": oid, "role": "admin"})
-        if not doc:
-            return None
-        account = AccountInDB(**doc)
         return AdminInDB(**account.dict())
 
     async def create_or_update_admin(

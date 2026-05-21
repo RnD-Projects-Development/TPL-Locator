@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta
 import logging
+import re
 from typing import Annotated, List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from app.dependencies import get_current_account, get_current_user, get_mongo_service
+from app.dependencies import get_current_account, get_mongo_service
 from app.models.admin import AdminInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
@@ -99,6 +100,270 @@ def _to_oid(value) -> ObjectId | None:
         return ObjectId(str(value))
     except Exception:
         return None
+
+
+async def _load_latest_location_map(mongo: MongoService, sns: list[str]) -> dict[str, datetime | None]:
+    if not sns:
+        return {}
+
+    latest_by_sn: dict[str, datetime | None] = {}
+    pipeline = [
+        {"$match": {"sn": {"$in": sns}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamp"}}},
+    ]
+    async for row in mongo.locations.aggregate(pipeline):
+        latest_by_sn[str(row["_id"])] = row.get("timestamp")
+    return latest_by_sn
+
+
+def _device_row(
+    doc: dict,
+    latest_timestamp: datetime | None,
+    *,
+    assigned_user_id: str | None = None,
+    assigned_user_name: str | None = None,
+) -> dict:
+    device_sn = doc.get("sn")
+    device_name = doc.get("name", "") or ""
+    assigned_name = (
+        doc.get("assigned_name")
+        or (device_name if device_name and device_name != device_sn else None)
+        or device_sn
+    )
+    return {
+        "sn": device_sn,
+        "local_id": str(doc.get("_id")),
+        "name": device_name,
+        "assigned_name": assigned_name,
+        "client": doc.get("client") or None,
+        "category": doc.get("category") or None,
+        "status": _get_device_status(latest_timestamp) if latest_timestamp else "offline",
+        "assigned_user_name": assigned_user_name,
+        "assigned_user_id": assigned_user_id,
+        "assignedUser": assigned_user_name,
+        "dataRetrievalTime": _fmt_dt(latest_timestamp) if latest_timestamp else None,
+        "bindTime": _fmt_dt(doc.get("bound_at")),
+        "region": doc.get("region") or None,
+        "zone": doc.get("zone") or None,
+        "fence_zone_ids": doc.get("fence_zone_ids") or [],
+        "local_only": bool(doc.get("local_only")) if doc.get("local_only") is not None else None,
+        "datapoint_count": doc.get("datapoint_count", 0),
+        "last_seen": doc.get("last_seen") or doc.get("lastSeen") or None,
+        "first_seen": doc.get("first_seen") or None,
+    }
+
+
+def _paged_response(items: list[dict], page: int, limit: int, total: int) -> dict:
+    total_pages = max(1, (total + limit - 1) // limit) if limit > 0 else 1
+    return {
+        "devices": items,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+    }
+
+
+async def _load_users_map(mongo: MongoService, user_ids: list[ObjectId]) -> dict[str, dict]:
+    users_by_id: dict[str, dict] = {}
+    if not user_ids:
+        return users_by_id
+
+    async for user_doc in mongo.accounts.find({"_id": {"$in": user_ids}, "role": "user"}):
+        users_by_id[str(user_doc["_id"])] = user_doc
+    return users_by_id
+
+
+def _text_regex(term: str) -> dict:
+    return {"$regex": re.escape(term.strip()), "$options": "i"}
+
+
+def _doc_matches_search(doc: dict, term: str, *, extra: str = "") -> bool:
+    if not term:
+        return True
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                str(doc.get("sn") or ""),
+                str(doc.get("name") or ""),
+                str(doc.get("client") or ""),
+                str(doc.get("category") or ""),
+                str(doc.get("assigned_name") or ""),
+                extra,
+            ],
+        )
+    ).lower()
+    return term.lower() in haystack
+
+
+async def _build_admin_device_query(mongo: MongoService, admin_oid: ObjectId, search: str | None) -> dict:
+    query: dict = {"admin_id": admin_oid}
+    term = (search or "").strip()
+    if not term:
+        return query
+
+    regex = _text_regex(term)
+    or_clauses: list[dict] = [
+        {"sn": regex},
+        {"name": regex},
+        {"client": regex},
+        {"category": regex},
+        {"assigned_name": regex},
+    ]
+
+    user_ids: list[ObjectId] = []
+    async for user_doc in mongo.accounts.find(
+        {"$or": [{"name": regex}, {"email": regex}], "role": "user"}
+    ):
+        uid = _to_oid(user_doc.get("_id"))
+        if uid:
+            user_ids.append(uid)
+    if user_ids:
+        or_clauses.append({"user_id": {"$in": user_ids}})
+
+    return {"$and": [query, {"$or": or_clauses}]}
+
+
+async def _apply_status_filter_to_query(mongo: MongoService, query: dict, status_filter: str) -> dict:
+    if status_filter not in ("online", "offline"):
+        return query
+
+    sns: list[str] = []
+    async for doc in mongo.devices.find(query, {"sn": 1}):
+        sn = doc.get("sn")
+        if sn:
+            sns.append(str(sn))
+
+    if not sns:
+        return {"$and": [query, {"sn": {"$in": []}}]}
+
+    latest_by_sn = await _load_latest_location_map(mongo, sns)
+    if status_filter == "online":
+        matched = [sn for sn in sns if _get_device_status(latest_by_sn.get(sn)) == "online"]
+    else:
+        matched = [sn for sn in sns if _get_device_status(latest_by_sn.get(sn)) != "online"]
+
+    return {"$and": [query, {"sn": {"$in": matched}}]}
+
+
+async def _list_devices_page(
+    account: Union[AdminInDB, UserInDB],
+    mongo: MongoService,
+    page: int,
+    limit: int,
+    search: str | None = None,
+    status_filter: str = "all",
+) -> dict:
+    offset = (page - 1) * limit
+    term = (search or "").strip()
+    user_label = ""
+    if isinstance(account, UserInDB):
+        user_label = " ".join(filter(None, [account.name or "", account.email or ""]))
+
+    if isinstance(account, UserInDB):
+        ids = list(account.devices or [])
+        if not ids:
+            return _paged_response([], page, limit, 0)
+
+        docs = await mongo.devices.find({"_id": {"$in": ids}}).to_list(len(ids))
+        docs_by_id = {str(doc["_id"]): doc for doc in docs}
+        ordered_docs = [docs_by_id[str(oid)] for oid in ids if str(oid) in docs_by_id]
+
+        if term:
+            ordered_docs = [
+                doc for doc in ordered_docs
+                if _doc_matches_search(doc, term, extra=user_label)
+            ]
+
+        if status_filter in ("online", "offline"):
+            sns = [str(doc.get("sn")) for doc in ordered_docs if doc.get("sn")]
+            latest_by_sn = await _load_latest_location_map(mongo, sns)
+            if status_filter == "online":
+                ordered_docs = [
+                    doc for doc in ordered_docs
+                    if _get_device_status(latest_by_sn.get(str(doc.get("sn")))) == "online"
+                ]
+            else:
+                ordered_docs = [
+                    doc for doc in ordered_docs
+                    if _get_device_status(latest_by_sn.get(str(doc.get("sn")))) != "online"
+                ]
+
+        total = len(ordered_docs)
+        page_docs = ordered_docs[offset:offset + limit]
+        if not page_docs:
+            return _paged_response([], page, limit, total)
+
+        latest_by_sn = await _load_latest_location_map(
+            mongo,
+            [str(doc.get("sn")) for doc in page_docs if doc.get("sn")],
+        )
+        user_name = (account.name or account.email) if hasattr(account, "name") else account.email
+        items = [
+            _device_row(
+                doc,
+                latest_by_sn.get(str(doc.get("sn"))),
+                assigned_user_id=str(account.id),
+                assigned_user_name=user_name,
+            )
+            for doc in page_docs
+        ]
+        return _paged_response(items, page, limit, total)
+
+    admin_oid = _to_oid(account.id)
+    query = await _build_admin_device_query(mongo, admin_oid, term)
+    query = await _apply_status_filter_to_query(mongo, query, status_filter)
+    total = await mongo.devices.count_documents(query)
+    docs = await mongo.devices.find(query).sort("sn", 1).skip(offset).limit(limit).to_list(limit)
+    if not docs:
+        return _paged_response([], page, limit, total)
+
+    latest_by_sn = await _load_latest_location_map(
+        mongo,
+        [str(doc.get("sn")) for doc in docs if doc.get("sn")],
+    )
+    user_oids = []
+    seen_user_ids: set[str] = set()
+    for doc in docs:
+        oid = _to_oid(doc.get("user_id"))
+        if not oid:
+            continue
+        key = str(oid)
+        if key in seen_user_ids:
+            continue
+        seen_user_ids.add(key)
+        user_oids.append(oid)
+
+    users_by_id = await _load_users_map(mongo, user_oids)
+    items = []
+    for doc in docs:
+        user_doc = None
+        user_oid = _to_oid(doc.get("user_id"))
+        if user_oid:
+            user_doc = users_by_id.get(str(user_oid))
+        if user_doc:
+            raw_name = (user_doc.get("name") or "").strip()
+            email = user_doc.get("email") or ""
+            assigned_user_name = raw_name or (email.split("@")[0] if "@" in email else email) or None
+            assigned_user_id = str(user_oid) if user_oid else None
+        else:
+            assigned_user_name = None
+            assigned_user_id = None
+
+        items.append(
+            _device_row(
+                doc,
+                latest_by_sn.get(str(doc.get("sn"))),
+                assigned_user_id=assigned_user_id,
+                assigned_user_name=assigned_user_name,
+            )
+        )
+
+    return _paged_response(items, page, limit, total)
 
 
 async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[dict]:
@@ -210,13 +475,32 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
 async def list_user_devices(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
-) -> List[dict]:
+    page: Optional[int] = Query(default=None, ge=1),
+    limit: Optional[int] = Query(default=None, ge=1, le=100),
+    search: Optional[str] = Query(default=None, max_length=200),
+    status: Optional[str] = Query(default="all", pattern="^(all|online|offline)$"),
+) -> List[dict] | dict:
     """
     Return devices for the logged-in account.
     - User: only their assigned devices, fully enriched for DevicesTable.
     - Admin: enriched list for DevicesTable (Mongo-backed; no CityTag calls).
     """
     logger.info("list_user_devices started account_email=%s", account.email)
+
+    if page is not None and limit is not None:
+        try:
+            return await _list_devices_page(
+                account,
+                mongo,
+                page,
+                limit,
+                search=search,
+                status_filter=status or "all",
+            )
+        except Exception as err:
+            logger.exception("list_user_devices paged failed account_email=%s page=%s limit=%s", account.email, page, limit)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to load devices: {str(err)}")
+
     if isinstance(account, UserInDB):
         ids = account.devices
         if not ids:

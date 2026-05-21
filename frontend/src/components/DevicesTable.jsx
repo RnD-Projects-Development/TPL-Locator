@@ -39,6 +39,8 @@ const DevicesTable = ({
   locations = {},
   searchTerm = '',
   filterStatus = 'all',
+  serverFiltered = false,
+  rowOffset = 0,
   onUnbind,
   onEdit,
   loading = false,
@@ -62,17 +64,19 @@ const DevicesTable = ({
     { key: 'battery',           label: 'Battery' },
   ];
 
-  const filtered = devices.filter((d) => {
-    const term = searchTerm.toLowerCase();
-    const matchSearch =
-      (d.sn || "").toLowerCase().includes(term) ||
-      (d.client || d.assigned_name || "").toLowerCase().includes(term) ||
-      (d.assigned_user_name || d.assignedUser || "").toLowerCase().includes(term) ||
-      (d.name || "").toLowerCase().includes(term) ||
-      (d.category || "").toLowerCase().includes(term);
-    const matchStatus = filterStatus === 'all' || d.status === filterStatus;
-    return matchSearch && matchStatus;
-  });
+  const filtered = serverFiltered
+    ? devices
+    : devices.filter((d) => {
+        const term = searchTerm.toLowerCase();
+        const matchSearch =
+          (d.sn || "").toLowerCase().includes(term) ||
+          (d.client || d.assigned_name || "").toLowerCase().includes(term) ||
+          (d.assigned_user_name || d.assignedUser || "").toLowerCase().includes(term) ||
+          (d.name || "").toLowerCase().includes(term) ||
+          (d.category || "").toLowerCase().includes(term);
+        const matchStatus = filterStatus === 'all' || d.status === filterStatus;
+        return matchSearch && matchStatus;
+      });
 
   const sorted = [...filtered].sort((a, b) => {
     if (!sortConfig.key) return 0;
@@ -156,7 +160,7 @@ const DevicesTable = ({
 
               {/* Row number */}
               <td style={{ textAlign: 'center', color: '#52525b', fontSize: 11, fontWeight: 500, userSelect: 'none' }}>
-                {index + 1}.
+                {rowOffset + index + 1}.
               </td>
 
               {/* Serial Number */}

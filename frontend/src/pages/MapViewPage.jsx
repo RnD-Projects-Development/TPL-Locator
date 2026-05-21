@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import MultiDeviceSidebar from "../components/MultiDeviceSidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
-import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
+import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { deviceColor } from "../utils/zonePolygonManager.js";
 import "./MapViewPage.css";
@@ -11,7 +11,7 @@ import "./MapViewPage.css";
 export default function MapViewPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation } = useCityTag();
-  const { devices } = useDeviceCache();
+  const { getDevice, ensureDevice } = useSidebarDevices();
   const { zones } = useZoneCache();
 
   const [selectedSns, setSelectedSns] = useState(() => {
@@ -27,6 +27,11 @@ export default function MapViewPage() {
   const [showFences, setShowFences]   = useState(false);
 
   const intervalRef = useRef(null);
+
+  useEffect(() => {
+    const param = searchParams.get("device");
+    if (param) void ensureDevice(param);
+  }, [searchParams, ensureDevice]);
 
   const refresh = useCallback(async () => {
     if (selectedSns.size === 0) return;
@@ -83,7 +88,7 @@ export default function MapViewPage() {
   // Build the multiDevices array that MapView renders
   const multiDevices = useMemo(() => {
     return [...selectedSns].map(sn => {
-      const device = devices.find(d => d.sn === sn);
+      const device = getDevice(sn);
       const label  = device?.assigned_user_name ?? device?.assignedUser ?? sn;
       return {
         sn,
@@ -92,7 +97,7 @@ export default function MapViewPage() {
         color:  deviceColor(sn),
       };
     });
-  }, [selectedSns, deviceLocations, devices]);
+  }, [selectedSns, deviceLocations, getDevice]);
 
   const onlineCount = multiDevices.filter(d => d.latest != null).length;
 

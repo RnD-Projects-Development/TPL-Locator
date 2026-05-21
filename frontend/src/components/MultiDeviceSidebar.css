@@ -157,6 +157,23 @@
 }
 .mdsb-search-clear:hover { color: var(--text-primary); }
 
+.mdsb-hint {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.mdsb-section-label {
+  padding: 8px 10px 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
 /* ─── List ───────────────────────────────────────── */
 .mdsb-list {
   flex: 1;

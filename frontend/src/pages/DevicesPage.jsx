@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import tplLogo from "../assets/tpl.png";
 import DevicesTable from "../components/DevicesTable.jsx";
 import UsersTable from "../components/UsersTable.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
 import { useUserCache } from "../context/Usercachecontext.jsx";
 import { useHomePageCache } from "../context/HomePageCacheContext.jsx";
+import { usePaginatedDevices } from "../hooks/usePaginatedDevices.js";
 import "./DevicesPage.css";
 
 const SELECT_STYLE = {
@@ -38,23 +38,42 @@ const HomePage = () => {
     getAvailableDevices,
   } = useCityTag();
 
-  const { devices, loading: devicesLoading, error: devicesError, refresh: refreshDevices } = useDeviceCache();
-  const { users, loading: usersLoading, refresh: refreshUsers } = useUserCache();
-  const { locations } = useHomePageCache();
-
-  const [error, setError]               = useState("");
   const [searchTerm, setSearchTerm]     = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const paginationOptions = useMemo(
+    () => ({ search: debouncedSearch, status: filterStatus }),
+    [debouncedSearch, filterStatus]
+  );
+
+  const {
+    devices,
+    loading: devicesLoading,
+    error: devicesError,
+    page,
+    limit,
+    total,
+    totalPages,
+    hasNextPage,
+    hasPreviousPage,
+    goToPage,
+    refresh: refreshDevices,
+  } = usePaginatedDevices(20, paginationOptions);
+  const { users, loading: usersLoading, refresh: refreshUsers } = useUserCache();
+  const { locations, refreshAll: refreshHomeData } = useHomePageCache();
+
+  const [error, setError]               = useState("");
   const [viewMode, setViewMode]         = useState('devices');
 
   // ── Available (unbound) devices for user bind dropdown ────────────────────
   const [availableDevices, setAvailableDevices] = useState([]);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      getAvailableDevices().then(setAvailableDevices).catch(() => setAvailableDevices([]));
-    }
-  }, [isAdmin, getAvailableDevices]);
+  const [availableDevicesLoading, setAvailableDevicesLoading] = useState(false);
 
   // ── Bind modal state ───────────────────────────────────────────────────────
   const [showBindModal, setShowBindModal] = useState(false);
@@ -65,6 +84,32 @@ const HomePage = () => {
   const [bindUserId, setBindUserId]       = useState('');
   const [bindLoading, setBindLoading]     = useState(false);
   const [bindError, setBindError]         = useState('');
+
+  useEffect(() => {
+    if (!showBindModal) return;
+
+    let cancelled = false;
+    setAvailableDevicesLoading(true);
+    getAvailableDevices()
+      .then((data) => {
+        if (cancelled) return;
+        const nextDevices = Array.isArray(data) ? data : data?.devices ?? [];
+        setAvailableDevices(nextDevices);
+        if (isAdmin && nextDevices.length > 0) {
+          setBindSn((current) => current || nextDevices[0].sn);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableDevices([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAvailableDevicesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showBindModal, getAvailableDevices, isAdmin]);
 
   // ── Create user modal state ────────────────────────────────────────────────
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
@@ -93,8 +138,7 @@ const HomePage = () => {
     setBindError(''); setBindClient(''); setBindName(''); setBindCategory('');
 
     if (isAdmin) {
-      const unbound   = devices.filter((d) => !d.assigned_user_name && !d.user_id);
-      const defaultSn = sn || (unbound.length > 0 ? unbound[0].sn : '');
+      const defaultSn = sn || (availableDevices.length > 0 ? availableDevices[0].sn : '');
       setBindSn(defaultSn);
       const defaultUserId = users.length > 0 ? users[0].id : '';
       setBindUserId(defaultUserId);
@@ -117,7 +161,7 @@ const HomePage = () => {
       setBindError(''); setBindLoading(true);
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory });
-        refreshDevices(); refreshUsers(); closeBindModal();
+        refreshDevices(); refreshUsers(); refreshHomeData(); closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
       } finally {
@@ -129,8 +173,7 @@ const HomePage = () => {
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory });
         refreshDevices();
-        // Refresh available devices so the just-bound SN disappears from the dropdown
-        getAvailableDevices().then(setAvailableDevices).catch(() => {});
+        refreshHomeData();
         closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
@@ -159,7 +202,7 @@ const HomePage = () => {
     setDeleteDeviceLoading(true);
     try {
       await unbindDevice(deleteDeviceTarget.sn);
-      refreshDevices(); refreshUsers();
+      refreshDevices(); refreshUsers(); refreshHomeData();
       setDeleteDeviceTarget(null);
     } catch (err) {
       setError(err.message || "Failed to delete device");
@@ -176,7 +219,7 @@ const HomePage = () => {
 
   const handleUserUnbind = async (sn) => {
     if (!window.confirm(`Remove binding for ${sn}?`)) return;
-    try { await unbindDevice(sn); refreshDevices(); }
+    try { await unbindDevice(sn); refreshDevices(); refreshHomeData(); }
     catch (err) { setError(err.message || "Failed to unbind"); }
   };
 
@@ -209,7 +252,7 @@ const HomePage = () => {
       } else {
         await updateDevice(editDevice.sn, payload);
       }
-      closeEditDevice(); refreshDevices();
+      closeEditDevice(); refreshDevices(); refreshHomeData();
     } catch (err) {
       setEditDeviceError(err.message || 'Failed to update device');
     } finally {
@@ -243,7 +286,7 @@ const HomePage = () => {
     }
   };
 
-  const unboundDevices = devices.filter((d) => !d.assigned_user_name && !d.user_id);
+  const unboundDevices = availableDevices;
   const displayError   = error || devicesError;
 
   return (
@@ -326,17 +369,71 @@ const HomePage = () => {
           {isAdmin && viewMode === 'users' ? (
             <UsersTable />
           ) : (
-            <DevicesTable
-              devices={devices}
-              locations={locations}
-              searchTerm={searchTerm}
-              filterStatus={filterStatus}
-              isAdmin={isAdmin}
-              onBind={(sn) => openBindModal(sn)}
-              onUnbind={isAdmin ? handleUnbind : handleUserUnbind}
-              onEdit={openEditDevice}
-              loading={loading}
-            />
+            <>
+              <DevicesTable
+                devices={devices}
+                locations={locations}
+                serverFiltered
+                rowOffset={(page - 1) * limit}
+                isAdmin={isAdmin}
+                onBind={(sn) => openBindModal(sn)}
+                onUnbind={isAdmin ? handleUnbind : handleUserUnbind}
+                onEdit={openEditDevice}
+                loading={loading}
+              />
+
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginTop: 14,
+                padding: '12px 14px',
+                border: '1px solid rgba(63,63,70,0.9)',
+                borderRadius: 10,
+                background: 'rgba(24,24,27,0.75)',
+                color: '#a1a1aa',
+                fontSize: 12,
+                flexWrap: 'wrap',
+              }}>
+                <button
+                  type="button"
+                  onClick={() => goToPage(page - 1)}
+                  disabled={!hasPreviousPage || loading}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #3f3f46',
+                    background: !hasPreviousPage || loading ? 'rgba(39,39,42,0.4)' : '#18181b',
+                    color: !hasPreviousPage || loading ? '#52525b' : '#f4f4f5',
+                    cursor: !hasPreviousPage || loading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Previous
+                </button>
+
+                <div style={{ textAlign: 'center', flex: '1 1 220px' }}>
+                  Page {page} of {totalPages} · {total} locator{total === 1 ? '' : 's'}
+                  {(debouncedSearch || filterStatus !== 'all') ? ' matching filters' : ' total'}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => goToPage(page + 1)}
+                  disabled={!hasNextPage || loading}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #3f3f46',
+                    background: !hasNextPage || loading ? 'rgba(39,39,42,0.4)' : '#18181b',
+                    color: !hasNextPage || loading ? '#52525b' : '#f4f4f5',
+                    cursor: !hasNextPage || loading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -369,7 +466,9 @@ const HomePage = () => {
                 <>
                   <div className="hp-modal-field">
                     <label>Serial Number <span className="required">*</span></label>
-                    {unboundDevices.length === 0 ? (
+                    {availableDevicesLoading ? (
+                      <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>Loading available locators…</p>
+                    ) : unboundDevices.length === 0 ? (
                       <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>No unbound locators available</p>
                     ) : (
                       <select value={bindSn} onChange={(e) => setBindSn(e.target.value)} style={SELECT_STYLE}>

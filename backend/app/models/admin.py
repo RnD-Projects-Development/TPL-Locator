@@ -51,10 +51,6 @@ class AdminCreate(BaseModel):
     uid: str
 
 
-class AdminPublic(BaseModel):
-    id: str
-    email: EmailStr
-    uid: str
 
 
 # ───────────────────────────────────────────────────────
