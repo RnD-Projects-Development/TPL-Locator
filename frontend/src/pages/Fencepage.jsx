@@ -69,7 +69,9 @@ function FencePageInner() {
 
   // ── Map init ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    loadTPLMaps(() => {
+    const cancelLoad = loadTPLMaps(() => {
+      // Guard: component may have unmounted while SDK was loading
+      if (!document.getElementById('fence-map')) return;
       if (mapRef.current) { setMapReady(true); return; }
       const map = window.TPLMaps.map.initMap({
         divID: 'fence-map', lat: 31.5135, lng: 74.3170, zoom: 15, showZoomControl: true,
@@ -87,6 +89,7 @@ function FencePageInner() {
       setMapReady(true);
     });
     return () => {
+      cancelLoad();
       resizeObserver.current?.disconnect();
       polygonManager.current?.clearAll();
       mapRef.current?.remove?.();
@@ -122,7 +125,17 @@ function FencePageInner() {
   const fetchStatuses = useCallback(async () => {
     setStatusLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/geofence/status`, { headers: authHeaders() });
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 30_000);
+      let res;
+      try {
+        res = await fetch(`${API_BASE_URL}/api/geofence/status`, {
+          headers: authHeaders(),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (!res.ok) return;
       const { zones: zoneData = {} } = await res.json();
       const enriched = {};
@@ -133,7 +146,7 @@ function FencePageInner() {
         });
       });
       setZoneStatuses(enriched);
-    } catch { /* keep previous statuses */ }
+    } catch { /* keep previous statuses on error/timeout */ }
     finally {
       setStatusLoading(false);
       setAssigningZoneId(null);

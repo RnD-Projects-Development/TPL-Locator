@@ -4,6 +4,7 @@ import './Layout.css';
 import tplLogo from '../assets/tpl.png';
 import { useAuth } from '../context/AuthContext.jsx';
 import { DeviceCacheProvider } from '../context/DeviceCacheContext.jsx';
+import { SidebarDevicesProvider } from '../context/SidebarDevicesContext.jsx';
 import { UserCacheProvider } from '../context/Usercachecontext.jsx';
 import { HomePageCacheProvider } from '../context/HomePageCacheContext.jsx';
 import { FieldStaffCacheProvider } from '../context/FieldStaffCacheContext.jsx';
@@ -370,15 +371,17 @@ const Layout = ({ children }) => {
 
   return (
     <DeviceCacheProvider>
-      <UserCacheProvider>
-        {isAdmin ? (
+      <SidebarDevicesProvider>
+        <UserCacheProvider>
           <HomePageCacheProvider>
-            <FieldStaffCacheProvider>
-              {layoutBody}
-            </FieldStaffCacheProvider>
+            {isAdmin ? (
+              <FieldStaffCacheProvider>
+                {layoutBody}
+              </FieldStaffCacheProvider>
+            ) : layoutBody}
           </HomePageCacheProvider>
-        ) : layoutBody}
-      </UserCacheProvider>
+        </UserCacheProvider>
+      </SidebarDevicesProvider>
     </DeviceCacheProvider>
   );
 };

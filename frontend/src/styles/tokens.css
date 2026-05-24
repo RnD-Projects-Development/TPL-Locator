@@ -5,42 +5,42 @@
 :root {
 
   /* ── Surface Hierarchy ───────────────────────────────────────── */
-  --surface-base:   #0c0c0e;    /* page background              */
-  --surface-1:      #111114;    /* topbars, sidebars, headers   */
-  --surface-2:      #17171b;    /* cards, panels                */
-  --surface-3:      #1e1e24;    /* table rows, inputs, hovers   */
-  --surface-4:      #252530;    /* active chips, pressed states */
-  --surface-inset:  #0a0a0c;    /* deep inset wells             */
+  --surface-base:   #0d0d0d;    /* page background — dark charcoal  */
+  --surface-1:      #000000;    /* topbars, sidebars — Black        */
+  --surface-2:      rgba(142, 11, 11, 0.08);   /* cards — scarlet tint, low opacity */
+  --surface-3:      rgba(255, 255, 255, 0.07);  /* table rows, inputs, hovers  */
+  --surface-4:      rgba(255, 255, 255, 0.13);  /* active chips, pressed       */
+  --surface-inset:  rgba(0, 0, 0, 0.28);        /* deep inset wells            */
 
   /* ── Border Hierarchy ────────────────────────────────────────── */
-  --border-subtle:  rgba(255, 255, 255, 0.05);
-  --border-default: rgba(255, 255, 255, 0.09);
-  --border-strong:  rgba(255, 255, 255, 0.15);
-  --border-focus:   rgba(155, 28, 28, 0.6);
+  --border-subtle:  rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-strong:  rgba(255, 255, 255, 0.22);
+  --border-focus:   rgba(167, 44, 50, 0.6);
 
-  /* ── Brand / Primary Accent ──────────────────────────────────── */
-  --brand:          #9b1c1c;
-  --brand-hover:    #b91c1c;
-  --brand-dim:      rgba(155, 28, 28, 0.15);
-  --brand-glow:     rgba(155, 28, 28, 0.35);
-  --brand-border:   rgba(155, 28, 28, 0.3);
+  /* ── Brand / Primary Accent — Auburn Red ─────────────────────── */
+  --brand:          #A72C32;
+  --brand-hover:    #C44E54;
+  --brand-dim:      rgba(167, 44, 50, 0.12);
+  --brand-glow:     rgba(167, 44, 50, 0.30);
+  --brand-border:   rgba(167, 44, 50, 0.30);
 
   /* ── Text Hierarchy ──────────────────────────────────────────── */
-  --text-primary:   #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-tertiary:  #4b5563;
-  --text-brand:     #fca5a5;
+  --text-primary:   #FFFFFF;
+  --text-secondary: #FFFFFF;
+  --text-tertiary:  rgba(255, 255, 255, 0.60);
+  --text-brand:     #C44E54;
 
   /* ── Semantic Status Colors ──────────────────────────────────── */
-  --status-online:          #22c55e;
-  --status-offline:         #ef4444;
-  --status-warning:         #f59e0b;
-  --status-online-bg:       rgba(34, 197, 94, 0.10);
-  --status-offline-bg:      rgba(239, 68, 68, 0.10);
-  --status-warning-bg:      rgba(245, 158, 11, 0.10);
-  --status-online-border:   rgba(34, 197, 94, 0.22);
-  --status-offline-border:  rgba(239, 68, 68, 0.22);
-  --status-warning-border:  rgba(245, 158, 11, 0.22);
+  --status-online:          #16a34a;
+  --status-offline:         #dc2626;
+  --status-warning:         #d97706;
+  --status-online-bg:       rgba(22, 163, 74, 0.10);
+  --status-offline-bg:      rgba(220, 38, 38, 0.10);
+  --status-warning-bg:      rgba(217, 119, 6, 0.10);
+  --status-online-border:   rgba(22, 163, 74, 0.25);
+  --status-offline-border:  rgba(220, 38, 38, 0.25);
+  --status-warning-border:  rgba(217, 119, 6, 0.25);
 
   /* ── Spacing Scale ───────────────────────────────────────────── */
   --space-1: 4px;
@@ -59,21 +59,21 @@
   --radius-xl: 18px;
 
   /* ── Typography ──────────────────────────────────────────────── */
-  --font-sans:    'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans:    'Josefin Sans', 'Gudea', system-ui, -apple-system, sans-serif;
   --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
-  --font-display: 'Nunito', var(--font-sans);
+  --font-display: 'Josefin Sans', var(--font-sans);
 
-  /* ── Shadows ─────────────────────────────────────────────────── */
-  --shadow-card:   0 2px 8px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2);
-  --shadow-raised: 0 6px 24px rgba(0, 0, 0, 0.48), 0 2px 6px rgba(0, 0, 0, 0.25);
-  --shadow-float:  0 16px 48px rgba(0, 0, 0, 0.64), 0 4px 12px rgba(0, 0, 0, 0.3);
+  /* ── Shadows (lighter for light theme) ──────────────────────── */
+  --shadow-card:   0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-raised: 0 6px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.07);
+  --shadow-float:  0 16px 48px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
 
   /* ── Transitions ─────────────────────────────────────────────── */
   --transition-fast:   all 0.12s ease;
   --transition-normal: all 0.2s ease;
   --transition-slow:   all 0.3s ease;
 
-  /* ── Legacy Aliases (backward-compat — do not use in new code) ── */
+  /* ── Legacy Aliases ──────────────────────────────────────────── */
   --bg-primary:    var(--surface-base);
   --primary-font:  var(--font-sans);
 }

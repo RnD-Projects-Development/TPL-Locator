@@ -1,4 +1,15 @@
+/**
+ * loadTPLMaps(callback) — loads the TPL Maps SDK once and calls callback when ready.
+ * Returns a cancel function: call it in useEffect cleanup to prevent the callback
+ * from firing after the component unmounts (prevents stale initMap calls on dead DOM).
+ */
 const loadTPLMaps = (callback) => {
+  let cancelled = false;
+
+  const safeCallback = () => {
+    if (!cancelled && callback) callback();
+  };
+
   const existingScript = document.getElementById('tplmaps-js');
 
   if (!existingScript) {
@@ -10,27 +21,30 @@ const loadTPLMaps = (callback) => {
     document.body.appendChild(script);
     script.onload = () => {
       console.log('[loadTPLMaps] ✅ Script loaded — window.TPLMaps:', !!window.TPLMaps, '| window.L:', !!window.L);
-      if (callback) callback();
+      safeCallback();
     };
-    return;
+    return () => { cancelled = true; };
   }
 
-  // Script tag exists — but window.TPLMaps may not be ready yet if the
-  // script is still executing (e.g. pre-load from main.jsx fired first).
-  // Poll until the SDK globals are available before firing the callback.
   if (window.TPLMaps && window.L) {
     console.log('[loadTPLMaps] Script already in DOM and SDK ready — firing callback');
-    if (callback) callback();
-    return;
+    safeCallback();
+    return () => { cancelled = true; };
   }
+
   console.log('[loadTPLMaps] Script in DOM but SDK not ready yet — waiting...');
   const poll = setInterval(() => {
     if (window.TPLMaps && window.L) {
       clearInterval(poll);
       console.log('[loadTPLMaps] ✅ SDK now ready — firing callback');
-      if (callback) callback();
+      safeCallback();
     }
   }, 50);
+
+  return () => {
+    cancelled = true;
+    clearInterval(poll);
+  };
 };
 
 export default loadTPLMaps;

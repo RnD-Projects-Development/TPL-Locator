@@ -6,7 +6,6 @@ import { useNavigate } from "react-router-dom";
 import { useBindCache } from '../context/BindCacheContext.jsx';
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
 import { useUserCache } from '../context/Usercachecontext.jsx';
 import { useCityTag } from '../hooks/useCityTag.js';
 
@@ -1336,7 +1335,6 @@ export default function HomePage() {
     refreshAll,
   } = useHomePageCache();
   const { isAdmin } = useAuth();
-  const { devices: allDevices } = useDeviceCache();
   const { users } = useUserCache();
   const { bindDevice, adminAssignDeviceToUser } = useCityTag();
 
@@ -1348,32 +1346,33 @@ export default function HomePage() {
   const [bindSn, setBindSn]               = useState('');
   const [bindName, setBindName]           = useState('');
   const [bindClient, setBindClient]       = useState('');
+  const [bindCategory, setBindCategory]   = useState('');
   const [bindUserId, setBindUserId]       = useState('');
   const [bindLoading, setBindLoading]     = useState(false);
   const [bindError, setBindError]         = useState('');
 
-  const unboundDevices = (allDevices || []).filter(d => !d.assigned_user_name && !d.user_id);
+  const unboundDevices = (devices || []).filter(d => !d.assigned_user_name && !d.user_id);
 
   const closeBindModal = () => {
     setShowBindModal(false);
-    setBindSn(''); setBindName(''); setBindClient(''); setBindUserId(''); setBindError('');
+    setBindSn(''); setBindName(''); setBindClient(''); setBindCategory(''); setBindUserId(''); setBindError('');
   };
 
   const handleBind = async () => {
     if (isAdmin) {
-      if (!bindSn || !bindUserId) { setBindError('Please select a device and a user'); return; }
+      if (!bindSn || !bindUserId || !bindCategory) { setBindError('Please select a device, a user, and a category'); return; }
       setBindError(''); setBindLoading(true);
       try {
-        await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim() });
+        await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory });
         refreshAll(); closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
       } finally { setBindLoading(false); }
     } else {
-      if (!bindSn.trim()) { setBindError('Please enter a locator serial number'); return; }
+      if (!bindSn.trim() || !bindCategory) { setBindError('Please enter a locator serial number and category'); return; }
       setBindError(''); setBindLoading(true);
       try {
-        await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined });
+        await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory });
         refreshAll(); closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
@@ -1776,6 +1775,15 @@ export default function HomePage() {
                     <label>Client <span style={{ fontWeight:400, color:'#71717a' }}>(optional)</span></label>
                     <input type="text" placeholder="e.g. TPL Trakker" value={bindClient} onChange={e => setBindClient(e.target.value)} style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:'1px solid #3f3f46', borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box' }} />
                   </div>
+                  <div className="hp-modal-field">
+                    <label>Category <span className="required">*</span></label>
+                    <select value={bindCategory} onChange={e => setBindCategory(e.target.value)} style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:'1px solid #3f3f46', borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box', cursor:'pointer' }}>
+                      <option value="" disabled>— Select category —</option>
+                      {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
+                        <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
                 </>
               ) : (
                 <>
@@ -1787,12 +1795,21 @@ export default function HomePage() {
                     <label>Locator Name <span style={{ fontWeight:400, color:'#71717a' }}>(optional)</span></label>
                     <input type="text" placeholder="e.g. My Car, Office Van…" value={bindName} onChange={e => setBindName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleBind()} style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:'1px solid #3f3f46', borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box' }} />
                   </div>
+                  <div className="hp-modal-field">
+                    <label>Category <span className="required">*</span></label>
+                    <select value={bindCategory} onChange={e => setBindCategory(e.target.value)} style={{ width:'100%', padding:'10px 12px', background:'#27272a', border:'1px solid #3f3f46', borderRadius:8, color:'#f4f4f5', fontSize:13, outline:'none', boxSizing:'border-box', cursor:'pointer' }}>
+                      <option value="" disabled>— Select category —</option>
+                      {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
+                        <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
                 </>
               )}
             </div>
             <div className="hp-modal-footer">
               <button className="hp-modal-cancel" onClick={closeBindModal}>Cancel</button>
-              <button className="hp-modal-confirm" onClick={handleBind} disabled={bindLoading || (isAdmin ? (!bindSn || !bindUserId) : !bindSn.trim())}>
+              <button className="hp-modal-confirm" onClick={handleBind} disabled={bindLoading || (isAdmin ? (!bindSn || !bindUserId || !bindCategory) : (!bindSn.trim() || !bindCategory))}>
                 {bindLoading ? 'Saving…' : 'Bind Locator'}
               </button>
             </div>

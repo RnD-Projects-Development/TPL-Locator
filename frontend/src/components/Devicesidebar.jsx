@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
+import React from "react";
 import tplLogo from "../assets/tpl.png";
+import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import "./DeviceSidebar.css";
 
 function formatDateTime(value) {
@@ -15,20 +15,84 @@ function formatDateTime(value) {
   } catch { return null; }
 }
 
+function DeviceRow({ device, selectedSn, onSelect }) {
+  const sn           = device.sn ?? "unknown";
+  const status       = device.status ?? "offline";
+  const client       = device.client ?? null;
+  const assignedUser = device.assigned_user_name ?? device.assignedUser ?? null;
+  const battery      = device.batteryLevel ?? device.battery ?? null;
+  const bindTime     = formatDateTime(device.bindTime);
+  const isBound      = !!assignedUser;
+  const isSelected   = sn === selectedSn;
+
+  return (
+    <button
+      key={sn}
+      className={`dsb-item ${isSelected ? "selected" : ""}`}
+      onClick={() => onSelect(device)}
+    >
+      <div className={`dsb-icon ${status === "online" ? "icon-online" : "icon-offline"}`}>
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
+        </svg>
+      </div>
+
+      <div className="dsb-info">
+        <div className="dsb-sn">{assignedUser || sn}</div>
+        {assignedUser && (
+          <div className="dsb-client" style={{ fontFamily: "monospace", fontSize: 10, opacity: 0.6 }}>
+            {sn}
+          </div>
+        )}
+        {client && <div className="dsb-client">{client}</div>}
+        {!isBound && (
+          <div style={{ fontSize: 9, color: "#52525b", marginTop: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Unbound
+          </div>
+        )}
+        {isBound && bindTime && (
+          <div style={{ fontSize: 9, color: "#52525b", marginTop: 3, display: "flex", alignItems: "center", gap: 3 }}>
+            <svg viewBox="0 0 20 20" fill="currentColor" width={8} height={8}>
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/>
+            </svg>
+            Bound {bindTime}
+          </div>
+        )}
+      </div>
+
+      <div className="dsb-right">
+        <span className={`dsb-dot ${status === "online" ? "dot-online" : "dot-offline"}`} />
+        {battery != null && <span className="dsb-battery">{battery}</span>}
+      </div>
+    </button>
+  );
+}
+
 export default function DeviceSidebar({ selectedSn, onSelect }) {
-  const { devices, loading, error, refresh } = useDeviceCache();
-  const [search, setSearch] = useState("");
+  const {
+    displayDevices,
+    recentDevices,
+    defaultDevices,
+    searchTerm,
+    setSearchTerm,
+    isSearching,
+    loading,
+    error,
+    total,
+    online,
+    offline,
+    refresh,
+    recordRecent,
+  } = useSidebarDevices();
 
-  const filtered = devices.filter((d) => {
-    const sn     = (d.sn ?? "").toLowerCase();
-    const client = (d.client ?? "").toLowerCase();
-    const user   = (d.assigned_user_name ?? d.assignedUser ?? "").toLowerCase();
-    const term   = search.toLowerCase();
-    return sn.includes(term) || client.includes(term) || user.includes(term);
-  });
+  const handleSelect = (device) => {
+    recordRecent(device);
+    onSelect(device);
+  };
 
-  const online  = devices.filter((d) => d.status === "online").length;
-  const offline = devices.length - online;
+  const defaultSnSet = new Set(defaultDevices.map((d) => d.sn));
+  const recentOnly = recentDevices.filter((d) => !defaultSnSet.has(d.sn));
+  const showRecentSection = !isSearching && recentOnly.length > 0;
 
   return (
     <div className="dsb-sidebar">
@@ -36,7 +100,9 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
       <div className="dsb-header">
         <div className="dsb-title">
           Locators
-          <span className="dsb-count">{devices.length}</span>
+          <span className="dsb-count" title="Total locators in your account">
+            {isSearching ? displayDevices.length : total}
+          </span>
         </div>
         <div className="dsb-stats">
           <span className="dsb-stat online">● {online} online</span>
@@ -71,12 +137,18 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
         </svg>
         <input
           className="dsb-search"
-          placeholder="Search SN, client, user…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search all locators…"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
         />
-        {search && <button className="dsb-search-clear" onClick={() => setSearch("")}>✕</button>}
+        {searchTerm && <button className="dsb-search-clear" onClick={() => setSearchTerm("")}>✕</button>}
       </div>
+
+      {!isSearching && !loading && (
+        <div className="dsb-hint">
+          Showing {defaultDevices.length} of {total} · search for more
+        </div>
+      )}
 
       <div className="dsb-list">
 
@@ -100,7 +172,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
               }}
             />
             <span style={{ fontSize: 10, color: "#52525b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Loading locators…
+              {isSearching ? "Searching…" : "Loading locators…"}
             </span>
           </div>
         )}
@@ -109,62 +181,28 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
           <div className="dsb-state dsb-error">{error}</div>
         )}
 
-        {!loading && !error && filtered.length === 0 && (
-          <div className="dsb-state">No locators found</div>
+        {!loading && !error && displayDevices.length === 0 && (
+          <div className="dsb-state">
+            {isSearching ? "No locators match your search" : "No locators found"}
+          </div>
         )}
 
-        {!loading && !error && filtered.map((d) => {
-          const sn           = d.sn ?? "unknown";
-          const status       = d.status ?? "offline";
-          const client       = d.client ?? null;
-          const assignedUser = d.assigned_user_name ?? d.assignedUser ?? null;
-          const battery      = d.batteryLevel ?? d.battery ?? null;
-          const bindTime     = formatDateTime(d.bindTime);
-          const isBound      = !!assignedUser;
-          const isSelected   = sn === selectedSn;
+        {!loading && !error && showRecentSection && (
+          <>
+            <div className="dsb-section-label">Recent</div>
+            {recentOnly.map((d) => (
+              <DeviceRow key={`recent-${d.sn}`} device={d} selectedSn={selectedSn} onSelect={handleSelect} />
+            ))}
+            <div className="dsb-section-label">Locators</div>
+          </>
+        )}
 
-          return (
-            <button
-              key={sn}
-              className={`dsb-item ${isSelected ? "selected" : ""}`}
-              onClick={() => onSelect(d)}
-            >
-              <div className={`dsb-icon ${status === "online" ? "icon-online" : "icon-offline"}`}>
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
-                </svg>
-              </div>
-
-              <div className="dsb-info">
-                <div className="dsb-sn">{assignedUser || sn}</div>
-                {assignedUser && (
-                  <div className="dsb-client" style={{ fontFamily: "monospace", fontSize: 10, opacity: 0.6 }}>
-                    {sn}
-                  </div>
-                )}
-                {client && <div className="dsb-client">{client}</div>}
-                {!isBound && (
-                  <div style={{ fontSize: 9, color: "#52525b", marginTop: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Unbound
-                  </div>
-                )}
-                {isBound && bindTime && (
-                  <div style={{ fontSize: 9, color: "#52525b", marginTop: 3, display: "flex", alignItems: "center", gap: 3 }}>
-                    <svg viewBox="0 0 20 20" fill="currentColor" width={8} height={8}>
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/>
-                    </svg>
-                    Bound {bindTime}
-                  </div>
-                )}
-              </div>
-
-              <div className="dsb-right">
-                <span className={`dsb-dot ${status === "online" ? "dot-online" : "dot-offline"}`} />
-                {battery != null && <span className="dsb-battery">{battery}</span>}
-              </div>
-            </button>
-          );
-        })}
+        {!loading && !error && (isSearching
+          ? displayDevices
+          : defaultDevices
+        ).map((d) => (
+          <DeviceRow key={d.sn} device={d} selectedSn={selectedSn} onSelect={handleSelect} />
+        ))}
       </div>
     </div>
   );

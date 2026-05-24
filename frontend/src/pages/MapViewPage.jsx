@@ -3,15 +3,15 @@ import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import MultiDeviceSidebar from "../components/MultiDeviceSidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
-import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
+import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { deviceColor } from "../utils/zonePolygonManager.js";
 import "./MapViewPage.css";
 
 export default function MapViewPage() {
   const [searchParams] = useSearchParams();
-  const { getLatestLocation } = useCityTag();
-  const { devices } = useDeviceCache();
+  const { getLatestLocationsBatch } = useCityTag();
+  const { getDevice, ensureDevice } = useSidebarDevices();
   const { zones } = useZoneCache();
 
   const [selectedSns, setSelectedSns] = useState(() => {
@@ -28,22 +28,32 @@ export default function MapViewPage() {
 
   const intervalRef = useRef(null);
 
+  useEffect(() => {
+    const param = searchParams.get("device");
+    if (param) void ensureDevice(param);
+  }, [searchParams, ensureDevice]);
+
   const refresh = useCallback(async () => {
     if (selectedSns.size === 0) return;
     setLoading(true);
     setError("");
     try {
-      const results = await Promise.allSettled(
-        [...selectedSns].map(sn =>
-          getLatestLocation(sn).then(res => ({ sn, point: res?.latest ?? res ?? null }))
-        )
-      );
+      // Single batch request instead of N individual calls
+      const sns = [...selectedSns];
+      const res = await getLatestLocationsBatch(sns);
+      // Response shape: { locations: { [sn]: { lat, lng, timestamp, batteryStatus, ... } } }
+      //               OR { results: [{ sn, latest: {...} }] }
+      const locMap = res?.locations ?? {};
+      const resultList = res?.results ?? [];
       setDeviceLocations(prev => {
         const next = { ...prev };
-        results.forEach(r => {
-          if (r.status === "fulfilled" && r.value.point) {
-            next[r.value.sn] = r.value.point;
-          }
+        // Handle { locations: { sn: point } } format
+        Object.entries(locMap).forEach(([sn, point]) => {
+          if (point) next[sn] = point;
+        });
+        // Handle { results: [{ sn, latest }] } format
+        resultList.forEach(r => {
+          if (r?.sn && r?.latest) next[r.sn] = r.latest;
         });
         return next;
       });
@@ -53,7 +63,7 @@ export default function MapViewPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSns, getLatestLocation]);
+  }, [selectedSns, getLatestLocationsBatch]);
 
   // Fetch immediately when selection changes
   useEffect(() => {
@@ -83,7 +93,7 @@ export default function MapViewPage() {
   // Build the multiDevices array that MapView renders
   const multiDevices = useMemo(() => {
     return [...selectedSns].map(sn => {
-      const device = devices.find(d => d.sn === sn);
+      const device = getDevice(sn);
       const label  = device?.assigned_user_name ?? device?.assignedUser ?? sn;
       return {
         sn,
@@ -92,7 +102,7 @@ export default function MapViewPage() {
         color:  deviceColor(sn),
       };
     });
-  }, [selectedSns, deviceLocations, devices]);
+  }, [selectedSns, deviceLocations, getDevice]);
 
   const onlineCount = multiDevices.filter(d => d.latest != null).length;
 
@@ -116,6 +126,14 @@ export default function MapViewPage() {
           {lastUpdated && (
             <span className="mv-pill pill-time">Updated {lastUpdated.toLocaleTimeString()}</span>
           )}
+          {selectedSns.size > 0 && (
+            <button className="mv-refresh-btn" onClick={() => refresh()} disabled={loading}>
+              <svg viewBox="0 0 20 20" fill="currentColor" className={loading ? "mv-spin" : ""}>
+                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+              </svg>
+              Refresh
+            </button>
+          )}
         </div>
 
         <div className="mv-topbar-right">
@@ -132,12 +150,6 @@ export default function MapViewPage() {
             onChange={(e) => setIntervalSec(Number(e.target.value))}
           />
           <span className="mv-unit">sec</span>
-          <button className="mv-refresh-btn" onClick={() => refresh()} disabled={loading || selectedSns.size === 0}>
-            <svg viewBox="0 0 20 20" fill="currentColor" className={loading ? "mv-spin" : ""}>
-              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
-            </svg>
-            Refresh
-          </button>
           <button
             className={`mv-fence-btn${showFences ? " active" : ""}`}
             onClick={() => setShowFences(v => !v)}

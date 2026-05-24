@@ -19,7 +19,8 @@ export function DeviceCacheProvider({ children }) {
     setLoading(true);
     setError("");
     try {
-      const data = await getDevicesRef.current();
+      // Load first 100 devices — used only for the bind modal's unbound device list
+      const data = await getDevicesRef.current({ page: 1, limit: 100 });
       const list = Array.isArray(data) ? data : data?.devices ?? [];
       setDevices(list);
       setLastFetched(Date.now());
@@ -30,7 +31,8 @@ export function DeviceCacheProvider({ children }) {
     }
   }, []);
 
-  // Prefetch as soon as the user is authenticated; clear on logout
+  // Load on demand when user is authenticated (for bind modals); clear on logout.
+  // Does NOT auto-load on mount — pages use usePaginatedDevices instead.
   useEffect(() => {
     if (user) fetchDevices();
     else { setDevices([]); setLastFetched(null); setError(""); }

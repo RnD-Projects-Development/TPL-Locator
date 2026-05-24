@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
+import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
 import "./ReportPage.css";
 import * as XLSX from "xlsx";
@@ -100,6 +101,7 @@ const ClockIcon = () => (
 export default function ReportPage() {
   const [searchParams] = useSearchParams();
   const { getPlayback } = useCityTag();
+  const { ensureDevice } = useSidebarDevices();
 
   const [sn, setSn]     = useState(searchParams.get("device") || "");
   const [label, setLabel] = useState("");
@@ -115,6 +117,11 @@ export default function ReportPage() {
   const [error, setError]                   = useState("");
   const [activeShortcut, setActiveShortcut] = useState(null);
   const [queryRange, setQueryRange]         = useState({ start: null, end: null });
+
+  useEffect(() => {
+    const param = searchParams.get("device");
+    if (param) void ensureDevice(param);
+  }, [searchParams, ensureDevice]);
 
   const handleSelectDevice = (device) => {
     const newSn    = typeof device === "string" ? device : (device?.sn ?? "");

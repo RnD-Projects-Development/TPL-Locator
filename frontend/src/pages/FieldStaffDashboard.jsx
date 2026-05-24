@@ -56,11 +56,18 @@ function MapSection({ filteredDevices, mapContainerRef }) {
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    loadTPLMaps(() => {
+    // Capture the container ID now — mapContainerRef.current may be null when callback fires
+    const containerId = mapContainerRef.current.id;
+
+    const cancelLoad = loadTPLMaps(() => {
       if (mapRef.current) return; // already init
 
+      // Guard: element may have been removed from DOM if component unmounted
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
       const map = window.TPLMaps.map.initMap({
-        divID:           mapContainerRef.current.id,
+        divID:           containerId,
         lat:             31.5204,
         lng:             74.3587,
         zoom:            10,
@@ -75,6 +82,7 @@ function MapSection({ filteredDevices, mapContainerRef }) {
     });
 
     return () => {
+      cancelLoad();
       markersRef.current.forEach(m => { try { mapRef.current?.removeLayer(m); } catch {} });
       markersRef.current = [];
       mapRef.current?.remove?.();
@@ -207,17 +215,18 @@ function TopStaffPanel({ devices }) {
 }
 
 // ─── Zone Table ───────────────────────────────────────────────────────────────
-function ZoneTable({ devices, locationCache }) {
+function ZoneTable({ devices, locationCache, rowOffset = 0 }) {
   return (
     <div className="fsd-zone-table-container">
       <div className="fsd-card-header">
         <span className="fsd-card-title">Staff Zone Activity</span>
-        <span className="fsd-record-count">{devices.length} records</span>
+        <span className="fsd-record-count">{devices.length} on this page</span>
       </div>
       <div className="fsd-table-wrapper">
         <table className="fsd-zone-table">
           <thead>
             <tr>
+              <th style={{ width: 36 }}>#</th>
               <th>User Name</th>
               <th>Locator</th>
               <th>Area / Location</th>
@@ -228,7 +237,7 @@ function ZoneTable({ devices, locationCache }) {
           <tbody>
             {devices.length === 0 ? (
               <tr>
-                <td colSpan="5" className="fsd-empty-row">No data available</td>
+                <td colSpan="6" className="fsd-empty-row">No data available</td>
               </tr>
             ) : (
               devices.map((device, index) => {
@@ -254,6 +263,7 @@ function ZoneTable({ devices, locationCache }) {
 
                 return (
                   <tr key={`${device.sn}-${index}`}>
+                    <td className="fsd-col-index">{rowOffset + index + 1}.</td>
                     <td style={{ fontWeight: 700, color: '#f9fafb' }}>
                       {device.assignedUser || 'Unassigned'}
                     </td>
@@ -283,35 +293,38 @@ export default function FieldStaffDashboard() {
   const mapContainerRef = useRef(null);
   const navigate        = useNavigate();
   const { areas, kmlLoading } = useKmlAreas();
-  const { devices, loading, error, locationCache, refresh, updateLocationCache } = useFieldStaffCache();
-
-  const [selectedAreaId, setSelectedAreaId] = useState(null);
-  const [dateFrom,       setDateFrom]       = useState('');
-  const [dateTo,         setDateTo]         = useState('');
+  const {
+    devices,
+    loading,
+    error,
+    locationCache,
+    refresh,
+    updateLocationCache,
+    page,
+    limit,
+    total,
+    totalPages,
+    onlineCount,
+    hasNextPage,
+    hasPreviousPage,
+    search,
+    setSearch,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    zoneId,
+    setZoneId,
+    goToPage,
+  } = useFieldStaffCache();
 
   const geocodingInFlight = useRef(new Set());
 
-  // ── Filtered devices ──────────────────────────────────────────────────────
-  const filteredDevices = useMemo(() => {
-    let list = devices;
-    if (selectedAreaId) {
-      list = list.filter(d =>
-        d.zone === selectedAreaId ||
-        (d.fence_zone_ids || []).includes(selectedAreaId)
-      );
-    }
-    if (dateFrom) {
-      const from = new Date(dateFrom);
-      from.setHours(0, 0, 0, 0);
-      list = list.filter(d => d.lastSeen && new Date(d.lastSeen) >= from);
-    }
-    if (dateTo) {
-      const to = new Date(dateTo);
-      to.setHours(23, 59, 59, 999);
-      list = list.filter(d => d.lastSeen && new Date(d.lastSeen) <= to);
-    }
-    return list;
-  }, [devices, selectedAreaId, dateFrom, dateTo]);
+  const handleAreaChange = (areaId) => {
+    setZoneId(areaId || null);
+  };
+
+  const displayDevices = devices;
 
   // ── Reverse-geocode visible devices using TPLMaps (shared cache) ──────────
   const _runGeocode = useRef(null);
@@ -320,7 +333,7 @@ export default function FieldStaffDashboard() {
 
     function runBatch() {
       if (cancelled) return;
-      const pending = filteredDevices.filter(
+      const pending = displayDevices.filter(
         d =>
           d.latitude  != null &&
           d.longitude != null &&
@@ -355,7 +368,7 @@ export default function FieldStaffDashboard() {
       clearTimeout(_runGeocode.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredDevices]);
+  }, [displayDevices]);
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
@@ -378,7 +391,7 @@ export default function FieldStaffDashboard() {
     );
   }
 
-  const onlineCount = devices.filter(d => d.isOnline).length;
+  const rowOffset = (page - 1) * limit;
 
   return (
     <div className="fsd-dashboard">
@@ -406,10 +419,26 @@ export default function FieldStaffDashboard() {
 
         {/* Filters */}
         <div className="fsd-filters-bar">
+          <div className="fsd-search-wrap">
+            <svg className="fsd-search-icon" viewBox="0 0 20 20" fill="currentColor" width={14} height={14}>
+              <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd"/>
+            </svg>
+            <input
+              type="text"
+              className="fsd-search-input"
+              placeholder="Search SN, user, region…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button type="button" className="fsd-search-clear" onClick={() => setSearch('')}>✕</button>
+            )}
+          </div>
+
           <div className="fsd-area-selector-wrapper">
             <AreaSelector
-              value={selectedAreaId}
-              onChange={setSelectedAreaId}
+              value={zoneId}
+              onChange={handleAreaChange}
               areas={areas}
               loading={kmlLoading}
             />
@@ -460,7 +489,7 @@ export default function FieldStaffDashboard() {
         {/* Left — Map */}
         <div className="fsd-map-card">
           <MapSection
-            filteredDevices={filteredDevices}
+            filteredDevices={displayDevices}
             mapContainerRef={mapContainerRef}
           />
         </div>
@@ -468,10 +497,36 @@ export default function FieldStaffDashboard() {
         {/* Right — Top Staff + Zone Table stacked at equal height */}
         <div className="fsd-side-cards">
           <div className="fsd-side-card">
-            <TopStaffPanel devices={filteredDevices} />
+            <TopStaffPanel devices={displayDevices} />
           </div>
           <div className="fsd-table-card">
-            <ZoneTable devices={filteredDevices} locationCache={locationCache} />
+            <ZoneTable
+              devices={displayDevices}
+              locationCache={locationCache}
+              rowOffset={rowOffset}
+            />
+            <div className="fsd-pagination">
+              <button
+                type="button"
+                className="fsd-page-btn"
+                disabled={!hasPreviousPage || loading}
+                onClick={() => goToPage(page - 1)}
+              >
+                Previous
+              </button>
+              <span className="fsd-page-info">
+                Page {page} of {totalPages} · {total} locator{total === 1 ? '' : 's'}
+                {(search || dateFrom || dateTo || zoneId) ? ' matching filters' : ' total'}
+              </span>
+              <button
+                type="button"
+                className="fsd-page-btn"
+                disabled={!hasNextPage || loading}
+                onClick={() => goToPage(page + 1)}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
 

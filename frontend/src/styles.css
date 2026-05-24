@@ -1,25 +1,75 @@
 @import './styles/tokens.css';
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;600;700&family=Gudea:wght@400;700&display=swap');
+
+/* ── Theme ──────────────────────────────────────────────────────────────────── */
+html { color-scheme: light; }
+
+/* ── Light theme utility classes ────────────────────────────────────────────── */
+.glass {
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0,0,0,0.10);
+}
+.glass-light {
+  background: rgba(240,240,240,0.70);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0,0,0,0.08);
+}
+/* ── Card — dark glass panel ────────────────────────────────────── */
+.card {
+  background: #242323;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+}
+.card-hover {
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 44px rgba(167,44,50,0.52), 0 12px 40px rgba(0,0,0,0.55) !important;
+}
+.panel-card {
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.panel-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 44px rgba(167,44,50,0.52), 0 12px 40px rgba(0,0,0,0.55) !important;
+}
+.gradient-brand  { background: linear-gradient(135deg, #6F1C21 0%, #A72C32 100%); }
+.gradient-jade   { background: linear-gradient(135deg, #065F46 0%, #10B981 100%); }
+.gradient-rose   { background: linear-gradient(135deg, #7F1D1D 0%, #EF4444 100%); }
+.gradient-amber  { background: linear-gradient(135deg, #78350F 0%, #F59E0B 100%); }
+.gradient-violet { background: linear-gradient(135deg, #4C1D95 0%, #8B5CF6 100%); }
+.gradient-cyan   { background: linear-gradient(135deg, #164E63 0%, #06B6D4 100%); }
+.gradient-sky    { background: linear-gradient(135deg, #0C4A6E 0%, #0EA5E9 100%); }
+.text-gradient {
+  background: linear-gradient(135deg, #A72C32, #C44E54);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.trow:hover { background: rgba(0,0,0,0.04); }
+@keyframes bleRing { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(3.2); opacity: 0; } }
+.ble-ring-1 { animation: bleRing 2.4s ease-out infinite; }
+.ble-ring-2 { animation: bleRing 2.4s ease-out infinite 0.8s; }
+.ble-ring-3 { animation: bleRing 2.4s ease-out infinite 1.6s; }
+@keyframes rssiDraw { from { width: 0 } }
+.rssi-bar { animation: rssiDraw 0.6s ease-out; }
+.recharts-cartesian-grid line { stroke: #E0E0E0 !important; }
+.recharts-text { fill: #888888 !important; font-size: 11px !important; }
+.recharts-tooltip-wrapper { outline: none !important; }
 
 /* ── MapView popup theme ───────────────────────────────────────────────────── */
 .mv-popup .leaflet-popup-content-wrapper {
-  background: #991b1b;
+  background: #A72C32;
   border: none;
   border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
   padding: 0;
 }
-.mv-popup .leaflet-popup-content {
-  margin: 0;
-  padding: 12px 14px;
-}
-.mv-popup .leaflet-popup-tip {
-  background: #991b1b;
-}
-.mv-popup .leaflet-popup-tip-container {
-  margin-top: -1px;
-}
+.mv-popup .leaflet-popup-content { margin: 0; padding: 12px 14px; }
+.mv-popup .leaflet-popup-tip { background: #A72C32; }
+.mv-popup .leaflet-popup-tip-container { margin-top: -1px; }
 
 html, body, #root {
   height: 100%;
@@ -28,13 +78,17 @@ html, body, #root {
   overflow: hidden;
 }
 
+body {
+  background-color: #0d0d0d;
+  color: #1a1a1a;
+}
+
 body, button, input, div {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.01em;
 }
 
-/* Use Monospace only for coordinates/data numbers */
 .coordinate-display, .timestamp {
   font-family: var(--font-mono);
   font-size: 0.85em;
@@ -44,40 +98,13 @@ body, button, input, div {
 @tailwind components;
 @tailwind utilities;
 
-/* ── Fading grid background ──────────────────────────────────────────────────
-   Grid lives on body::before so the mask only clips the grid layer —
-   cards and content above it are completely unaffected.
-   ────────────────────────────────────────────────────────────────────────── */
-body {
-  background-color: #0c0c0e;
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-
-  background-image:
-    linear-gradient(to right,  rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 48px 48px;
-
-  /* Mask fades the grid — only this pseudo-element is clipped, not the page content */
-  -webkit-mask-image:
-    radial-gradient(ellipse 85% 80% at 50% 40%, black 30%, transparent 100%);
-  mask-image:
-    radial-gradient(ellipse 85% 80% at 50% 40%, black 30%, transparent 100%);
-}
-
 /* ── Date/time inputs ──────────────────────────── */
 input[type="date"],
 input[type="time"] {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
-/* ── Mapbox popup dark theme ───────────────────── */
+/* ── Mapbox popup light theme ───────────────────── */
 .mapboxgl-popup-content {
   background: var(--surface-2) !important;
   border: 1px solid var(--border-default) !important;
@@ -86,12 +113,10 @@ input[type="time"] {
   box-shadow: var(--shadow-float) !important;
   color: var(--text-primary) !important;
 }
-
 .mapboxgl-popup-anchor-top    .mapboxgl-popup-tip { border-bottom-color: var(--surface-2) !important; }
 .mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip { border-top-color:    var(--surface-2) !important; }
 .mapboxgl-popup-anchor-left   .mapboxgl-popup-tip { border-right-color:  var(--surface-2) !important; }
 .mapboxgl-popup-anchor-right  .mapboxgl-popup-tip { border-left-color:   var(--surface-2) !important; }
-
 .mapboxgl-popup-close-button {
   color: var(--text-tertiary) !important;
   font-size: 16px !important;
@@ -106,8 +131,8 @@ input[type="time"] {
 /* ── Global scrollbar ──────────────────────────── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+::-webkit-scrollbar-thumb { background: #BBBBBB; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #888888; }
 
 /* ── Recharts tooltip global override ─────────── */
 .recharts-tooltip-wrapper .recharts-default-tooltip {
@@ -118,20 +143,7 @@ input[type="time"] {
   font-family: var(--font-sans) !important;
   font-size: 12px !important;
 }
-.recharts-tooltip-label {
-  color: var(--text-primary) !important;
-  font-weight: 600 !important;
-  margin-bottom: 4px !important;
-}
-.recharts-tooltip-item {
-  color: var(--text-secondary) !important;
-}
-.recharts-cartesian-axis-tick-value {
-  fill: var(--text-tertiary);
-  font-size: 10px;
-  font-family: var(--font-mono);
-}
-.recharts-legend-item-text {
-  color: var(--text-secondary) !important;
-  font-size: 11px !important;
-}
+.recharts-tooltip-label { color: var(--text-primary) !important; font-weight: 600 !important; margin-bottom: 4px !important; }
+.recharts-tooltip-item  { color: var(--text-secondary) !important; }
+.recharts-cartesian-axis-tick-value { fill: var(--text-tertiary); font-size: 10px; font-family: var(--font-mono); }
+.recharts-legend-item-text { color: var(--text-secondary) !important; font-size: 11px !important; }

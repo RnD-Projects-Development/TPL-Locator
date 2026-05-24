@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
+import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { tplGeocode } from "../utils/tplGeocode.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import "./TrajectoryPage.css";
@@ -84,6 +85,7 @@ const TIME_SHORTCUTS = [
 export default function TrajectoryPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation, getTrajectory } = useCityTag();
+  const { ensureDevice } = useSidebarDevices();
   const [label, setLabel] = useState("");
   const { zones } = useZoneCache();
   const [showFences, setShowFences] = useState(false);
@@ -124,6 +126,11 @@ export default function TrajectoryPage() {
       }
     } catch { /* silent */ }
   }, [sn, getLatestLocation]);
+
+  useEffect(() => {
+    const param = searchParams.get("device");
+    if (param) void ensureDevice(param);
+  }, [searchParams, ensureDevice]);
 
   // Immediate fetch whenever sn changes (covers URL-param init + sidebar select)
   useEffect(() => {

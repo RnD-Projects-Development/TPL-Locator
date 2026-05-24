@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+﻿import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import DeviceList from "../components/DeviceList.jsx";
 import Trajectory from "../components/Trajectory.jsx";
@@ -114,7 +114,7 @@ export default function Devices() {
               className="text-red-100 hover:text-white transition-colors p-2"
             >
               <span className={loading ? "animate-spin inline-block" : ""}>
-                ↻
+                â†»
               </span>
             </button>
 
@@ -140,7 +140,7 @@ export default function Devices() {
               {showDropdown && (
                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden py-1 z-[60]">
                   <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                    <p className="text-sm font-semibold text-slate-800 truncate">
+                    <p className="text-sm font-semibold text-white truncate">
                       {user?.email}
                     </p>
                     <p className="text-[10px] text-slate-400 font-mono mt-1">
@@ -153,9 +153,9 @@ export default function Devices() {
                       setShowProfileModal(true);
                       setShowDropdown(false);
                     }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2.5 text-sm text-gray-400 hover:bg-slate-50 flex items-center gap-2"
                   >
-                    👤 Personal Profile
+                    ðŸ‘¤ Personal Profile
                   </button>
 
                   <hr className="my-1 border-slate-100" />
@@ -164,7 +164,7 @@ export default function Devices() {
                     onClick={logout}
                     className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-semibold flex items-center gap-2"
                   >
-                    🚪 Logout
+                    ðŸšª Logout
                   </button>
                 </div>
               )}
@@ -178,7 +178,7 @@ export default function Devices() {
 
         {/* Title */}
         <div className="mb-8">
-          <h2 className="text-4xl font-black text-slate-900 uppercase">
+          <h2 className="text-4xl font-black text-white uppercase">
             {activeView}
           </h2>
           <div className="h-1.5 w-12 bg-[#800000] rounded-full mt-2"></div>
@@ -213,10 +213,11 @@ export default function Devices() {
             to="/login"
             className="text-sm font-bold text-[#800000] hover:underline"
           >
-            Switch account →
+            Switch account â†’
           </Link>
         </div>
       </main>
     </div>
   );
 }
+

@@ -76,7 +76,26 @@ export function useCityTag() {
   );
 
   const getDevices = useCallback(
-    async () => apiFetch("/api/devices", {}, accessToken, logout),
+    async ({ page, limit, search, status, device_type } = {}) => {
+      const params = new URLSearchParams();
+      if (page != null) params.set("page", String(page));
+      if (limit != null) params.set("limit", String(limit));
+      if (search != null && String(search).trim()) params.set("search", String(search).trim());
+      if (status != null && status !== "all") params.set("status", String(status));
+      if (device_type != null) params.set("device_type", String(device_type));
+      const query = params.toString();
+      return apiFetch(query ? `/api/devices?${query}` : "/api/devices", {}, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
+  const getDevicesSummary = useCallback(
+    async () => apiFetch("/api/devices/summary", {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
+  const getDeviceBySn = useCallback(
+    async (sn) => apiFetch(`/api/devices/${encodeURIComponent(sn)}`, {}, accessToken, logout),
     [accessToken, logout]
   );
 
@@ -164,8 +183,18 @@ export function useCityTag() {
   const adminUpdateDevice = useCallback(
     async (sn, { name, client, region, category } = {}) =>
       apiFetch(
-        `/api/admin/devices/${encodeURIComponent(sn)}`,
+        `/api/devices/${encodeURIComponent(sn)}`,
         { method: "PUT", body: { name, client, region, category } },
+        accessToken, logout
+      ),
+    [accessToken, logout]
+  );
+
+  const updateDevice = useCallback(
+    async (sn, { name, client, category } = {}) =>
+      apiFetch(
+        `/api/devices/${encodeURIComponent(sn)}`,
+        { method: "PUT", body: { name, client, category } },
         accessToken, logout
       ),
     [accessToken, logout]
@@ -178,6 +207,16 @@ export function useCityTag() {
 
   const getLatestLocation = useCallback(
     async (sn) => apiFetch(`/api/location/${encodeURIComponent(sn)}`, {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
+  const getLatestLocationsBatch = useCallback(
+    async (sns) => apiFetch(
+      "/api/location/latest-batch",
+      { method: "POST", body: { sns: Array.isArray(sns) ? sns : [] } },
+      accessToken,
+      logout,
+    ),
     [accessToken, logout]
   );
 
@@ -201,18 +240,51 @@ export function useCityTag() {
     }, [accessToken, logout]
   );
 
+  const getPlaybackBatch = useCallback(
+    async (sns, start, end) => apiFetch(
+      "/api/devices/playback-batch",
+      {
+        method: "POST",
+        body: {
+          sns: Array.isArray(sns) ? sns : [],
+          start: start instanceof Date ? start.toISOString() : start,
+          end: end instanceof Date ? end.toISOString() : end,
+        },
+      },
+      accessToken,
+      logout,
+    ),
+    [accessToken, logout]
+  );
+
   const getFieldStaffLiveDevices = useCallback(
-    async () => apiFetch("/api/field-staff/live-devices", {}, accessToken, logout),
+    async ({ page, limit, search, zoneId, lastSeenFrom, lastSeenTo } = {}) => {
+      const params = new URLSearchParams();
+      if (page != null) params.set("page", String(page));
+      if (limit != null) params.set("limit", String(limit));
+      if (search != null && String(search).trim()) params.set("search", String(search).trim());
+      if (zoneId) params.set("zone_id", String(zoneId));
+      if (lastSeenFrom) params.set("last_seen_from", lastSeenFrom);
+      if (lastSeenTo) params.set("last_seen_to", lastSeenTo);
+      const query = params.toString();
+      return apiFetch(
+        query ? `/api/field-staff/live-devices?${query}` : "/api/field-staff/live-devices",
+        {},
+        accessToken,
+        logout,
+      );
+    },
     [accessToken, logout]
   );
 
   return {
     login, adminLogin, signup,
-    getDevices, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
+    getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
-    adminUpdateDevice,
+    adminUpdateDevice, updateDevice,
     bindDevice, bindDeviceByEmail, unbindDevice, adminUnbindDevice,
     searchDevice, getLatestLocation, getTrajectory, getPlayback,
+    getLatestLocationsBatch, getPlaybackBatch,
     getFieldStaffLiveDevices,
   };
 }
