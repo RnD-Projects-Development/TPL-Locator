@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { readPersistedPage } from "../utils/locatorPageState.js";
 import { useCityTag } from "./useCityTag.js";
 
 const DEFAULT_LIMIT = 20;
+const BULK_DEVICE_LIMIT = 100;
+const BULK_TTL_MS = 5 * 60 * 1000;
+
+/** In-memory caches survive leaving the Locators route. */
+const pageDataCache = new Map();
+const inflightRequests = new Map();
+const bulkDeviceCache = new Map();
 
 function normalizePageResponse(payload, fallbackPage, fallbackLimit) {
   const devices = Array.isArray(payload) ? payload : payload?.devices ?? [];
@@ -26,6 +34,62 @@ function normalizePageResponse(payload, fallbackPage, fallbackLimit) {
   };
 }
 
+function filtersKey(search, status) {
+  return `${(search || "").trim()}:${status || "all"}`;
+}
+
+function pageCacheKey(page, limit, search, status) {
+  return `${page}:${limit}:${(search || "").trim()}:${status || "all"}`;
+}
+
+function sliceBulkPage(bulkEntry, targetPage, pageLimit) {
+  const offset = (targetPage - 1) * pageLimit;
+  const devices = bulkEntry.devices.slice(offset, offset + pageLimit);
+  const total = bulkEntry.total;
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(pageLimit, 1)));
+
+  return {
+    devices,
+    page: targetPage,
+    limit: pageLimit,
+    total,
+    totalPages,
+    hasNextPage: targetPage < totalPages,
+    hasPreviousPage: targetPage > 1,
+  };
+}
+
+function seedPageCacheFromBulk(bulkEntry, search, status, pageLimit = DEFAULT_LIMIT) {
+  const maxPageFromBulk = Math.min(
+    Math.ceil(bulkEntry.devices.length / pageLimit),
+    Math.ceil(bulkEntry.total / pageLimit),
+  );
+
+  for (let p = 1; p <= maxPageFromBulk; p += 1) {
+    const snapshot = sliceBulkPage(bulkEntry, p, pageLimit);
+    pageDataCache.set(pageCacheKey(p, pageLimit, search, status), snapshot);
+  }
+}
+
+function getValidBulkEntry(search, status) {
+  const key = filtersKey(search, status);
+  const entry = bulkDeviceCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > BULK_TTL_MS) {
+    bulkDeviceCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function clearCachesForFilters(search, status) {
+  const suffix = `:${(search || "").trim()}:${status || "all"}`;
+  for (const key of [...pageDataCache.keys()]) {
+    if (key.endsWith(suffix)) pageDataCache.delete(key);
+  }
+  bulkDeviceCache.delete(filtersKey(search, status));
+}
+
 export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) {
   const { search = "", status = "all" } = options;
   const { getDevices } = useCityTag();
@@ -41,8 +105,7 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
 
   const getDevicesRef = useRef(getDevices);
   const loadPageRef = useRef(null);
-  const cacheRef = useRef(new Map());
-  const inflightRef = useRef(new Map());
+  const ensureBulkRef = useRef(null);
   const mountedRef = useRef(true);
   const searchRef = useRef(search);
   const statusRef = useRef(status);
@@ -77,6 +140,50 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
     return snapshot;
   }, []);
 
+  const ensureBulkCache = useCallback(async (searchTerm, statusFilter, { force = false, silent = true } = {}) => {
+    if (!user) return null;
+
+    const key = filtersKey(searchTerm, statusFilter);
+    if (!force) {
+      const existing = getValidBulkEntry(searchTerm, statusFilter);
+      if (existing) return existing;
+    }
+
+    const inflightKey = `bulk:${key}`;
+    if (!force && inflightRequests.has(inflightKey)) {
+      return inflightRequests.get(inflightKey);
+    }
+
+    const request = (async () => {
+      const payload = await getDevicesRef.current({
+        page: 1,
+        limit: BULK_DEVICE_LIMIT,
+        search: searchTerm,
+        status: statusFilter,
+      });
+      const list = Array.isArray(payload) ? payload : payload?.devices ?? [];
+      const entry = {
+        devices: list,
+        total: Number(payload?.total ?? list.length) || list.length,
+        fetchedAt: Date.now(),
+      };
+      bulkDeviceCache.set(key, entry);
+      seedPageCacheFromBulk(entry, searchTerm, statusFilter, initialLimit);
+      return entry;
+    })();
+
+    inflightRequests.set(inflightKey, request);
+    try {
+      return await request;
+    } finally {
+      inflightRequests.delete(inflightKey);
+    }
+  }, [initialLimit, user]);
+
+  useEffect(() => {
+    ensureBulkRef.current = ensureBulkCache;
+  }, [ensureBulkCache]);
+
   const loadPage = useCallback(async (targetPage = 1, targetLimit = limit, loadOptions = {}) => {
     if (!user) {
       return null;
@@ -88,15 +195,27 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
     const safeLimit = Math.max(1, Number(targetLimit) || initialLimit || DEFAULT_LIMIT);
     const searchTerm = loadOptions.search ?? searchRef.current ?? "";
     const statusFilter = loadOptions.status ?? statusRef.current ?? "all";
-    const cacheKey = `${safePage}:${safeLimit}:${searchTerm}:${statusFilter}`;
+    const cacheKey = pageCacheKey(safePage, safeLimit, searchTerm, statusFilter);
 
-    if (!force && cacheRef.current.has(cacheKey)) {
-      const cached = cacheRef.current.get(cacheKey);
+    if (!force && pageDataCache.has(cacheKey)) {
+      const cached = pageDataCache.get(cacheKey);
       return applySnapshot(cached, !silent);
     }
 
-    if (!force && inflightRef.current.has(cacheKey)) {
-      return inflightRef.current.get(cacheKey);
+    const bulkEntry = !force ? getValidBulkEntry(searchTerm, statusFilter) : null;
+    const bulkOffset = (safePage - 1) * safeLimit;
+    if (
+      bulkEntry &&
+      bulkOffset < bulkEntry.devices.length &&
+      bulkOffset + safeLimit <= bulkEntry.devices.length
+    ) {
+      const snapshot = sliceBulkPage(bulkEntry, safePage, safeLimit);
+      pageDataCache.set(cacheKey, snapshot);
+      return applySnapshot(snapshot, !silent);
+    }
+
+    if (!force && inflightRequests.has(cacheKey)) {
+      return inflightRequests.get(cacheKey);
     }
 
     const request = (async () => {
@@ -112,12 +231,12 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
         status: statusFilter,
       });
       const snapshot = normalizePageResponse(payload, safePage, safeLimit);
-      cacheRef.current.set(cacheKey, snapshot);
+      pageDataCache.set(cacheKey, snapshot);
       applySnapshot(snapshot, !silent);
 
       if (!silent && snapshot.hasNextPage && loadPageRef.current) {
-        const nextKey = `${snapshot.page + 1}:${snapshot.limit}:${searchTerm}:${statusFilter}`;
-        if (!cacheRef.current.has(nextKey) && !inflightRef.current.has(nextKey)) {
+        const nextKey = pageCacheKey(snapshot.page + 1, snapshot.limit, searchTerm, statusFilter);
+        if (!pageDataCache.has(nextKey) && !inflightRequests.has(nextKey)) {
           void loadPageRef.current(snapshot.page + 1, snapshot.limit, {
             silent: true,
             search: searchTerm,
@@ -129,7 +248,7 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
       return snapshot;
     })();
 
-    inflightRef.current.set(cacheKey, request);
+    inflightRequests.set(cacheKey, request);
 
     try {
       return await request;
@@ -139,7 +258,7 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
       }
       throw err;
     } finally {
-      inflightRef.current.delete(cacheKey);
+      inflightRequests.delete(cacheKey);
       if (!silent && mountedRef.current) {
         setLoading(false);
       }
@@ -151,10 +270,10 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
   }, [loadPage]);
 
   useEffect(() => {
-    cacheRef.current.clear();
-    inflightRef.current.clear();
-
     if (!user) {
+      pageDataCache.clear();
+      inflightRequests.clear();
+      bulkDeviceCache.clear();
       setDevices([]);
       setLoading(false);
       setError("");
@@ -165,11 +284,28 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
       return;
     }
 
-    void loadPageRef.current?.(1, initialLimit, {
-      force: true,
-      search,
-      status,
-    });
+    const searchTerm = (search || "").trim();
+    const statusFilter = status || "all";
+    const targetPage = readPersistedPage(searchTerm, statusFilter);
+    const cacheKey = pageCacheKey(targetPage, initialLimit, searchTerm, statusFilter);
+    const hasPageCache = pageDataCache.has(cacheKey);
+    const bulkEntry = getValidBulkEntry(searchTerm, statusFilter);
+
+    if (hasPageCache || bulkEntry) {
+      void loadPageRef.current?.(targetPage, initialLimit, {
+        force: false,
+        search: searchTerm,
+        status: statusFilter,
+      });
+    } else {
+      void loadPageRef.current?.(targetPage, initialLimit, {
+        force: true,
+        search: searchTerm,
+        status: statusFilter,
+      });
+    }
+
+    void ensureBulkRef.current?.(searchTerm, statusFilter, { force: !bulkEntry, silent: true });
   }, [initialLimit, user, search, status]);
 
   const goToPage = useCallback((nextPage) => {
@@ -182,8 +318,11 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
 
   const refresh = useCallback(() => {
     if (!loadPageRef.current) return;
-    cacheRef.current.clear();
-    inflightRef.current.clear();
+
+    clearCachesForFilters(searchRef.current, statusRef.current);
+
+    void ensureBulkRef.current?.(searchRef.current, statusRef.current, { force: true, silent: true });
+
     return loadPageRef.current(page, limit, {
       force: true,
       search: searchRef.current,

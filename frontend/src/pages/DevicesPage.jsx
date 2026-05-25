@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useUserCache } from "../context/Usercachecontext.jsx";
 import { useHomePageCache } from "../context/HomePageCacheContext.jsx";
 import { usePaginatedDevices } from "../hooks/usePaginatedDevices.js";
+import { loadLocatorPageState, saveLocatorPageState } from "../utils/locatorPageState.js";
 import "./DevicesPage.css";
 
 const SELECT_STYLE = {
@@ -31,6 +32,7 @@ const SELECT_OPTION_STYLE = { background: "#27272a", color: "#f4f4f5" };
 
 const HomePage = () => {
   const { isAdmin } = useAuth();
+  const restoredState = loadLocatorPageState();
   const {
     bindDevice, unbindDevice,
     adminCreateUser, adminAssignDeviceToUser, adminUpdateDevice,
@@ -38,9 +40,9 @@ const HomePage = () => {
     getAvailableDevices,
   } = useCityTag();
 
-  const [searchTerm, setSearchTerm]     = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchTerm, setSearchTerm]     = useState(restoredState.searchTerm);
+  const [filterStatus, setFilterStatus] = useState(restoredState.filterStatus);
+  const [debouncedSearch, setDebouncedSearch] = useState(() => restoredState.searchTerm.trim());
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
@@ -51,6 +53,8 @@ const HomePage = () => {
     () => ({ search: debouncedSearch, status: filterStatus }),
     [debouncedSearch, filterStatus]
   );
+
+  const [viewMode, setViewMode] = useState(() => (isAdmin && restoredState.viewMode === 'users' ? 'users' : 'devices'));
 
   const {
     devices,
@@ -69,7 +73,15 @@ const HomePage = () => {
   const { locations, refreshAll: refreshHomeData } = useHomePageCache();
 
   const [error, setError]               = useState("");
-  const [viewMode, setViewMode]         = useState('devices');
+
+  useEffect(() => {
+    saveLocatorPageState({
+      searchTerm,
+      filterStatus,
+      viewMode: isAdmin ? viewMode : 'devices',
+      page,
+    });
+  }, [searchTerm, filterStatus, viewMode, page, isAdmin]);
 
   // ── Available (unbound) devices for user bind dropdown ────────────────────
   const [availableDevices, setAvailableDevices] = useState([]);
