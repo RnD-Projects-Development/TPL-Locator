@@ -1,9 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-
-const AUTO_REFRESH_MS = 10 * 60 * 1000; // 10 minutes
 import { useCityTag } from '../hooks/useCityTag.js';
 import { useBindCache } from './BindCacheContext.jsx';
 import { parseKMLText } from '../utils/geofenceUtils.js';
+import { registerCacheResetListener } from '../utils/clearAppCaches.js';
+
+const AUTO_REFRESH_MS = 10 * 60 * 1000; // 10 minutes
+const SUMMARY_CACHE_MS = 5 * 60 * 1000; // 5 minutes — matches device list cache
+
+const EMPTY_SUMMARY = {
+  total: 0,
+  locators: 0,
+  stickers: 0,
+  online: 0,
+  offline: 0,
+  weekly_new_locators: 0,
+  weekly_new_stickers: 0,
+};
 
 // ── Utilities (duplicated from HomePage to keep context self-contained) ────────
 function todayStr() { return new Date().toISOString().slice(0, 10); }
@@ -38,12 +50,14 @@ function dayRange(dateStr, isLive) {
 const HomePageCacheContext = createContext(null);
 
 export function HomePageCacheProvider({ children }) {
-  const { getDevices, getLatestLocationsBatch, getPlaybackBatch } = useCityTag();
+  const { getDevices, getDevicesSummary, getLatestLocationsBatch, getPlaybackBatch } = useCityTag();
   const { updateFromDevices } = useBindCache();
 
   const [filters, setFilters]           = useState({ region: 'all', area: 'all', areaId: null, date: todayStr() });
   const [devices, setDevices]           = useState([]);
   const [devLoading, setDevLoading]     = useState(false);
+  const [summary, setSummary]           = useState(EMPTY_SUMMARY);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [locations, setLocations]       = useState({});
   const [locSync, setLocSync]           = useState(null);
   const [activityData, setActivityData] = useState({});
@@ -57,11 +71,32 @@ export function HomePageCacheProvider({ children }) {
   useEffect(() => { filtersRef.current = filters; }, [filters]);
 
   const deviceCacheRef = useRef({ key: '', fetchedAt: 0, data: [] });
+  const summaryCacheRef = useRef({ fetchedAt: 0, data: EMPTY_SUMMARY });
   const locationCacheRef = useRef({ key: '', fetchedAt: 0, data: {} });
   const activityCacheRef = useRef(new Map());
 
   const locationRequestRef = useRef(0);
   const activityRequestRef = useRef(0);
+
+  const resetInMemoryCache = useCallback(() => {
+    deviceCacheRef.current = { key: '', fetchedAt: 0, data: [] };
+    summaryCacheRef.current = { fetchedAt: 0, data: EMPTY_SUMMARY };
+    locationCacheRef.current = { key: '', fetchedAt: 0, data: {} };
+    activityCacheRef.current = new Map();
+    locationRequestRef.current = 0;
+    activityRequestRef.current = 0;
+    setFilters({ region: 'all', area: 'all', areaId: null, date: todayStr() });
+    setDevices([]);
+    setDevLoading(false);
+    setSummary(EMPTY_SUMMARY);
+    setSummaryLoading(false);
+    setLocations({});
+    setLocSync(null);
+    setActivityData({});
+    setChartLoading(false);
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetInMemoryCache), [resetInMemoryCache]);
 
   const fetchDevices = useCallback(async ({ force = false } = {}) => {
     const cacheKey = 'devices';
@@ -87,6 +122,34 @@ export function HomePageCacheProvider({ children }) {
       setDevLoading(false);
     }
   }, [getDevices, updateFromDevices]);
+
+  const fetchSummary = useCallback(async ({ force = false } = {}) => {
+    const cacheAgeMs = Date.now() - summaryCacheRef.current.fetchedAt;
+    if (
+      !force &&
+      summaryCacheRef.current.fetchedAt > 0 &&
+      cacheAgeMs < SUMMARY_CACHE_MS
+    ) {
+      setSummary(summaryCacheRef.current.data);
+      return summaryCacheRef.current.data;
+    }
+
+    setSummaryLoading(true);
+    try {
+      const res = await getDevicesSummary();
+      const data =
+        res && typeof res === 'object'
+          ? { ...EMPTY_SUMMARY, ...res }
+          : EMPTY_SUMMARY;
+      summaryCacheRef.current = { fetchedAt: Date.now(), data };
+      setSummary(data);
+      return data;
+    } catch {
+      return summaryCacheRef.current.data;
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [getDevicesSummary]);
 
   // ── Fetch devices + KML once on mount ─────────────────────────────────────
   useEffect(() => {
@@ -165,12 +228,15 @@ export function HomePageCacheProvider({ children }) {
   // ── refreshAll — single entry point for both manual button and auto-refresh
   const refreshAll = useCallback(async ({ force = true } = {}) => {
     const f = filtersRef.current;
-    const deviceList = await fetchDevices({ force });
+    const [deviceList] = await Promise.all([
+      fetchDevices({ force }),
+      fetchSummary({ force }),
+    ]);
     await Promise.all([
       fetchLocations({ force, deviceList }),
       fetchActivity(f.date, f.date === todayStr(), { force, deviceList }),
     ]);
-  }, [fetchDevices, fetchLocations, fetchActivity]);
+  }, [fetchDevices, fetchSummary, fetchLocations, fetchActivity]);
 
   // ── Auto-refresh every 10 minutes — only while on live date ──────────────
   useEffect(() => {
@@ -199,6 +265,7 @@ export function HomePageCacheProvider({ children }) {
     <HomePageCacheContext.Provider value={{
       filters, setFilters,
       devices, devLoading,
+      summary, summaryLoading, fetchSummary,
       locations, locSync,
       activityData, chartLoading,
       kmlAreas,

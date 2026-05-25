@@ -76,13 +76,14 @@ export function useCityTag() {
   );
 
   const getDevices = useCallback(
-    async ({ page, limit, search, status, device_type } = {}) => {
+    async ({ page, limit, search, status, device_type, search_scope } = {}) => {
       const params = new URLSearchParams();
       if (page != null) params.set("page", String(page));
       if (limit != null) params.set("limit", String(limit));
       if (search != null && String(search).trim()) params.set("search", String(search).trim());
       if (status != null && status !== "all") params.set("status", String(status));
       if (device_type != null) params.set("device_type", String(device_type));
+      if (search_scope != null) params.set("search_scope", String(search_scope));
       const query = params.toString();
       return apiFetch(query ? `/api/devices?${query}` : "/api/devices", {}, accessToken, logout);
     },

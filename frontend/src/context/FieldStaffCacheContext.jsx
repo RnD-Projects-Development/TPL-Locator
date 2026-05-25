@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useCityTag } from '../hooks/useCityTag.js';
+import { registerCacheResetListener } from '../utils/clearAppCaches.js';
 
 const DEFAULT_LIMIT = 20;
 
@@ -53,6 +54,27 @@ export function FieldStaffCacheProvider({ children }) {
   useEffect(() => {
     filtersRef.current = { search: debouncedSearch, dateFrom, dateTo, zoneId };
   }, [debouncedSearch, dateFrom, dateTo, zoneId]);
+
+  const resetFieldStaffCache = useCallback(() => {
+    setDevices([]);
+    setLoading(false);
+    setError(null);
+    setLocationCache({});
+    setLastFetched(null);
+    setPage(1);
+    setLimit(DEFAULT_LIMIT);
+    setTotal(0);
+    setTotalPages(1);
+    setOnlineCount(0);
+    setSearch('');
+    setDebouncedSearch('');
+    setDateFrom('');
+    setDateTo('');
+    setZoneId(null);
+    filtersRef.current = { search: '', dateFrom: '', dateTo: '', zoneId: null };
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetFieldStaffCache), [resetFieldStaffCache]);
 
   const fetchPage = useCallback(async (targetPage = 1, options = {}) => {
     const f = filtersRef.current;

@@ -3,12 +3,20 @@ import {
   Radio, Search, User, Key, PawPrint, Wallet,
   ChevronRight, Plus, X, Link2, Trash2,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
+import { loadLocatorPageState, readPersistedPage, saveLocatorPageState } from '../utils/locatorPageState.js'
+import { deviceDisplayName } from '../utils/deviceDisplayName.js'
+
+function mapStoredStatusToTab(status) {
+  if (status === 'online') return 'Active'
+  if (status === 'offline') return 'Offline'
+  return 'All'
+}
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const panel = {
@@ -78,14 +86,28 @@ function StatusBadge({ status }) {
 export default function Locators() {
   const { isAdmin } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { bindDevice, adminAssignDeviceToUser, unbindDevice, getAvailableDevices } = useCityTag()
   const { devices: cacheDevices, refresh: refreshDeviceCache } = useDeviceCache()
   const { users } = useUserCache()
 
+  const restoredState = loadLocatorPageState('locator')
+  const restoredSearch = restoredState.searchTerm.trim()
+  const restoredStatus = restoredState.filterStatus
+
+  const initialListPageRef = useRef(null)
+  if (initialListPageRef.current == null) {
+    const urlPage = Number(searchParams.get('page'))
+    initialListPageRef.current =
+      Number.isFinite(urlPage) && urlPage >= 1
+        ? Math.floor(urlPage)
+        : readPersistedPage(restoredSearch, restoredStatus, 'locator')
+  }
+
   // ── Server-side search / filter / pagination ──────────────────────────────
-  const [rawQuery, setRawQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [statusF, setStatusF]   = useState('All')
+  const [rawQuery, setRawQuery] = useState(() => restoredState.searchTerm)
+  const [debouncedQuery, setDebouncedQuery] = useState(() => restoredState.searchTerm.trim())
+  const [statusF, setStatusF] = useState(() => mapStoredStatusToTab(restoredState.filterStatus))
   const debounceRef = useRef(null)
 
   // Debounce search input → 350 ms
@@ -105,7 +127,41 @@ export default function Locators() {
     search: debouncedQuery,
     status: serverStatus,
     device_type: 'locator',
+    search_scope: 'sn_name',
+    initialPage: initialListPageRef.current,
   })
+
+  const goToPagePersisted = useCallback((nextPage) => {
+    const safePage = Math.max(1, Number(nextPage) || 1)
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (safePage <= 1) next.delete('page')
+      else next.set('page', String(safePage))
+      return next
+    }, { replace: true })
+    return goToPage(safePage)
+  }, [goToPage, setSearchParams])
+
+  useEffect(() => {
+    saveLocatorPageState(
+      { searchTerm: rawQuery, filterStatus: serverStatus, viewMode: 'devices' },
+      { merge: true, deviceType: 'locator' },
+    )
+  }, [rawQuery, serverStatus])
+
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (page <= 1) {
+        if (!next.has('page')) return prev
+        next.delete('page')
+        return next
+      }
+      if (next.get('page') === String(page)) return prev
+      next.set('page', String(page))
+      return next
+    }, { replace: true })
+  }, [page, setSearchParams])
 
   // Refresh both the list and DeviceCache (used for bind modal unbound devices)
   const refreshDevices = useCallback(() => {
@@ -205,7 +261,7 @@ export default function Locators() {
     else if ((d.status || '') === 'offline' && hoursAgo > 12) status = 'At Risk'
     return {
       id: d.sn || d.local_id,
-      userName: d.assigned_user_name || d.name || d.sn || '—',
+      displayName: deviceDisplayName(d),
       category: d.category || '',
       company:  d.client || '',
       status,
@@ -287,7 +343,7 @@ export default function Locators() {
           <input
             value={rawQuery}
             onChange={e => setRawQuery(e.target.value)}
-            placeholder="Search devices…"
+            placeholder="Search by SN or locator name…"
             style={{
               background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12,
@@ -343,11 +399,11 @@ export default function Locators() {
               }}
             >
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {loc.userName}
-                </div>
-                <div style={{ fontSize: 10, color: '#57657A', fontFamily: 'monospace', marginTop: 3 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#FFFFFF', fontFamily: 'monospace', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {loc.id}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {loc.displayName}
                 </div>
               </div>
               <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />
@@ -388,7 +444,7 @@ export default function Locators() {
               const p = totalPages <= 7 ? i + 1 : (page < 4 ? i + 1 : page - 3 + i)
               if (p > totalPages) return null
               return (
-                <button key={p} onClick={() => goToPage(p)}
+                <button key={p} onClick={() => goToPagePersisted(p)}
                   style={{
                     width: 26, height: 26, borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                     background: p === page ? '#A72C32' : 'rgba(255,255,255,0.05)',
@@ -403,7 +459,7 @@ export default function Locators() {
           </div>
 
           <button
-            onClick={() => goToPage(page - 1)}
+            onClick={() => goToPagePersisted(page - 1)}
             disabled={!hasPreviousPage}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
@@ -420,7 +476,7 @@ export default function Locators() {
           </button>
 
           <button
-            onClick={() => goToPage(page + 1)}
+            onClick={() => goToPagePersisted(page + 1)}
             disabled={!hasNextPage}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,

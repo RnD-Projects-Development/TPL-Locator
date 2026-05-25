@@ -4,7 +4,6 @@ import { Radio, Tag, WifiOff, Battery, Zap, Clock, Activity, AlertOctagon } from
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
 import { useBindCache } from '../context/BindCacheContext.jsx'
-import { useCityTag } from '../hooks/useCityTag.js'
 import { useAlerts } from '../context/AlertsContext.jsx'
 import KPICard from '../components/common/KPICard.jsx'
 
@@ -677,22 +676,9 @@ function MetricCard({ m }) {
   )
 }
 
-// ── Hook: lightweight device summary from server ──────────────────────────────
-function useDeviceSummary() {
-  const { getDevicesSummary } = useCityTag()
-  const [summary, setSummary] = useState({ total: 0, locators: 0, stickers: 0, online: 0, offline: 0, weekly_new_locators: 0, weekly_new_stickers: 0 })
-  useEffect(() => {
-    let cancelled = false
-    getDevicesSummary().then(s => { if (!cancelled && s) setSummary(s) }).catch(() => {})
-    return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  return summary
-}
-
 export default function Dashboard() {
-  const { locations, activityData, devices: rawDevices } = useHomePageCache()
+  const { locations, activityData, devices: rawDevices, summary } = useHomePageCache()
   const navigate = useNavigate()
-  const summary = useDeviceSummary()
   const { alerts } = useAlerts()
 
   // Hourly activity bins from real playback data (replaces mock detectionsByHour)

@@ -9,6 +9,7 @@ import { useCityTag } from '../hooks/useCityTag.js'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
+import { deviceDisplayName } from '../utils/deviceDisplayName.js'
 
 /* ── Design tokens ───────────────────────────────────────────────── */
 const panel = {
@@ -106,6 +107,7 @@ export default function Stickers() {
     search: debouncedQuery,
     status: serverStatus,
     device_type: 'sticker',
+    search_scope: 'sn_name',
   })
 
   const refreshDevices = useCallback(() => {
@@ -211,7 +213,7 @@ export default function Stickers() {
     else if ((d.status || '') === 'offline' && hoursAgo > 12) status = 'At Risk'
     return {
       id: d.sn || d.local_id,
-      userName: d.assigned_user_name || d.name || d.sn || '—',
+      displayName: deviceDisplayName(d),
       category: d.category || '',
       company:  d.client || '',
       status,
@@ -290,7 +292,7 @@ export default function Stickers() {
           <input
             value={rawQuery}
             onChange={e => setRawQuery(e.target.value)}
-            placeholder="Search name, SN, client…"
+            placeholder="Search by SN or sticker name…"
             style={{
               background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12,
@@ -338,11 +340,11 @@ export default function Stickers() {
               onMouseLeave={e => { e.currentTarget.style.boxShadow = panel.boxShadow; e.currentTarget.style.transform = 'translateY(0)' }}
             >
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {s.userName}
-                </div>
-                <div style={{ fontSize: 10, color: '#57657A', fontFamily: 'monospace', marginTop: 3 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#FFFFFF', fontFamily: 'monospace', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {s.id}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.displayName}
                 </div>
               </div>
               <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />

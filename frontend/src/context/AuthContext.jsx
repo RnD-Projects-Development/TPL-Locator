@@ -1,7 +1,7 @@
 // frontend/src/context/AuthContext.jsx
 
 import React, { createContext, useContext, useMemo, useState } from "react";
-import { resetMapCache } from "../components/MapView.jsx";
+import { clearAppCaches } from "../utils/clearAppCaches.js";
 
 const AuthContext = createContext(null);
 
@@ -41,12 +41,12 @@ export function AuthProvider({ children }) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       },
       logout: () => {
-        resetMapCache();
+        clearAppCaches();
         setUser(null);
         setAccessToken(null);
         setRole(null);
         localStorage.removeItem(STORAGE_KEY);
-      }
+      },
     }),
     [user, accessToken, role]
   );

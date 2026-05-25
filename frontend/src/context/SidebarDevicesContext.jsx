@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
+import { registerCacheResetListener } from "../utils/clearAppCaches.js";
 
 const DEFAULT_LIMIT  = 20;
 const SEARCH_LIMIT   = 50;
@@ -64,6 +65,23 @@ export function SidebarDevicesProvider({ children }) {
   useEffect(() => {
     getDevicesRef.current = getDevices;
   }, [getDevices]);
+
+  const resetSidebarCache = useCallback(() => {
+    setDefaultDevices([]);
+    setSearchResults([]);
+    setSearchTerm("");
+    setDebouncedSearch("");
+    setRecentSns([]);
+    setTotal(0);
+    setTotalPages(1);
+    setPage(1);
+    setLoading(false);
+    setSearchLoading(false);
+    setError("");
+    registryRef.current.clear();
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetSidebarCache), [resetSidebarCache]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);

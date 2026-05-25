@@ -6,7 +6,8 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useUserCache } from "../context/Usercachecontext.jsx";
 import { useHomePageCache } from "../context/HomePageCacheContext.jsx";
-import { usePaginatedDevices } from "../hooks/usePaginatedDevices.js";
+import { invalidatePaginatedCache, usePaginatedDevices } from "../hooks/usePaginatedDevices.js";
+import { loadLocatorPageState, saveLocatorPageState } from "../utils/locatorPageState.js";
 import "./DevicesPage.css";
 
 const SELECT_STYLE = {
@@ -31,6 +32,7 @@ const SELECT_OPTION_STYLE = { background: "#27272a", color: "#f4f4f5" };
 
 const HomePage = () => {
   const { isAdmin } = useAuth();
+  const restoredState = loadLocatorPageState();
   const {
     bindDevice, unbindDevice,
     adminCreateUser, adminAssignDeviceToUser, adminUpdateDevice,
@@ -38,9 +40,9 @@ const HomePage = () => {
     getAvailableDevices,
   } = useCityTag();
 
-  const [searchTerm, setSearchTerm]     = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchTerm, setSearchTerm]     = useState(restoredState.searchTerm);
+  const [filterStatus, setFilterStatus] = useState(restoredState.filterStatus);
+  const [debouncedSearch, setDebouncedSearch] = useState(() => restoredState.searchTerm.trim());
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
@@ -69,7 +71,20 @@ const HomePage = () => {
   const { locations, refreshAll: refreshHomeData } = useHomePageCache();
 
   const [error, setError]               = useState("");
-  const [viewMode, setViewMode]         = useState('devices');
+  const [viewMode, setViewMode]         = useState(() => (
+    isAdmin && restoredState.viewMode === 'users' ? 'users' : 'devices'
+  ));
+
+  useEffect(() => {
+    saveLocatorPageState(
+      {
+        searchTerm,
+        filterStatus,
+        viewMode: isAdmin ? viewMode : 'devices',
+      },
+      { merge: true, deviceType: null },
+    );
+  }, [searchTerm, filterStatus, viewMode, isAdmin]);
 
   // ── Available (unbound) devices for user bind dropdown ────────────────────
   const [availableDevices, setAvailableDevices] = useState([]);
@@ -161,7 +176,7 @@ const HomePage = () => {
       setBindError(''); setBindLoading(true);
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory });
-        refreshDevices(); refreshUsers(); refreshHomeData(); closeBindModal();
+        invalidatePaginatedCache(); refreshDevices(); refreshUsers(); refreshHomeData(); closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
       } finally {
@@ -172,7 +187,7 @@ const HomePage = () => {
       setBindError(''); setBindLoading(true);
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory });
-        refreshDevices();
+        invalidatePaginatedCache(); refreshDevices();
         refreshHomeData();
         closeBindModal();
       } catch (err) {
@@ -192,7 +207,7 @@ const HomePage = () => {
     } else {
       // For regular users, use simple confirm
       if (!window.confirm(`Remove binding for ${sn}?`)) return;
-      try { await unbindDevice(sn); refreshDevices(); refreshUsers(); }
+      try { invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); refreshUsers(); }
       catch (err) { setError(err.message || "Failed to unbind"); }
     }
   };
@@ -202,7 +217,7 @@ const HomePage = () => {
     setDeleteDeviceLoading(true);
     try {
       await unbindDevice(deleteDeviceTarget.sn);
-      refreshDevices(); refreshUsers(); refreshHomeData();
+      invalidatePaginatedCache(); refreshDevices(); refreshUsers(); refreshHomeData();
       setDeleteDeviceTarget(null);
     } catch (err) {
       setError(err.message || "Failed to delete device");
@@ -219,7 +234,7 @@ const HomePage = () => {
 
   const handleUserUnbind = async (sn) => {
     if (!window.confirm(`Remove binding for ${sn}?`)) return;
-    try { await unbindDevice(sn); refreshDevices(); refreshHomeData(); }
+    try { invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); refreshHomeData(); }
     catch (err) { setError(err.message || "Failed to unbind"); }
   };
 
@@ -252,7 +267,7 @@ const HomePage = () => {
       } else {
         await updateDevice(editDevice.sn, payload);
       }
-      closeEditDevice(); refreshDevices(); refreshHomeData();
+      closeEditDevice(); invalidatePaginatedCache(); refreshDevices(); refreshHomeData();
     } catch (err) {
       setEditDeviceError(err.message || 'Failed to update device');
     } finally {

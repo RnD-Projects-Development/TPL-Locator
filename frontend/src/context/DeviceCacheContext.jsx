@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
+import { registerCacheResetListener } from "../utils/clearAppCaches.js";
 
 const DeviceCacheContext = createContext(null);
 
@@ -14,6 +15,15 @@ export function DeviceCacheProvider({ children }) {
 
   const getDevicesRef = useRef(getDevices);
   useEffect(() => { getDevicesRef.current = getDevices; }, [getDevices]);
+
+  const resetDeviceCache = useCallback(() => {
+    setDevices([]);
+    setLoading(false);
+    setError("");
+    setLastFetched(null);
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetDeviceCache), [resetDeviceCache]);
 
   const fetchDevices = useCallback(async () => {
     setLoading(true);

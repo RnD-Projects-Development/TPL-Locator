@@ -200,7 +200,30 @@ def _doc_matches_search(doc: dict, term: str, *, extra: str = "") -> bool:
     return term.lower() in haystack
 
 
-async def _build_admin_device_query(mongo: MongoService, admin_oid: ObjectId, search: str | None) -> dict:
+def _doc_matches_sn_name_search(doc: dict, term: str) -> bool:
+    """Match device serial number or locator/sticker display name only."""
+    if not term:
+        return True
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                str(doc.get("sn") or ""),
+                str(doc.get("name") or ""),
+                str(doc.get("assigned_name") or ""),
+            ],
+        )
+    ).lower()
+    return term.lower() in haystack
+
+
+async def _build_admin_device_query(
+    mongo: MongoService,
+    admin_oid: ObjectId,
+    search: str | None,
+    *,
+    sn_name_only: bool = False,
+) -> dict:
     query: dict = {"admin_id": admin_oid}
     term = (search or "").strip()
     if not term:
@@ -210,20 +233,22 @@ async def _build_admin_device_query(mongo: MongoService, admin_oid: ObjectId, se
     or_clauses: list[dict] = [
         {"sn": regex},
         {"name": regex},
-        {"client": regex},
-        {"category": regex},
-        {"assigned_name": regex},
     ]
-
-    user_ids: list[ObjectId] = []
-    async for user_doc in mongo.accounts.find(
-        {"$or": [{"name": regex}, {"email": regex}], "role": "user"}
-    ):
-        uid = _to_oid(user_doc.get("_id"))
-        if uid:
-            user_ids.append(uid)
-    if user_ids:
-        or_clauses.append({"user_id": {"$in": user_ids}})
+    if not sn_name_only:
+        or_clauses.extend([
+            {"client": regex},
+            {"category": regex},
+            {"assigned_name": regex},
+        ])
+        user_ids: list[ObjectId] = []
+        async for user_doc in mongo.accounts.find(
+            {"$or": [{"name": regex}, {"email": regex}], "role": "user"}
+        ):
+            uid = _to_oid(user_doc.get("_id"))
+            if uid:
+                user_ids.append(uid)
+        if user_ids:
+            or_clauses.append({"user_id": {"$in": user_ids}})
 
     return {"$and": [query, {"$or": or_clauses}]}
 
@@ -280,11 +305,13 @@ async def _list_devices_page(
     search: str | None = None,
     status_filter: str = "all",
     device_type: str | None = None,
+    search_scope: str | None = None,
 ) -> dict:
     offset = (page - 1) * limit
     term = (search or "").strip()
+    sn_name_only = search_scope == "sn_name"
     user_label = ""
-    if isinstance(account, UserInDB):
+    if isinstance(account, UserInDB) and not sn_name_only:
         user_label = " ".join(filter(None, [account.name or "", account.email or ""]))
 
     if isinstance(account, UserInDB):
@@ -297,10 +324,16 @@ async def _list_devices_page(
         ordered_docs = [docs_by_id[str(oid)] for oid in ids if str(oid) in docs_by_id]
 
         if term:
-            ordered_docs = [
-                doc for doc in ordered_docs
-                if _doc_matches_search(doc, term, extra=user_label)
-            ]
+            if sn_name_only:
+                ordered_docs = [
+                    doc for doc in ordered_docs
+                    if _doc_matches_sn_name_search(doc, term)
+                ]
+            else:
+                ordered_docs = [
+                    doc for doc in ordered_docs
+                    if _doc_matches_search(doc, term, extra=user_label)
+                ]
 
         if device_type in ("sticker", "locator"):
             ordered_docs = [
@@ -344,7 +377,7 @@ async def _list_devices_page(
         return _paged_response(items, page, limit, total)
 
     admin_oid = _to_oid(account.id)
-    query = await _build_admin_device_query(mongo, admin_oid, term)
+    query = await _build_admin_device_query(mongo, admin_oid, term, sn_name_only=sn_name_only)
     query = _apply_device_type_filter(query, device_type)
     query = await _apply_status_filter_to_query(mongo, query, status_filter)
     total = await mongo.devices.count_documents(query)
@@ -510,6 +543,7 @@ async def list_user_devices(
     search: Optional[str] = Query(default=None, max_length=200),
     status: Optional[str] = Query(default="all", pattern="^(all|online|offline)$"),
     device_type: Optional[str] = Query(default=None, pattern="^(locator|sticker)$"),
+    search_scope: Optional[str] = Query(default=None, pattern="^(sn_name)$"),
 ) -> List[dict] | dict:
     """
     Return devices for the logged-in account.
@@ -529,6 +563,7 @@ async def list_user_devices(
                 search=search,
                 status_filter=status or "all",
                 device_type=device_type,
+                search_scope=search_scope,
             )
         except Exception as err:
             logger.exception("list_user_devices paged failed account_email=%s page=%s limit=%s", account.email, page, limit)

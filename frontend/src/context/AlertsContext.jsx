@@ -224,6 +224,8 @@ export function AlertsProvider({ children }) {
     if (!accessToken) {
       setAlerts([])
       setLastFetched(null)
+      setError('')
+      readIdsRef.current = new Set()
       clearInterval(intervalRef.current)
       return
     }
