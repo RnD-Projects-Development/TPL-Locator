@@ -424,7 +424,7 @@ export default function UsersPage() {
             onMouseEnter={e => { if (!loading) e.currentTarget.style.background = 'rgba(167,44,50,0.18)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)' }}
           >
-              <RefreshCw style={{ width: 12, height: 12, animation: loading ? 'spin 1s linear infinite' : 'none', color: '#FFFFFF' }} />
+              <RefreshCw style={{ width: 12, height: 12, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
             {loading ? 'Loading…' : 'Refresh'}
           </button>
 
