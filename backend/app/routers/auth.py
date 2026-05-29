@@ -159,13 +159,16 @@ async def register(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Email already registered as {role}")
     
     name = (payload.name or "").strip()
+    phone_raw = (payload.phone or "").strip()
+    # Normalize and validate phone number
+    phone = _normalize_phone(phone_raw)
+    if not _validate_pakistani_phone(phone):
+        logger.warning("register blocked: invalid phone format email=%s phone=%s", email, phone_raw)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
 
     user = await mongo.create_user(email, payload.password, name, phone)
 
-
-
-    # FIX 2: explicitly stamp name + phone + created_at on the doc.
-    # create_user() may not write these fields depending on its implementation.
+    # Ensure name/phone/created_at are present on the stored account document
     await mongo.accounts.update_one(
         {"_id": ObjectId(str(user.id)), "role": "user"},
         {"$set": {

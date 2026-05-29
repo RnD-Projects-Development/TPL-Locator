@@ -72,7 +72,7 @@ export default function Alerts() {
 
   // ── Theme tokens ──────────────────────────────────────────────────────────
   const panel = isLight
-    ? { background: '#E6E6E6', border: '1px solid #C9C9C9', borderRadius: 18, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
+    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 18, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
     : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
 
   const T = {
@@ -119,17 +119,18 @@ export default function Alerts() {
       {/* ── Page header ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: T.txt1, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
-            {isLight ? (
-              <span style={{ width: 40, height: 40, borderRadius: 10, background: '#A72C32', border: '1px solid #8B2328', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Bell style={{ width: 20, height: 20, color: '#000000' }} />
-              </span>
-            ) : (
-              <Bell style={{ width: 22, height: 22, color: T.accent }} />
-            )}
+          <h1 style={{ fontSize: isLight ? 26 : 22, fontWeight: 800, color: T.txt1, letterSpacing: isLight ? '-0.02em' : '-0.03em', margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 12,
+              background: isLight ? '#A72C32' : 'rgba(167,44,50,0.14)',
+              border: `1px solid ${isLight ? '#8B2328' : 'rgba(167,44,50,0.24)'}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <Bell style={{ width: 22, height: 22, color: isLight ? '#FFFFFF' : '#C86068', fill: isLight ? 'rgba(255,255,255,0.18)' : 'rgba(200,96,104,0.18)', strokeWidth: 2.4 }} />
+            </div>
             Alerts & Notifications
           </h1>
-          <p style={{ color: T.txt2, fontSize: 13, marginTop: 4 }}>
+          <p style={{ color: T.txt2, fontSize: 13, marginTop: 8, marginBottom: 0, paddingLeft: 56 }}>
             Live anomaly alerts — battery, offline, and geofence events
             {lastFetched && (
               <span style={{ marginLeft: 8, color: T.txt3 }}>

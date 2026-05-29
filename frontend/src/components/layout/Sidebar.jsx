@@ -17,7 +17,7 @@ const nav = [
     { section: 'DEVICES', links: [
     { to: '/locators', icon: Radio,        label: 'Locators' },
     { to: '/stickers', icon: Tag,          label: 'Smart Stickers' },
-    { to: '/missing',  icon: AlertOctagon, label: 'Offline Devices', badge: 'missing' },
+    { to: '/missing',  icon: AlertOctagon, label: 'Offline Devices' },
   ]},
   { section: 'INTELLIGENCE', links: [
     { to: '/map',        icon: Map,        label: 'Map View' },

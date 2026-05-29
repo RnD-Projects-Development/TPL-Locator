@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKmlAreas } from '../hooks/useKmlAreas.js';
+import { RefreshCw } from 'lucide-react';
+import FieldStaffPill from '../components/FieldStaffPill.jsx';
 import { useFieldStaffCache } from '../context/FieldStaffCacheContext.jsx';
 import AreaSelector from '../components/AreaSelector.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
@@ -399,14 +401,26 @@ export default function FieldStaffDashboard() {
       {/* ── Header ── */}
       <div className="fsd-header">
         <div className="fsd-header-left">
-          <button className="fsd-back-btn" onClick={() => navigate('/Homepage')}>
-            ‹ Back
-          </button>
-          <button className="fsd-refresh-btn" onClick={refresh}>
-            <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
-            </svg>
-            Refresh
+          {/* Back button styled like header pill */}
+          <div style={{ marginRight: 8 }}>
+            <FieldStaffPill onClick={() => navigate('/dashboard')} children={'Back'} arrowDirection="left" />
+          </div>
+          {/* Low-key refresh: small icon-only button */}
+          <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            title="Refresh"
+            aria-label="Refresh Field Staff"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 36, height: 36, padding: 6, borderRadius: 8,
+              background: 'transparent', border: 'none', color: '#FFFFFF',
+              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 0.85, transition: 'all 0.12s',
+              marginRight: 6,
+            }}
+          >
+            <RefreshCw style={{ width: 14, height: 14, animation: loading ? 'spin 1s linear infinite' : 'none', color: '#FFFFFF' }} />
           </button>
           <div className="fsd-header-text">
             <h1 className="fsd-title">Field Staff Dashboard</h1>

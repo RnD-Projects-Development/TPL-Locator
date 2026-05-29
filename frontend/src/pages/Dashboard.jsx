@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Tag, WifiOff, Battery, Zap, Clock, Activity, AlertOctagon, Users, ArrowRight } from 'lucide-react'
+import { Radio, Tag, WifiOff, Battery, Zap, Clock, Activity, AlertOctagon } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
 import { useBindCache } from '../context/BindCacheContext.jsx'
@@ -807,21 +807,6 @@ export default function Dashboard() {
         <div>
           <h1 style={{ fontSize:22, fontWeight:800, color:'#FFFFFF', margin:0, letterSpacing:'-0.01em' }}>Dashboard</h1>
         </div>
-        <button
-          onClick={() => navigate('/field-staff')}
-          style={{
-            display:'flex', alignItems:'center', gap:8, padding:'10px 16px', borderRadius:12,
-            background:'rgba(167,44,50,0.16)', border:'1px solid rgba(167,44,50,0.32)',
-            color:'#E0989C', fontSize:13, fontWeight:700, cursor:'pointer',
-            transition:'background 0.18s ease, color 0.18s ease, transform 0.18s ease',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background='rgba(167,44,50,0.28)'; e.currentTarget.style.color='#FFFFFF'; e.currentTarget.style.transform='translateY(-1px)' }}
-          onMouseLeave={e => { e.currentTarget.style.background='rgba(167,44,50,0.16)'; e.currentTarget.style.color='#E0989C'; e.currentTarget.style.transform='translateY(0)' }}
-        >
-          <Users style={{ width:16, height:16 }} />
-          Field Staff Dashboard
-          <ArrowRight style={{ width:15, height:15 }} />
-        </button>
       </div>
 
       {/* ── Row 1: 4 large glossy KPI cards ───────────────────── */}

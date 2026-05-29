@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, RefreshCw, Bell } from 'lucide-react'
+import FieldStaffPill from '../FieldStaffPill.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import Switch from '../Switch.jsx'
 
@@ -16,7 +17,7 @@ const crumbs = {
   '/fence':       ['Intelligence', 'Fence'],
   '/alerts':      ['Alerts'],
   '/reports':     ['Reports & Admin', 'Reports'],
-  '/field-staff': ['Reports & Admin', 'Field Staff'],
+  '/field-staff': ['Dashboard', 'Field Staff'],
   '/users':       ['Reports & Admin', 'Users'],
 }
 const getCrumbs = path => {
@@ -49,16 +50,27 @@ export default function Header({ pageTheme, setPageTheme }) {
 
   return (
     <header className="h-[60px] flex items-center px-5 gap-4 bg-black border-b border-gray-800 flex-shrink-0">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 text-xs flex-1">
-        <span className="text-gray-500 font-medium">TPL TRAKKER</span>
-        {parts.map((p, i) => (
-          <React.Fragment key={i}>
-            <ChevronRight className="w-3 h-3 text-gray-700" />
-            <span className={i === parts.length - 1 ? 'text-white font-semibold' : 'text-gray-400'}>{p}</span>
-          </React.Fragment>
-        ))}
-      </div>
+      {/* Breadcrumb / Dashboard hint */}
+      {pathname === '/dashboard' ? (
+        <div className="flex items-center gap-1.5 text-xs flex-1">
+          <span className="text-gray-500 font-medium">TPL TRAKKER</span>
+          <ChevronRight className="w-3 h-3 text-gray-700" />
+          <span className='text-white font-semibold'>Dashboard</span>
+          <div style={{ marginLeft: 8 }}>
+            <FieldStaffPill onClick={() => navigate('/field-staff')} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-xs flex-1">
+          <span className="text-gray-500 font-medium">TPL TRAKKER</span>
+          {parts.map((p, i) => (
+            <React.Fragment key={i}>
+              <ChevronRight className="w-3 h-3 text-gray-700" />
+              <span className={i === parts.length - 1 ? 'text-white font-semibold' : 'text-gray-400'}>{p}</span>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
 
       {/* Search removed per user request */}
 
@@ -71,14 +83,16 @@ export default function Header({ pageTheme, setPageTheme }) {
       {/* Alerts bell */}
       <button
         onClick={() => navigate('/alerts')}
-        style={{ position: 'relative', padding: 8, borderRadius: 12, background: 'transparent',
-          border: 'none', cursor: 'pointer', color: unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.35)',
+        style={{ position: 'relative', padding: 8, borderRadius: 12,
+          background: unreadCount > 0 ? 'rgba(167,44,50,0.16)' : 'transparent',
+          border: `1px solid ${unreadCount > 0 ? 'rgba(167,44,50,0.45)' : 'transparent'}`, cursor: 'pointer',
+          color: unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.65)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'color 0.2s, background 0.2s' }}
+          transition: 'color 0.2s, background 0.2s, border-color 0.2s' }}
         onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a'; e.currentTarget.style.color = '#FFFFFF' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.35)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = unreadCount > 0 ? 'rgba(167,44,50,0.16)' : 'transparent'; e.currentTarget.style.color = unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.65)' }}
         title={unreadCount > 0 ? `${unreadCount} unread alert${unreadCount !== 1 ? 's' : ''}` : 'Alerts'}>
-        <Bell style={{ width: 15, height: 15 }} />
+        <Bell style={{ width: 18, height: 18, strokeWidth: 2.4, fill: unreadCount > 0 ? 'rgba(255,255,255,0.16)' : 'none' }} />
         {unreadCount > 0 && (
           <span style={{
             position: 'absolute', top: 2, right: 2,

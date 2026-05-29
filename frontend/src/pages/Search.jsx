@@ -109,7 +109,7 @@ export default function Search() {
 
   // ── Theme tokens ────────────────────────────────────────────────────────────
   const panel = isLight
-    ? { background: '#E6E6E6', border: '1px solid #C9C9C9', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
+    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
     : { background: 'rgba(18,18,18,0.90)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }
 
   const T = {
