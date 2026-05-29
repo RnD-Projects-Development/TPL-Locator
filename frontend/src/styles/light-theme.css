@@ -36,8 +36,13 @@
 
 /* ── Page surface ─────────────────────────────────────────────────────────── */
 .page-theme-light {
-  background: #999999;
-  background: radial-gradient(ellipse 130% 130% at bottom right, rgba(153, 153, 153, 1) 0%, rgba(218, 218, 218, 1) 60%, rgba(230, 230, 230, 1) 100%);
+  /* Match the dark theme's radial distribution but use lighter shades
+     provided by the design: maroon base -> light gray mid -> medium gray edge. */
+  background: #A72C32;
+  background: radial-gradient(ellipse 130% 130% at bottom right,
+    rgba(167,44,50,1) 0%,
+    rgba(230,230,230,1) 60%,
+    rgba(153,153,153,1) 100%);
   background-attachment: fixed;
   color: #111827;
 }
