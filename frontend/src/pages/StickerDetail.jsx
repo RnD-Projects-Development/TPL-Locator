@@ -4,15 +4,15 @@ import { Tag, MapPin, Clock, Battery, ArrowLeft, Package, Navigation, Route, Fil
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { tplGeocode } from '../utils/tplGeocode.js'
+import { ThemeContext } from '../components/layout/Layout.jsx'
+import TPLLoader from '../components/TPLLoader.jsx'
 
-const panel = {
-  background: '#242323',
-  border: '1px solid rgba(255,255,255,0.07)',
-  borderRadius: 18,
-  boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-}
-
-const statusStyle = s => {
+const statusStyle = (s, isLight) => {
+  if (isLight) {
+    if (s === 'Active')  return { color: '#FFFFFF', background: '#059669', border: '1px solid #047857' }
+    if (s === 'At Risk') return { color: '#FFFFFF', background: '#D97706', border: '1px solid #B45309' }
+    return                      { color: '#FFFFFF', background: '#A72C32', border: '1px solid #8B2328' }
+  }
   if (s === 'Active')   return { color: '#34D399', background: 'rgba(52,211,153,0.12)',  border: '1px solid rgba(52,211,153,0.25)' }
   if (s === 'At Risk')  return { color: '#FBBF24', background: 'rgba(251,191,36,0.12)',  border: '1px solid rgba(251,191,36,0.25)' }
   return                       { color: '#F87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)' }
@@ -23,6 +23,45 @@ export default function StickerDetail() {
   const navigate = useNavigate()
   const { zones }            = useZoneCache()
   const { getLatestLocation, getDeviceBySn } = useCityTag()
+
+  const pageTheme = React.useContext(ThemeContext)
+  const isLight   = pageTheme === 'light'
+
+  // ── Theme tokens (dark = original, light = enterprise) ───────────────────────
+  const panel = isLight
+    ? { background: '#E6E6E6', border: '1px solid #C9C9C9', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
+    : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
+
+  const T = {
+    accent:        isLight ? '#DC2626' : '#A72C32',
+    txt1:          isLight ? '#111827' : '#FFFFFF',
+    txt2:          isLight ? '#6B7280' : 'rgba(255,255,255,0.45)',
+    txt3:          isLight ? '#9CA3AF' : 'rgba(255,255,255,0.30)',
+    locColor:      isLight ? '#2563EB' : '#22D3EE',
+    headIconBg:    isLight ? '#A72C32' : 'rgba(167,44,50,0.10)',
+    headIconBdr:   isLight ? '#8B2328' : 'rgba(167,44,50,0.25)',
+    headIconColor: isLight ? '#000000' : '#C86068',
+    fieldBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
+    fieldBdr:      isLight ? '#CFCFCF' : 'rgba(255,255,255,0.05)',
+    fieldLabel:    isLight ? '#333333' : 'rgba(255,255,255,0.30)',
+    fieldVal:      isLight ? '#111827' : 'rgba(255,255,255,0.85)',
+    statLabel:     isLight ? '#333333' : 'rgba(255,255,255,0.35)',
+    primBtnBg:     isLight ? '#A72C32' : 'rgba(167,44,50,0.10)',
+    primBtnBdr:    isLight ? '#8B2328' : 'rgba(167,44,50,0.28)',
+    primBtnBgHov:  isLight ? '#8B2328' : 'rgba(167,44,50,0.20)',
+    primBtnBdrHov: isLight ? '#8B2328' : 'rgba(167,44,50,0.55)',
+    ghostBtnBg:    isLight ? '#A72C32' : 'rgba(255,255,255,0.04)',
+    ghostBtnBdr:   isLight ? '#8B2328' : 'rgba(255,255,255,0.09)',
+    ghostBtnBgHov: isLight ? '#8B2328' : 'rgba(255,255,255,0.08)',
+    ghostBtnBdrHov:isLight ? '#8B2328' : 'rgba(255,255,255,0.18)',
+    ghostIcon:     isLight ? '#FFFFFF' : '#94a3b8',
+    btnTxt:        isLight ? '#FFFFFF' : '#FFFFFF',
+    btnSub:        isLight ? 'rgba(255,255,255,0.70)' : 'rgba(255,255,255,0.40)',
+    notFoundIcon:  isLight ? '#DC2626' : 'rgba(255,255,255,0.18)',
+  }
+
+  // Solid auburn left-accent for light theme cards (harmonizes with dark brand)
+  const cardAccent = isLight ? { borderLeft: '3px solid #A72C32' } : null
 
   // ── Device metadata state ────────────────────────────────────────────────────
   const [sticker, setSticker] = useState(null)
@@ -96,18 +135,14 @@ export default function StickerDetail() {
       .join(', ')
   }, [sticker?.fence_zone_ids, zones])
 
-  if (devLoading) return (
-    <div style={{ ...panel, padding: '80px 24px', textAlign: 'center', margin: '20px auto', maxWidth: 480 }}>
-      <p style={{ color: 'rgba(255,255,255,0.40)', fontWeight: 600 }}>Loading sticker…</p>
-    </div>
-  )
+  if (devLoading) return <TPLLoader label="Loading sticker…" />
 
   if (!sticker) return (
     <div style={{ ...panel, padding: '80px 24px', textAlign: 'center', margin: '20px auto', maxWidth: 480 }}>
-      <Tag style={{ width: 40, height: 40, color: 'rgba(255,255,255,0.18)', margin: '0 auto 12px' }} />
-      <p style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 600, marginBottom: 16 }}>Sticker not found</p>
+      <Tag style={{ width: 40, height: 40, color: T.notFoundIcon, margin: '0 auto 12px' }} />
+      <p style={{ color: T.txt1, fontWeight: 600, marginBottom: 16 }}>Sticker not found</p>
       <button onClick={() => navigate('/stickers')}
-        style={{ color: '#A72C32', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer' }}>
+        style={{ color: T.accent, fontSize: 13, background: 'none', border: 'none', cursor: 'pointer' }}>
         ← Back to Stickers
       </button>
     </div>
@@ -139,12 +174,16 @@ export default function StickerDetail() {
     : (displayTs ? new Date(displayTs).toLocaleString() : '—')
 
   const displayStatus = sticker.status || 'Active'
-  const sStyle        = statusStyle(displayStatus)
-  const battColor     = (liveBattery ?? 0) <= 20 ? '#F87171' : (liveBattery ?? 0) <= 40 ? '#FBBF24' : '#34D399'
-  const timeColor     = liveHoursAgo > 24 ? '#F87171' : liveHoursAgo > 12 ? '#FBBF24' : '#34D399'
+  const sStyle        = statusStyle(displayStatus, isLight)
+  const battColor     = isLight
+    ? ((liveBattery ?? 0) <= 20 ? '#DC2626' : (liveBattery ?? 0) <= 40 ? '#D97706' : '#059669')
+    : ((liveBattery ?? 0) <= 20 ? '#F87171' : (liveBattery ?? 0) <= 40 ? '#FBBF24' : '#34D399')
+  const timeColor     = isLight
+    ? (liveHoursAgo > 24 ? '#DC2626' : liveHoursAgo > 12 ? '#D97706' : '#059669')
+    : (liveHoursAgo > 24 ? '#F87171' : liveHoursAgo > 12 ? '#FBBF24' : '#34D399')
 
   const stats = [
-    { icon: MapPin,  label: 'Last Location', value: liveLocation,  color: '#22D3EE' },
+    { icon: MapPin,  label: 'Last Location', value: liveLocation,  color: T.locColor },
     { icon: Clock,   label: 'Last Seen',      value: liveLastSeen, color: timeColor },
     { icon: Battery, label: 'Battery',        value: liveBattery != null ? `${liveBattery}%` : '—', color: battColor },
   ]
@@ -167,30 +206,30 @@ export default function StickerDetail() {
 
       {/* Back */}
       <button onClick={() => navigate('/stickers')}
-        style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.50)', fontSize: 13,
+        style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.txt2, fontSize: 13,
           background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}
-        onMouseEnter={e => e.currentTarget.style.color = '#FFFFFF'}
-        onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.50)'}>
+        onMouseEnter={e => e.currentTarget.style.color = T.txt1}
+        onMouseLeave={e => e.currentTarget.style.color = T.txt2}>
         <ArrowLeft style={{ width: 15, height: 15 }} /> Back to Stickers
       </button>
 
       {/* Header card */}
-      <div style={{ ...panel, padding: 24 }}>
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ padding: 12, borderRadius: 14, background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)', flexShrink: 0 }}>
-            <Package style={{ width: 26, height: 26, color: '#A72C32' }} />
+          <div style={{ padding: 12, borderRadius: 14, background: T.headIconBg, border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>
+            <Package style={{ width: 26, height: 26, color: T.headIconColor }} />
           </div>
           <div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#FFFFFF', margin: 0 }}>{sticker.userName || sticker.name}</h1>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: T.txt1, margin: 0 }}>{sticker.userName || sticker.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontFamily: 'monospace', color: '#A72C32', fontSize: 13 }}>{sticker.id}</span>
+              <span style={{ fontFamily: 'monospace', color: T.accent, fontSize: 13 }}>{sticker.id}</span>
               {sticker.category && (
-                <><span style={{ color: 'rgba(255,255,255,0.18)' }}>·</span>
-                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>{sticker.category}</span></>
+                <><span style={{ color: T.txt3 }}>·</span>
+                <span style={{ color: T.txt2, fontSize: 13 }}>{sticker.category}</span></>
               )}
               {sticker.company && (
-                <><span style={{ color: 'rgba(255,255,255,0.18)' }}>·</span>
-                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>{sticker.company}</span></>
+                <><span style={{ color: T.txt3 }}>·</span>
+                <span style={{ color: T.txt2, fontSize: 13 }}>{sticker.company}</span></>
               )}
             </div>
             <div style={{ marginTop: 10 }}>
@@ -205,10 +244,10 @@ export default function StickerDetail() {
       {/* Stats grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         {stats.map(s => (
-          <div key={s.label} style={{ ...panel, padding: 16 }}>
+          <div key={s.label} style={{ ...panel, ...(cardAccent || {}), padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <s.icon style={{ width: 13, height: 13, color: s.color }} />
-              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
+              <span style={{ color: T.statLabel, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
             </div>
             <div style={{ fontWeight: 700, fontSize: 13, color: s.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               title={s.value}>
@@ -219,16 +258,16 @@ export default function StickerDetail() {
       </div>
 
       {/* Device info */}
-      <div style={{ ...panel, padding: 20 }}>
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Tag style={{ width: 15, height: 15, color: '#A72C32' }} />
-          <span style={{ color: '#FFFFFF', fontWeight: 600, fontSize: 14 }}>Device Info</span>
+          <Tag style={{ width: 15, height: 15, color: T.accent }} />
+          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Device Info</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           {infoFields.map(f => (
-            <div key={f.l} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 12, border: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ color: 'rgba(255,255,255,0.30)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{f.l}</div>
-              <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            <div key={f.l} style={{ background: T.fieldBg, borderRadius: 12, padding: 12, border: `1px solid ${T.fieldBdr}` }}>
+              <div style={{ color: T.fieldLabel, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{f.l}</div>
+              <div style={{ color: T.fieldVal, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={String(f.v)}>
                 {f.v}
               </div>
@@ -238,10 +277,10 @@ export default function StickerDetail() {
       </div>
 
       {/* Track device */}
-      <div style={{ ...panel, padding: 20 }}>
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <Navigation style={{ width: 15, height: 15, color: '#A72C32' }} />
-          <span style={{ color: '#FFFFFF', fontWeight: 600, fontSize: 14 }}>Track Device</span>
+          <Navigation style={{ width: 15, height: 15, color: T.accent }} />
+          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Track Device</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           <button
@@ -249,17 +288,17 @@ export default function StickerDetail() {
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.28)',
-              color: '#FFFFFF', fontSize: 13, fontWeight: 600,
+              background: T.primBtnBg, border: `1px solid ${T.primBtnBdr}`,
+              color: T.btnTxt, fontSize: 13, fontWeight: 600,
               transition: 'background 0.18s, border-color 0.18s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.20)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.55)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.28)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.primBtnBgHov; e.currentTarget.style.borderColor = T.primBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.primBtnBg; e.currentTarget.style.borderColor = T.primBtnBdr }}
           >
-            <MapPin style={{ width: 16, height: 16, color: '#A72C32', flexShrink: 0 }} />
+            <MapPin style={{ width: 16, height: 16, color: isLight ? '#FFFFFF' : T.accent, flexShrink: 0 }} />
             <div style={{ textAlign: 'left' }}>
               <div>Live Map View</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)', fontWeight: 400, marginTop: 2 }}>See current location on map</div>
+              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>See current location on map</div>
             </div>
           </button>
           <button
@@ -267,17 +306,17 @@ export default function StickerDetail() {
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
-              color: '#FFFFFF', fontSize: 13, fontWeight: 600,
+              background: T.ghostBtnBg, border: `1px solid ${T.ghostBtnBdr}`,
+              color: T.btnTxt, fontSize: 13, fontWeight: 600,
               transition: 'background 0.18s, border-color 0.18s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.ghostBtnBgHov; e.currentTarget.style.borderColor = T.ghostBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.ghostBtnBg; e.currentTarget.style.borderColor = T.ghostBtnBdr }}
           >
-            <Route style={{ width: 16, height: 16, color: '#94a3b8', flexShrink: 0 }} />
+            <Route style={{ width: 16, height: 16, color: T.ghostIcon, flexShrink: 0 }} />
             <div style={{ textAlign: 'left' }}>
               <div>GPS Trajectory</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)', fontWeight: 400, marginTop: 2 }}>View historical GPS path</div>
+              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>View historical GPS path</div>
             </div>
           </button>
           <button
@@ -285,17 +324,17 @@ export default function StickerDetail() {
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
-              color: '#FFFFFF', fontSize: 13, fontWeight: 600,
+              background: T.ghostBtnBg, border: `1px solid ${T.ghostBtnBdr}`,
+              color: T.btnTxt, fontSize: 13, fontWeight: 600,
               transition: 'background 0.18s, border-color 0.18s',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.ghostBtnBgHov; e.currentTarget.style.borderColor = T.ghostBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.ghostBtnBg; e.currentTarget.style.borderColor = T.ghostBtnBdr }}
           >
-            <FileText style={{ width: 16, height: 16, color: '#94a3b8', flexShrink: 0 }} />
+            <FileText style={{ width: 16, height: 16, color: T.ghostIcon, flexShrink: 0 }} />
             <div style={{ textAlign: 'left' }}>
               <div>Reports</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)', fontWeight: 400, marginTop: 2 }}>Export location history</div>
+              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>Export location history</div>
             </div>
           </button>
         </div>

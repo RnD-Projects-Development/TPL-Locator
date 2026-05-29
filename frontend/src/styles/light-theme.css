@@ -1,0 +1,75 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   Light Theme — foundation only
+   ────────────────────────────────────────────────────────────────────────────
+   IMPORTANT: All component-level light styling is done INLINE in each page via
+   the `isLight` flag (Search, Alerts, Locators, Smart Stickers, Offline Devices
+   and their detail pages). This file MUST NOT contain broad/`!important`
+   overrides for buttons, inputs, cards, chips, icons, etc. — doing so fights the
+   inline styles and produced the earlier bugs (every button forced red, icons
+   recolored to invisibility, inconsistent colors). Keep this scoped to the page
+   surface only. Nothing here leaks into the dark theme because every rule is
+   namespaced under `.page-theme-light`, which Layout only applies to
+   light-eligible routes while in light mode.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --red-50:   #FEF2F2;
+  --red-100:  #FEE2E2;
+  --red-200:  #FECACA;
+  --red-300:  #FCA5A5;
+  --red-400:  #F87171;
+  --red-500:  #EF4444;
+  --red-600:  #DC2626;
+  --red-700:  #B91C1C;
+  --red-800:  #991B1B;
+
+  --slate-50:  #F8FAFC;
+  --slate-100: #F1F5F9;
+  --slate-200: #E2E8F0;
+  --slate-300: #CBD5E1;
+  --slate-400: #94A3B8;
+  --slate-500: #64748B;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1E293B;
+}
+
+/* ── Page surface ─────────────────────────────────────────────────────────── */
+.page-theme-light {
+  background: #999999;
+  background: radial-gradient(ellipse 130% 130% at bottom right, rgba(153, 153, 153, 1) 0%, rgba(218, 218, 218, 1) 60%, rgba(230, 230, 230, 1) 100%);
+  background-attachment: fixed;
+  color: #111827;
+}
+
+/* Dark theme page surface — auburn glow anchored in the bottom-right corner,
+   fading through charcoal into black. Applied to every dark page's <main>.
+   Scoped to the class so it never leaks elsewhere. */
+.page-theme-dark {
+  background: #000000;
+  background: radial-gradient(ellipse 130% 130% at bottom right, rgba(167, 44, 50, 1) 0%, rgba(51, 51, 51, 1) 60%, rgba(0, 0, 0, 1) 100%);
+  background-attachment: fixed;
+}
+
+/* ── Scrollbar — soft slate on the light surface ──────────────────────────── */
+.page-theme-light ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.page-theme-light ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.page-theme-light ::-webkit-scrollbar-thumb {
+  background: #B0B0B0;
+  border-radius: 8px;
+  border: 2px solid #DADADA;
+}
+.page-theme-light ::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* ── Text selection ───────────────────────────────────────────────────────── */
+.page-theme-light ::selection {
+  background: rgba(220, 38, 38, 0.14);
+  color: #111827;
+}

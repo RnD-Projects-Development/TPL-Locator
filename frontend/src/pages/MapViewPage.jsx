@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import MultiDeviceSidebar from "../components/MultiDeviceSidebar.jsx";
+import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
@@ -106,6 +107,20 @@ export default function MapViewPage() {
 
   const onlineCount = multiDevices.filter(d => d.latest != null).length;
 
+  // Most recent actual location timestamp across the selected devices
+  // (the device's last online time — NOT the wall-clock fetch time).
+  const lastSeenTime = useMemo(() => {
+    let latestMs = null;
+    multiDevices.forEach(d => {
+      const p = d.latest;
+      const ts = p?.timestamp ?? p?.time ?? p?.locTime;
+      if (ts == null) return;
+      const ms = new Date(ts).getTime();
+      if (!isNaN(ms) && (latestMs == null || ms > latestMs)) latestMs = ms;
+    });
+    return latestMs != null ? new Date(latestMs) : null;
+  }, [multiDevices]);
+
   return (
     <div className="mv-page">
 
@@ -191,6 +206,11 @@ export default function MapViewPage() {
               showFences={showFences}
               zones={zones}
             />
+            {/* Branded loader only on the FIRST fetch (nothing on the map yet) —
+                not on every auto-refresh tick. */}
+            {loading && onlineCount === 0 && selectedSns.size > 0 && (
+              <TPLLoader overlay label="Fetching live locations…" />
+            )}
           </div>
 
           {selectedSns.size > 0 && (
@@ -204,12 +224,12 @@ export default function MapViewPage() {
                 <span className="mv-info-label">Live location</span>
                 <span className="mv-info-val mono">{onlineCount} / {selectedSns.size}</span>
               </div>
-              {lastUpdated && (
+              {lastSeenTime && (
                 <>
                   <div className="mv-info-sep" />
                   <div className="mv-info-item">
                     <span className="mv-info-label">Last updated</span>
-                    <span className="mv-info-val">{lastUpdated.toLocaleTimeString()}</span>
+                    <span className="mv-info-val">{lastSeenTime.toLocaleTimeString()}</span>
                   </div>
                 </>
               )}

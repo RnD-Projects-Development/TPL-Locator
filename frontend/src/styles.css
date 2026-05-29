@@ -1,4 +1,5 @@
 @import './styles/tokens.css';
+@import './styles/light-theme.css';
 @import url('https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300;400;600;700&family=Gudea:wght@400;700&display=swap');
 
 /* ── Theme ──────────────────────────────────────────────────────────────────── */
@@ -89,6 +90,21 @@ body, button, input, div {
   letter-spacing: -0.01em;
 }
 
+/* ── Typography hierarchy ─────────────────────────────────────────────────────
+   Headings/display use Josefin Sans; body copy uses Gudea (set as --font-sans).
+   Named classes map to the brand spec (point sizes, 150% line-height on body). */
+h1, h2, h3, h4, h5, h6,
+.display-headline, .heading-1, .heading-2 {
+  font-family: var(--font-display);
+}
+
+.display-headline { font-family: var(--font-display); font-weight: 400; font-size: 64pt; line-height: 1.1; }
+.heading-1        { font-family: var(--font-display); font-weight: 400; font-size: 40pt; line-height: 1.15; }
+.heading-2        { font-family: var(--font-display); font-weight: 400; font-size: 28pt; line-height: 1.2; }
+.body-1           { font-family: var(--font-body); font-weight: 400; font-size: 28pt; line-height: 1.5; }
+.body-2           { font-family: var(--font-body); font-weight: 400; font-size: 20pt; line-height: 1.5; }
+.body-3           { font-family: var(--font-body); font-weight: 400; font-size: 14pt; line-height: 1.5; }
+
 .coordinate-display, .timestamp {
   font-family: var(--font-mono);
   font-size: 0.85em;
@@ -147,3 +163,40 @@ input[type="time"] {
 .recharts-tooltip-item  { color: var(--text-secondary) !important; }
 .recharts-cartesian-axis-tick-value { fill: var(--text-tertiary); font-size: 10px; font-family: var(--font-mono); }
 .recharts-legend-item-text { color: var(--text-secondary) !important; font-size: 11px !important; }
+
+/* ── Page entrance animations (subtle, theme-agnostic) ─────────────────────────
+   Applied to the <main> content wrapper via the `page-anim` class. A `key` tied
+   to the route re-mounts the wrapper on navigation, so the animation replays on
+   every page change. Children carrying `.page-rise` get a gentle staggered lift. */
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pageRise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-anim {
+  animation: pageFadeIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Stagger the immediate children of an animated page for a soft cascade. */
+.page-anim > * {
+  animation: pageRise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.page-anim > *:nth-child(1) { animation-delay: 0.02s; }
+.page-anim > *:nth-child(2) { animation-delay: 0.06s; }
+.page-anim > *:nth-child(3) { animation-delay: 0.10s; }
+.page-anim > *:nth-child(4) { animation-delay: 0.14s; }
+.page-anim > *:nth-child(5) { animation-delay: 0.18s; }
+.page-anim > *:nth-child(6) { animation-delay: 0.22s; }
+.page-anim > *:nth-child(n+7) { animation-delay: 0.26s; }
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .page-anim,
+  .page-anim > * {
+    animation: none !important;
+  }
+}

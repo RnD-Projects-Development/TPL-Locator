@@ -9,7 +9,7 @@ html { scroll-behavior: smooth; }
 .fsd-dashboard {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
   width: 100%;
   box-sizing: border-box;
   padding: 22px 26px 30px;
@@ -697,4 +697,28 @@ html { scroll-behavior: smooth; }
   .fsd-map-card > *     { min-height: 0; }
   .fsd-map-container    { min-height: 0; height: 100% !important; }
   .fsd-title            { font-size: 18px; }
+}
+
+/* ═══════════════════════════════════════════════════
+   3.1 — MAP MARKER POPUP CONTRAST
+   The marker popup HTML uses light-grey text (built for a dark
+   surface), but Leaflet's default popup is white → unreadable.
+   Force a dark popup surface so the light text has proper contrast.
+═══════════════════════════════════════════════════ */
+.fsd-dashboard .leaflet-popup-content-wrapper {
+  background: #18181b;
+  color: #f9fafb;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+}
+.fsd-dashboard .leaflet-popup-tip {
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.fsd-dashboard .leaflet-popup-close-button {
+  color: #d1d5db;
+}
+.fsd-dashboard .leaflet-popup-close-button:hover {
+  color: #ffffff;
 }

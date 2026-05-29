@@ -14,9 +14,7 @@ import './AreaSelector.css';
 export default function AreaSelector({ value, onChange, areas = [], loading = false, placeholder = 'All Areas' }) {
   const [open, setOpen]           = useState(false);
   const [search, setSearch]       = useState('');
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
   const wrapRef                   = useRef(null);
-  const triggerRef                = useRef(null);
   const dropdownRef               = useRef(null);
   const inputRef                  = useRef(null);
 
@@ -44,18 +42,9 @@ export default function AreaSelector({ value, onChange, areas = [], loading = fa
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Auto-focus search input when opened; compute fixed position
+  // Auto-focus search input when opened
   useEffect(() => {
-    if (open) {
-      if (inputRef.current) inputRef.current.focus();
-      if (triggerRef.current) {
-        const rect = triggerRef.current.getBoundingClientRect();
-        setDropdownPos({
-          top: rect.bottom + 6,
-          right: window.innerWidth - rect.right,
-        });
-      }
-    }
+    if (open && inputRef.current) inputRef.current.focus();
   }, [open]);
 
   function select(id) {
@@ -69,7 +58,6 @@ export default function AreaSelector({ value, onChange, areas = [], loading = fa
       <div className="area-sel-group">
         <label className="area-sel-label">Area / Zone</label>
         <button
-          ref={triggerRef}
           type="button"
           className={`area-sel-trigger${open ? ' open' : ''}`}
           onClick={() => setOpen(v => !v)}
@@ -88,7 +76,6 @@ export default function AreaSelector({ value, onChange, areas = [], loading = fa
         <div
           ref={dropdownRef}
           className="area-sel-dropdown"
-          style={{ top: dropdownPos.top, right: dropdownPos.right }}
         >
           {/* Search */}
           <div className="area-sel-search-wrap">

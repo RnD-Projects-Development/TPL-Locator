@@ -4,15 +4,16 @@ import { Radio, MapPin, Clock, Battery, ArrowLeft, User, Navigation, Route, File
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { tplGeocode } from '../utils/tplGeocode.js'
+import { ThemeContext } from '../components/layout/Layout.jsx'
+import TPLLoader from '../components/TPLLoader.jsx'
 
-const panel = {
-  background: '#242323',
-  border: '1px solid rgba(255,255,255,0.07)',
-  borderRadius: 18,
-  boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-}
-
-const statusStyle = s => {
+// ── Status style (dark vs light) ────────────────────────────────────────────
+const statusStyle = (s, isLight) => {
+  if (isLight) {
+    if (s === 'Active')  return { color: '#FFFFFF', background: '#059669', border: '1px solid #047857' }
+    if (s === 'At Risk') return { color: '#FFFFFF', background: '#D97706', border: '1px solid #B45309' }
+    return                      { color: '#FFFFFF', background: '#A72C32', border: '1px solid #8B2328' }
+  }
   if (s === 'Active')   return { color: '#34D399', background: 'rgba(52,211,153,0.12)',  border: '1px solid rgba(52,211,153,0.25)' }
   if (s === 'At Risk')  return { color: '#FBBF24', background: 'rgba(251,191,36,0.12)',  border: '1px solid rgba(251,191,36,0.25)' }
   return                       { color: '#F87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)' }
@@ -23,6 +24,33 @@ export default function LocatorDetail() {
   const navigate = useNavigate()
   const { zones }            = useZoneCache()
   const { getLatestLocation, getDeviceBySn } = useCityTag()
+
+  const pageTheme = React.useContext(ThemeContext)
+  const isLight   = pageTheme === 'light'
+
+  // ── Theme tokens ────────────────────────────────────────────────────────────
+  const panel = isLight
+    ? { background: '#E6E6E6', border: '1px solid #C9C9C9', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
+    : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
+
+  const T = {
+    txt1:        isLight ? '#111827' : '#f4f4f5',
+    txt2:        isLight ? '#6B7280' : 'rgba(255,255,255,0.50)',
+    txt3:        isLight ? '#9CA3AF' : 'rgba(255,255,255,0.32)',
+    fieldBg:     isLight ? '#F9FAFB' : 'rgba(255,255,255,0.04)',
+    fieldBorder: isLight ? '#F3F4F6' : 'rgba(255,255,255,0.08)',
+    divider:     isLight ? '#F3F4F6' : 'rgba(255,255,255,0.07)',
+    redBg:       isLight ? '#FEF2F2' : 'rgba(220,38,38,0.12)',
+    redBorder:   isLight ? '#FECACA' : 'rgba(220,38,38,0.22)',
+    btnGhost:    isLight
+      ? { background: '#FFFFFF', border: '1px solid #E5E7EB', color: '#111827' }
+      : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: '#f4f4f5' },
+    sectionIconBg:     isLight ? '#FEF2F2' : 'rgba(220,38,38,0.12)',
+    sectionIconBorder: isLight ? '#FECACA' : 'rgba(220,38,38,0.22)',
+  }
+
+  // Solid auburn left-accent for light theme cards (harmonizes with dark brand)
+  const cardAccent = isLight ? { borderLeft: '3px solid #A72C32' } : null
 
   // ── Device metadata state ────────────────────────────────────────────────────
   const [loc, setLoc] = useState(null)
@@ -96,27 +124,24 @@ export default function LocatorDetail() {
       .join(', ')
   }, [loc?.fence_zone_ids, zones])
 
-  if (devLoading) return (
-    <div style={{ ...panel, padding: '80px 24px', textAlign: 'center', margin: '20px auto', maxWidth: 480 }}>
-      <p style={{ color: 'rgba(255,255,255,0.40)', fontWeight: 600 }}>Loading locator…</p>
-    </div>
-  )
+  if (devLoading) return <TPLLoader label="Loading locator…" />
 
   if (!loc) return (
     <div style={{ ...panel, padding: '80px 24px', textAlign: 'center', margin: '20px auto', maxWidth: 480 }}>
-      <Radio style={{ width: 40, height: 40, color: 'rgba(255,255,255,0.18)', margin: '0 auto 12px' }} />
-      <p style={{ color: 'rgba(255,255,255,0.55)', fontWeight: 600, marginBottom: 16 }}>Locator not found</p>
+      <div style={{ width: 52, height: 52, borderRadius: 14, background: T.redBg, border: `1px solid ${T.redBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+        <Radio style={{ width: 24, height: 24, color: '#DC2626' }} />
+      </div>
+      <p style={{ color: T.txt1, fontWeight: 600, marginBottom: 16 }}>Locator not found</p>
       <button onClick={() => navigate('/locators')}
-        style={{ color: '#A72C32', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer' }}>
+        style={{ color: '#DC2626', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
         ← Back to Locators
       </button>
     </div>
   )
 
   // ── Derive display values ────────────────────────────────────────────────────
-  // Timestamp: prefer live location point, fall back to device dataRetrievalTime
-  const liveTs = livePoint?.timestamp ?? livePoint?.time ?? livePoint?.locTime ?? null
-  const deviceTs = loc.dataRetrievalTime ?? null   // from getDeviceBySn metadata
+  const liveTs    = livePoint?.timestamp ?? livePoint?.time ?? livePoint?.locTime ?? null
+  const deviceTs  = loc.dataRetrievalTime ?? null
   const displayTs = liveTs ?? deviceTs
 
   const liveHoursAgo = displayTs
@@ -140,14 +165,27 @@ export default function LocatorDetail() {
     : (displayTs ? new Date(displayTs).toLocaleString() : '—')
 
   const displayStatus = loc.status || 'Active'
-  const sStyle        = statusStyle(displayStatus)
-  const battColor     = (liveBattery ?? 0) <= 20 ? '#F87171' : (liveBattery ?? 0) <= 40 ? '#FBBF24' : '#34D399'
-  const timeColor     = liveHoursAgo > 24 ? '#F87171' : liveHoursAgo > 12 ? '#FBBF24' : '#34D399'
+  const sStyle        = statusStyle(displayStatus, isLight)
+  const battColor     = (liveBattery ?? 0) <= 20 ? '#DC2626' : (liveBattery ?? 0) <= 40 ? '#D97706' : '#059669'
+  const timeColor     = liveHoursAgo > 24 ? '#DC2626' : liveHoursAgo > 12 ? '#D97706' : '#059669'
+
+  const statIconBg = color => {
+    if (!isLight) {
+      if (color === '#DC2626') return { bg: 'rgba(220,38,38,0.12)',   border: 'rgba(220,38,38,0.22)' }
+      if (color === '#D97706') return { bg: 'rgba(217,119,6,0.12)',   border: 'rgba(217,119,6,0.22)' }
+      if (color === '#059669') return { bg: 'rgba(5,150,105,0.12)',   border: 'rgba(5,150,105,0.22)' }
+      return { bg: 'rgba(37,99,235,0.12)', border: 'rgba(37,99,235,0.22)' }
+    }
+    if (color === '#DC2626') return { bg: '#FEF2F2', border: '#FECACA' }
+    if (color === '#D97706') return { bg: '#FFFBEB', border: '#FDE68A' }
+    if (color === '#059669') return { bg: '#ECFDF5', border: '#A7F3D0' }
+    return { bg: '#EFF6FF', border: '#BFDBFE' }
+  }
 
   const stats = [
-    { icon: MapPin,  label: 'Last Location', value: liveLocation,  color: '#22D3EE' },
-    { icon: Clock,   label: 'Last Seen',      value: liveLastSeen, color: timeColor },
-    { icon: Battery, label: 'Battery',        value: liveBattery != null ? `${liveBattery}%` : '—', color: battColor },
+    { icon: MapPin,  label: 'Last Location', value: liveLocation,  color: '#2563EB',  ...(() => { const s = statIconBg('#2563EB'); return { iconBg: s.bg, iconBorder: s.border } })() },
+    { icon: Clock,   label: 'Last Seen',      value: liveLastSeen, color: timeColor,  ...(() => { const s = statIconBg(timeColor); return { iconBg: s.bg, iconBorder: s.border } })() },
+    { icon: Battery, label: 'Battery',        value: liveBattery != null ? `${liveBattery}%` : '—', color: battColor, ...(() => { const s = statIconBg(battColor); return { iconBg: s.bg, iconBorder: s.border } })() },
   ]
 
   const bindDateStr = loc.bindTime
@@ -168,30 +206,30 @@ export default function LocatorDetail() {
 
       {/* Back */}
       <button onClick={() => navigate('/locators')}
-        style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.50)', fontSize: 13,
-          background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}
-        onMouseEnter={e => e.currentTarget.style.color = '#FFFFFF'}
-        onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.50)'}>
+        style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.txt2, fontSize: 13,
+          background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content', fontWeight: 500 }}
+        onMouseEnter={e => e.currentTarget.style.color = '#DC2626'}
+        onMouseLeave={e => e.currentTarget.style.color = T.txt2}>
         <ArrowLeft style={{ width: 15, height: 15 }} /> Back to Locators
       </button>
 
       {/* Header card */}
-      <div style={{ ...panel, padding: 24 }}>
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ padding: 12, borderRadius: 14, background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)', flexShrink: 0 }}>
-            <Radio style={{ width: 26, height: 26, color: '#A72C32' }} />
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: T.redBg, border: `1px solid ${T.redBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Radio style={{ width: 24, height: 24, color: '#DC2626' }} />
           </div>
-          <div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: '#FFFFFF', margin: 0 }}>{loc.userName}</h1>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: T.txt1, margin: 0, letterSpacing: '-0.02em' }}>{loc.userName}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontFamily: 'monospace', color: '#A72C32', fontSize: 13 }}>{loc.id}</span>
+              <span style={{ fontFamily: 'monospace', color: '#DC2626', fontSize: 13, fontWeight: 600 }}>{loc.id}</span>
               {loc.category && (
-                <><span style={{ color: 'rgba(255,255,255,0.18)' }}>·</span>
-                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>{loc.category}</span></>
+                <><span style={{ color: T.txt3 }}>·</span>
+                <span style={{ color: T.txt2, fontSize: 13 }}>{loc.category}</span></>
               )}
               {loc.company && (
-                <><span style={{ color: 'rgba(255,255,255,0.18)' }}>·</span>
-                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>{loc.company}</span></>
+                <><span style={{ color: T.txt3 }}>·</span>
+                <span style={{ color: T.txt2, fontSize: 13 }}>{loc.company}</span></>
               )}
             </div>
             <div style={{ marginTop: 10 }}>
@@ -206,12 +244,14 @@ export default function LocatorDetail() {
       {/* Stats grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         {stats.map(s => (
-          <div key={s.label} style={{ ...panel, padding: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <s.icon style={{ width: 13, height: 13, color: s.color }} />
-              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
+          <div key={s.label} style={{ ...panel, padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 7, background: s.iconBg, border: `1px solid ${s.iconBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <s.icon style={{ width: 13, height: 13, color: s.color }} />
+              </div>
+              <span style={{ color: T.txt3, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
             </div>
-            <div style={{ fontWeight: 700, fontSize: 13, color: s.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            <div style={{ fontWeight: 700, fontSize: 14, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
               title={s.value}>
               {s.value}
             </div>
@@ -220,16 +260,18 @@ export default function LocatorDetail() {
       </div>
 
       {/* Device info */}
-      <div style={{ ...panel, padding: 20 }}>
+      <div style={{ ...panel, padding: 22 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <User style={{ width: 15, height: 15, color: '#A72C32' }} />
-          <span style={{ color: '#FFFFFF', fontWeight: 600, fontSize: 14 }}>Device Info</span>
+          <div style={{ width: 28, height: 28, borderRadius: 7, background: T.sectionIconBg, border: `1px solid ${T.sectionIconBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <User style={{ width: 13, height: 13, color: '#DC2626' }} />
+          </div>
+          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Device Info</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           {infoFields.map(f => (
-            <div key={f.l} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 12, border: '1px solid rgba(255,255,255,0.05)' }}>
-              <div style={{ color: 'rgba(255,255,255,0.30)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{f.l}</div>
-              <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            <div key={f.l} style={{ background: T.fieldBg, borderRadius: 12, padding: '12px 14px', border: `1px solid ${T.fieldBorder}` }}>
+              <div style={{ color: T.txt3, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5, fontWeight: 600 }}>{f.l}</div>
+              <div style={{ color: T.txt1, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={String(f.v)}>
                 {f.v}
               </div>
@@ -239,66 +281,75 @@ export default function LocatorDetail() {
       </div>
 
       {/* Track device */}
-      <div style={{ ...panel, padding: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <Navigation style={{ width: 15, height: 15, color: '#A72C32' }} />
-          <span style={{ color: '#FFFFFF', fontWeight: 600, fontSize: 14 }}>Track Device</span>
+      <div style={{ ...panel, padding: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 7, background: T.sectionIconBg, border: `1px solid ${T.sectionIconBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Navigation style={{ width: 13, height: 13, color: '#DC2626' }} />
+          </div>
+          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Track Device</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+
+          {/* Live Map — primary CTA */}
           <button
             onClick={() => navigate(`/map?device=${loc.id}`)}
             style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.28)',
-              color: '#FFFFFF', fontSize: 13, fontWeight: 600,
-              transition: 'background 0.18s, border-color 0.18s',
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '14px 16px', borderRadius: 12, cursor: 'pointer',
+              background: T.redBg, border: `1px solid ${T.redBorder}`,
+              color: T.txt1, fontSize: 13, fontWeight: 600,
+              transition: 'all 0.18s', textAlign: 'left',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.20)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.55)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.28)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#DC2626'; e.currentTarget.style.borderColor = '#DC2626'; e.currentTarget.style.color = '#FFFFFF'; e.currentTarget.querySelector('.track-sub').style.color = 'rgba(255,255,255,0.65)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.redBg; e.currentTarget.style.borderColor = T.redBorder; e.currentTarget.style.color = T.txt1; e.currentTarget.querySelector('.track-sub').style.color = T.txt3 }}
           >
-            <MapPin style={{ width: 16, height: 16, color: '#A72C32', flexShrink: 0 }} />
-            <div style={{ textAlign: 'left' }}>
+            <MapPin style={{ width: 16, height: 16, color: '#DC2626', flexShrink: 0 }} />
+            <div>
               <div>Live Map View</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)', fontWeight: 400, marginTop: 2 }}>See current location on map</div>
+              <div className="track-sub" style={{ fontSize: 10, color: T.txt3, fontWeight: 400, marginTop: 2 }}>See current location</div>
             </div>
           </button>
+
+          {/* GPS Trajectory */}
           <button
             onClick={() => navigate(`/trajectory?device=${loc.id}`)}
             style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
-              color: '#FFFFFF', fontSize: 13, fontWeight: 600,
-              transition: 'background 0.18s, border-color 0.18s',
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '14px 16px', borderRadius: 12, cursor: 'pointer',
+              ...T.btnGhost,
+              fontSize: 13, fontWeight: 600,
+              transition: 'all 0.18s', textAlign: 'left',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.btnGhost.border.replace('1px solid ',''); e.currentTarget.style.boxShadow = 'none' }}
           >
-            <Route style={{ width: 16, height: 16, color: '#94a3b8', flexShrink: 0 }} />
-            <div style={{ textAlign: 'left' }}>
+            <Route style={{ width: 16, height: 16, color: T.txt2, flexShrink: 0 }} />
+            <div>
               <div>GPS Trajectory</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)', fontWeight: 400, marginTop: 2 }}>View historical GPS path</div>
+              <div style={{ fontSize: 10, color: T.txt3, fontWeight: 400, marginTop: 2 }}>View historical GPS path</div>
             </div>
           </button>
+
+          {/* Reports */}
           <button
             onClick={() => navigate(`/reports?device=${loc.id}`)}
             style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
-              color: '#FFFFFF', fontSize: 13, fontWeight: 600,
-              transition: 'background 0.18s, border-color 0.18s',
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '14px 16px', borderRadius: 12, cursor: 'pointer',
+              ...T.btnGhost,
+              fontSize: 13, fontWeight: 600,
+              transition: 'all 0.18s', textAlign: 'left',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.09)' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.btnGhost.border.replace('1px solid ',''); e.currentTarget.style.boxShadow = 'none' }}
           >
-            <FileText style={{ width: 16, height: 16, color: '#94a3b8', flexShrink: 0 }} />
-            <div style={{ textAlign: 'left' }}>
+            <FileText style={{ width: 16, height: 16, color: T.txt2, flexShrink: 0 }} />
+            <div>
               <div>Reports</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.40)', fontWeight: 400, marginTop: 2 }}>Export location history</div>
+              <div style={{ fontSize: 10, color: T.txt3, fontWeight: 400, marginTop: 2 }}>Export location history</div>
             </div>
           </button>
+
         </div>
       </div>
 

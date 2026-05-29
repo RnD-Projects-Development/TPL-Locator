@@ -73,10 +73,12 @@
 
 /* ─── Dropdown panel ─────────────────────────────── */
 .area-sel-dropdown {
-  position: fixed;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
   z-index: 99999 !important;
   width: 260px;
-  background: var(--surface-2);
+  background: #18181b;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-float);

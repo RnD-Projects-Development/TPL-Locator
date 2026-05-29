@@ -2,6 +2,7 @@
 // Reuses hp-modal-* CSS from DevicesPage.css (global CSS — safe to import here).
 import React, { useState, useMemo } from 'react';
 import '../pages/DevicesPage.css';
+import ModalPortal from './common/ModalPortal.jsx';
 
 const SELECT_STYLE = {
   width: '100%',
@@ -65,8 +66,9 @@ export default function AssignDeviceModal({ zone, devices, assignments, onAssign
   const isDisabled = loading || available.length === 0 || selectedSn == null;
 
   return (
+    <ModalPortal>
     <div className="hp-modal-overlay" onClick={onClose}>
-      <div className="hp-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="hp-modal" onClick={(e) => e.stopPropagation()} style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.12)' }}>
 
         <div className="hp-modal-header">
           <div className="hp-modal-title-wrap">
@@ -131,5 +133,6 @@ export default function AssignDeviceModal({ zone, devices, assignments, onAssign
 
       </div>
     </div>
+    </ModalPortal>
   );
 }

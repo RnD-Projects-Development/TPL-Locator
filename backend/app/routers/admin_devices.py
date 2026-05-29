@@ -193,6 +193,13 @@ async def admin_add_device(
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device already added")
 
+    if payload.name and payload.name.strip():
+        if await mongo.is_device_name_taken(str(current_admin.id), payload.name):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'A device named "{payload.name.strip()}" already exists. Device names must be unique.',
+            )
+
     count = await mongo.count_devices_by_admin(str(current_admin.id))
     if count >= ADMIN_MAX_DEVICES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Device limit reached ({ADMIN_MAX_DEVICES}).")

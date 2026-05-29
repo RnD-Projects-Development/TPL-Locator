@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, RefreshCw, Bell } from 'lucide-react'
 import { useAlerts } from '../../context/AlertsContext.jsx'
+import Switch from '../Switch.jsx'
 
 const crumbs = {
   '/dashboard':   ['Dashboard'],
   '/search':      ['Search'],
-  '/locators':    ['Devices', 'BLE Locators'],
+  '/locators':    ['Devices', 'Locators'],
   '/stickers':    ['Devices', 'Smart Stickers'],
-  '/missing':     ['Devices', 'Missing Devices'],
+  '/missing':     ['Devices', 'Offline Devices'],
   '/map':         ['Intelligence', 'Map View'],
   '/trajectory':  ['Intelligence', 'Trajectory'],
   '/playback':    ['Intelligence', 'Playback'],
@@ -20,12 +21,12 @@ const crumbs = {
 }
 const getCrumbs = path => {
   if (crumbs[path]) return crumbs[path]
-  if (path.startsWith('/locators/')) return ['Devices', 'BLE Locators', path.split('/')[2]]
+  if (path.startsWith('/locators/')) return ['Devices', 'Locators', path.split('/')[2]]
   if (path.startsWith('/stickers/')) return ['Devices', 'Smart Stickers', path.split('/')[2]]
   return ['Page']
 }
 
-export default function Header() {
+export default function Header({ pageTheme, setPageTheme }) {
   const { pathname } = useLocation()
   const navigate     = useNavigate()
   const [now, setNow] = useState(new Date())
@@ -59,12 +60,7 @@ export default function Header() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="relative hidden md:block">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-        <input placeholder="Search devices, locations…"
-          className="w-52 bg-[#1a1a1a] border border-gray-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#A72C32]/50 focus:ring-1 focus:ring-[#A72C32]/20 transition-all" />
-      </div>
+      {/* Search removed per user request */}
 
       {/* Clock */}
       <div className="hidden lg:flex flex-col items-end">
@@ -97,6 +93,17 @@ export default function Header() {
           </span>
         )}
       </button>
+
+      {/* Theme toggle */}
+      {typeof setPageTheme === 'function' && (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginRight: 8 }}>{pageTheme === 'light' ? 'Light' : pageTheme === 'dark' ? 'Dark' : 'Theme'}</span>
+          <Switch checked={pageTheme === 'light'} onChange={(checked) => {
+            const newTheme = checked ? 'light' : 'dark'
+            setPageTheme(newTheme)
+          }} />
+        </div>
+      )}
 
       {/* Refresh */}
       <button

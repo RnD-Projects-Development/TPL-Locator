@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from bson import ObjectId
 import logging
+import re
 import certifi
 
 from app.auth_utils import hash_password
@@ -174,6 +175,32 @@ class MongoService:
         if not doc:
             return None
         return DeviceInDB(**doc)
+
+    async def is_device_name_taken(
+        self,
+        admin_id: str,
+        name: str,
+        exclude_sn: Optional[str] = None,
+    ) -> bool:
+        """
+        Return True if another device under the same admin already uses `name`
+        (case-insensitive, trimmed). Empty names are never considered taken.
+        Used to enforce unique device names at creation/binding time.
+        """
+        name = (name or "").strip()
+        if not name:
+            return False
+        try:
+            oid = ObjectId(admin_id)
+        except Exception:
+            return False
+        query: dict[str, Any] = {
+            "admin_id": oid,
+            "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
+        }
+        if exclude_sn:
+            query["sn"] = {"$ne": exclude_sn}
+        return await self.devices.find_one(query, {"_id": 1}) is not None
 
     async def get_authorized_device_sns(self, account, sns: List[str]) -> List[str]:
         """Return the subset of SNs the account can access."""

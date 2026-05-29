@@ -8,6 +8,7 @@ import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
+import TPLLoader from '../components/TPLLoader.jsx'
 
 /* ── Design tokens ────────────────────────────────────────────────────────── */
 const panel = {
@@ -463,9 +464,7 @@ export default function UsersPage() {
           {error}
         </div>
       ) : loading && users.length === 0 ? (
-        <div style={{ ...panel, padding: '64px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.38)', fontSize: 13 }}>
-          Loading users…
-        </div>
+        <TPLLoader label="Loading users…" />
       ) : (
         <div style={{ ...panel, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>

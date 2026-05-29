@@ -71,13 +71,9 @@ async def bind_device_service(
     if not _is_admin(current_account) and str(target_user.id) != str(current_account.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign device to another user")
 
-    # Admin must target their own users only
-    if _is_admin(current_account):
-        if target_user.admin_id and str(target_user.admin_id) != str(current_account.id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Cannot assign users that belong to another admin",
-            )
+    # Single-company deployment: every admin login shares one fleet and user pool,
+    # so any admin may bind any registered user (mirrors admin_list_users, which
+    # now returns all users). Cross-admin ownership is intentionally NOT enforced.
 
     device = await mongo.get_device_by_sn(sn)
     if not device:
@@ -94,7 +90,15 @@ async def bind_device_service(
     # Stamp optional metadata
     update_fields = {}
     if name:
-        update_fields["name"] = name.strip()
+        clean_name = name.strip()
+        if clean_name and device.admin_id and await mongo.is_device_name_taken(
+            str(device.admin_id), clean_name, exclude_sn=sn
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'A device named "{clean_name}" already exists. Device names must be unique.',
+            )
+        update_fields["name"] = clean_name
     if client:
         update_fields["client"] = client.strip()
     if category:

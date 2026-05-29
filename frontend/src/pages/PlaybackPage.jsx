@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
+import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
@@ -335,6 +336,7 @@ export default function PlaybackPage() {
               isPlaybackPage={true}
               playbackIndex={playbackIndex}
             />
+            {histLoading && <TPLLoader overlay label="Loading playback…" />}
           </div>
 
           {/* Playback controls */}

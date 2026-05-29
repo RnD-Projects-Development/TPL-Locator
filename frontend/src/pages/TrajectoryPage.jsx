@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
+import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { tplGeocode } from "../utils/tplGeocode.js";
@@ -323,6 +324,7 @@ export default function TrajectoryPage() {
         <div className="tr-map-area">
           <div className="tr-map-wrap">
             <MapView sn={sn} label={label} latest={activeLatest} trajectory={activeTraj} playbackPoint={null} showFences={showFences} zones={zones} />
+            {histLoading && <TPLLoader overlay label="Loading history…" />}
           </div>
 
           {sn && (
