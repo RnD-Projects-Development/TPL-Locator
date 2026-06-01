@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import MultiDeviceSidebar from "../components/MultiDeviceSidebar.jsx";
+import MapInfoPanel from "../components/MapInfoPanel.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
@@ -20,6 +21,9 @@ export default function MapViewPage() {
     return param ? new Set([param]) : new Set();
   });
   const [deviceLocations, setDeviceLocations] = useState({});
+  const [focusedSn, setFocusedSn]     = useState(() => searchParams.get("device") || null);
+  const [detectionCounts, setDetectionCounts] = useState({});
+  const lastTsRef = useRef({});
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -106,6 +110,38 @@ export default function MapViewPage() {
   }, [selectedSns, deviceLocations, getDevice]);
 
   const onlineCount = multiDevices.filter(d => d.latest != null).length;
+
+  // Live detection counter — increments per device whenever a NEW location
+  // report (distinct timestamp) arrives. Avoids double-counting identical polls.
+  useEffect(() => {
+    setDetectionCounts(prev => {
+      let changed = false;
+      const next = { ...prev };
+      Object.entries(deviceLocations).forEach(([sn, point]) => {
+        const ts = point?.timestamp ?? point?.time ?? point?.locTime ?? null;
+        const key = ts != null ? String(ts) : null;
+        if (key == null) return;
+        if (lastTsRef.current[sn] !== key) {
+          lastTsRef.current[sn] = key;
+          next[sn] = (next[sn] ?? 0) + 1;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [deviceLocations]);
+
+  // Keep focus valid: clear it if the focused device is deselected; default to
+  // the sole device when exactly one is selected.
+  useEffect(() => {
+    if (focusedSn && !selectedSns.has(focusedSn)) {
+      setFocusedSn(selectedSns.size === 1 ? [...selectedSns][0] : null);
+    } else if (!focusedSn && selectedSns.size === 1) {
+      setFocusedSn([...selectedSns][0]);
+    }
+  }, [selectedSns, focusedSn]);
+
+  const focusedDevice = focusedSn ? multiDevices.find(d => d.sn === focusedSn) : null;
 
   // Most recent actual location timestamp across the selected devices
   // (the device's last online time — NOT the wall-clock fetch time).
@@ -205,6 +241,7 @@ export default function MapViewPage() {
               multiDevices={multiDevices}
               showFences={showFences}
               zones={zones}
+              onFocusDevice={setFocusedSn}
             />
             {/* Branded loader only on the FIRST fetch (nothing on the map yet) —
                 not on every auto-refresh tick. */}
@@ -221,7 +258,7 @@ export default function MapViewPage() {
               </div>
               <div className="mv-info-sep" />
               <div className="mv-info-item">
-                <span className="mv-info-label">Live location</span>
+                <span className="mv-info-label">Location</span>
                 <span className="mv-info-val mono">{onlineCount} / {selectedSns.size}</span>
               </div>
               {lastSeenTime && (
@@ -236,6 +273,16 @@ export default function MapViewPage() {
             </div>
           )}
         </div>
+
+        <MapInfoPanel
+          sn={focusedSn || ""}
+          deviceName={focusedDevice?.label}
+          point={focusedDevice?.latest}
+          detections={focusedSn ? (detectionCounts[focusedSn] ?? 0) : 0}
+          online={focusedDevice ? focusedDevice.latest != null : null}
+          detectionsLabel="Live updates"
+          emptyHint={selectedSns.size > 0 ? "Click a device marker to view its live details" : "Select a device to view its live details"}
+        />
       </div>
     </div>
   );

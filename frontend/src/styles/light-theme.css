@@ -100,3 +100,26 @@
     0 2px 10px rgba(0, 0, 0, 0.10) !important;
   transform: translateY(-2px);
 }
+
+/* ── Light-theme consistent button hover ──────────────────────────────────────
+   One uniform, prominent hover for EVERY button on the light pages. Like the
+   card-hover rule above, this only touches scoped visual properties
+   (transform + box-shadow with !important to beat inline resting shadows, plus
+   a brightness filter that uniformly darkens whatever inline background a button
+   carries). It deliberately does NOT set background or color, so it never fights
+   the per-page inline theming — filled buttons keep their white text, ghost
+   buttons keep their own text color. Scoped to .page-theme-light only. */
+.page-theme-light button {
+  transition: box-shadow 0.18s ease, transform 0.18s ease, filter 0.18s ease;
+}
+.page-theme-light button:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  filter: brightness(0.92);
+  box-shadow:
+    0 4px 14px rgba(142, 11, 11, 0.28),
+    0 1px 4px rgba(0, 0, 0, 0.12) !important;
+}
+.page-theme-light button:active:not(:disabled) {
+  transform: translateY(0) !important;
+  filter: brightness(0.88);
+}

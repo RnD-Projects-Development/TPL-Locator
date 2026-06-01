@@ -135,8 +135,9 @@ function buildMultiDevicePopupHtml({ sn, label, point, geocode, coords }) {
 let _cachedMap       = null;
 let _cachedContainer = null;
 
-function attachMap(parent, onReady) {
+function attachMap(parent, onReady, onError) {
   if (_cachedMap && _cachedContainer) {
+    console.log('[MapView] reusing cached map instance');
     parent.appendChild(_cachedContainer);
     try { _cachedMap.invalidateSize(); } catch {}
     onReady(_cachedMap);
@@ -148,7 +149,17 @@ function attachMap(parent, onReady) {
   parent.appendChild(_cachedContainer);
   setTimeout(() => {
     if (!_cachedContainer.parentNode) return;
+    if (!window.TPLMaps || !window.TPLMaps.map || typeof window.TPLMaps.map.initMap !== 'function') {
+      console.error('[MapView] initMap unavailable — TPLMaps globals not ready', {
+        TPLMaps: !!window.TPLMaps,
+        'TPLMaps.map': !!(window.TPLMaps && window.TPLMaps.map),
+        L: !!window.L,
+      });
+      if (onError) onError('Map SDK loaded but initMap is unavailable');
+      return;
+    }
     try {
+      console.log('[MapView] calling TPLMaps.map.initMap …');
       const map = window.TPLMaps.map.initMap({
         divID: 'mapview-persistent',
         lat: 24.8607, lng: 67.0011, zoom: 11,
@@ -157,9 +168,11 @@ function attachMap(parent, onReady) {
       try { map.scrollWheelZoom?.enable(); } catch {}
       try { map.invalidateSize(); } catch {}
       _cachedMap = map;
+      console.log('[MapView] ✅ initMap succeeded — map instance created');
       onReady(map);
     } catch (err) {
-      console.error('[MapView] initMap threw:', err);
+      console.error('[MapView] ❌ initMap threw:', err);
+      if (onError) onError('Map failed to initialise (initMap threw)');
     }
   }, 0);
 }
@@ -228,7 +241,11 @@ export default function MapView({
   // segment per step, preventing bulk-commits on seek/scrub.
   isPlaybackPage = false,
   playbackIndex = 0,
+  onFocusDevice = null,
 }) {
+  const onFocusRef     = useRef(onFocusDevice);
+  useEffect(() => { onFocusRef.current = onFocusDevice; }, [onFocusDevice]);
+
   const containerRef   = useRef(null);
   const mapRef         = useRef(null);
   const markerRef      = useRef(null);
@@ -277,6 +294,8 @@ export default function MapView({
   const cancelTweenRef = useRef(null);
 
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapError, setMapError]   = useState(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   const activePoint = playbackPoint ?? latest;
   const isPlayback  = playbackPoint != null;
@@ -323,21 +342,8 @@ export default function MapView({
       markerRef.current = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
       animFromRef.current = { lat: c.lat, lng: c.lng };
 
-      markerRef.current.on('mouseover', () => {
-        const latlng = markerRef.current.getLatLng();
-        const popupCoords = { lat: latlng.lat, lng: latlng.lng };
-        if (popupRef.current) popupRef.current.remove();
-        popupRef.current = window.L.popup({ offset: [0, -30], closeButton: false, autoClose: false, className: 'mv-popup' })
-          .setLatLng(latlng)
-          .setContent(buildPopupHtml({
-            displayName: displayNameRef.current, sn: snRef.current,
-            label: labelRef.current, coords: popupCoords,
-            point: latestRef.current, geocode: geocodeRef.current,
-          }))
-          .openOn(map);
-      });
-      markerRef.current.on('mouseout', () => {
-        if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
+      markerRef.current.on('click', () => {
+        if (onFocusRef.current && snRef.current) onFocusRef.current(snRef.current);
       });
     }
   }, []);
@@ -399,17 +405,26 @@ export default function MapView({
   /* ── MAP INIT ── */
   useEffect(() => {
     if (!containerRef.current) return;
-    loadTPLMaps(() => {
-      if (!containerRef.current || mapRef.current) return;
-      attachMap(containerRef.current, (map) => {
-        mapRef.current = map;
-        if (coordsRef.current) {
-          ensureMarker(map, coordsRef.current);
-          map.setView([coordsRef.current.lat, coordsRef.current.lng], 15, { animate: false });
-        }
-        setMapLoaded(true);
-      });
-    });
+    setMapError(null);
+    loadTPLMaps(
+      () => {
+        if (!containerRef.current || mapRef.current) return;
+        setMapError(null);
+        attachMap(
+          containerRef.current,
+          (map) => {
+            mapRef.current = map;
+            if (coordsRef.current) {
+              ensureMarker(map, coordsRef.current);
+              map.setView([coordsRef.current.lat, coordsRef.current.lng], 15, { animate: false });
+            }
+            setMapLoaded(true);
+          },
+          (reason) => { setMapError(reason || 'Map failed to initialise'); },
+        );
+      },
+      (reason) => { setMapError(reason || 'Map failed to load'); },
+    );
     return () => {
       if (cancelTweenRef.current) { cancelTweenRef.current(); cancelTweenRef.current = null; }
       try {
@@ -429,7 +444,7 @@ export default function MapView({
       detachMap();
       mapRef.current = null;
     };
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [retryTick]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── DEVICE MARKER — with smooth playback animation ── */
   useEffect(() => {
@@ -590,27 +605,10 @@ export default function MapView({
       const dot = window.L.circleMarker([c.lat, c.lng], {
         radius: 4, color: '#7f1d1d', fillColor: '#fca5a5',
         fillOpacity: 0.8, weight: 1,
+        interactive: false,
         renderer: canvasRef.current,
       }).addTo(map);
 
-      const ts = formatTimestamp(p);
-
-      dot.on('mouseover', () => {
-        const popup = window.L.popup({ offset: [0, 0], closeButton: false, className: 'mv-popup' })
-          .setLatLng([c.lat, c.lng])
-          .setContent(buildTrajDotPopup({ ts, geocode: null, coords: c }))
-          .openOn(map);
-
-        let hoverActive = true;
-        tplGeocode(c.lat, c.lng).then(geocode => {
-          if (!hoverActive) return;
-          popup.setContent(buildTrajDotPopup({ ts, geocode, coords: c }));
-        }).catch(() => {});
-
-        dot.once('mouseout', () => { hoverActive = false; });
-      });
-
-      dot.on('mouseout', () => map.closePopup());
       dotsRef.current.push(dot);
     });
 
@@ -745,24 +743,10 @@ export default function MapView({
       const dot = window.L.circleMarker([c.lat, c.lng], {
         radius: 4, color: '#7f1d1d', fillColor: '#fca5a5',
         fillOpacity: 0.8, weight: 1,
+        interactive: false,
         renderer: pbCanvasRef.current,
       }).addTo(map);
 
-      const ts = formatTimestamp(p);
-      dot.on('mouseover', () => {
-        const popup = window.L.popup({ offset: [0, 0], closeButton: false, className: 'mv-popup' })
-          .setLatLng([c.lat, c.lng])
-          .setContent(buildTrajDotPopup({ ts, geocode: null, coords: c }))
-          .openOn(map);
-
-        let hoverActive = true;
-        tplGeocode(c.lat, c.lng).then(geocode => {
-          if (!hoverActive) return;
-          popup.setContent(buildTrajDotPopup({ ts, geocode, coords: c }));
-        }).catch(() => {});
-        dot.once('mouseout', () => { hoverActive = false; });
-      });
-      dot.on('mouseout', () => map.closePopup());
       pbDotsRef.current.push(dot);
     }
 
@@ -841,35 +825,8 @@ export default function MapView({
         const marker      = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
         const pointHolder = { current: point };
 
-        marker.on('mouseover', () => {
-          const latlng     = marker.getLatLng();
-          const coords     = { lat: latlng.lat, lng: latlng.lng };
-          const cachedGeo  = multiGeocodeRef.current.get(sn) ?? null;
-          const currentPt  = pointHolder.current;
-
-          if (popupRef.current) popupRef.current.remove();
-          popupRef.current = window.L.popup({
-            offset: [0, -26], closeButton: false, autoClose: false, className: 'mv-popup',
-          })
-            .setLatLng(latlng)
-            .setContent(buildMultiDevicePopupHtml({ sn, label: devLabel, point: currentPt, geocode: cachedGeo, coords }))
-            .openOn(map);
-
-          if (!cachedGeo) {
-            let active = true;
-            tplGeocode(latlng.lat, latlng.lng).then(geo => {
-              multiGeocodeRef.current.set(sn, geo);
-              if (!active || !popupRef.current) return;
-              popupRef.current.setContent(
-                buildMultiDevicePopupHtml({ sn, label: devLabel, point: pointHolder.current, geocode: geo, coords })
-              );
-            }).catch(() => {});
-            marker.once('mouseout', () => { active = false; });
-          }
-        });
-
-        marker.on('mouseout', () => {
-          if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
+        marker.on('click', () => {
+          if (onFocusRef.current) onFocusRef.current(sn);
         });
 
         tplGeocode(c.lat, c.lng).then(geo => {
@@ -908,6 +865,28 @@ export default function MapView({
   /* ── UI ── */
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+
+      {mapError && (
+        <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.82)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1200, padding:24 }}>
+          <div style={{ maxWidth:380, textAlign:'center', background:'rgba(0,0,0,0.92)', backdropFilter:'blur(10px)', border:'1px solid #3a1414', borderRadius:14, padding:'26px 30px', boxShadow:'0 8px 30px rgba(0,0,0,0.6)' }}>
+            <div style={{ width:46, height:46, margin:'0 auto 12px', display:'grid', placeItems:'center', borderRadius:'50%', background:'rgba(220,38,38,0.12)', border:'1px solid rgba(220,38,38,0.35)' }}>
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </div>
+            <div style={{ color:'#fff', fontSize:15, fontWeight:700, marginBottom:6 }}>Map unavailable</div>
+            <div style={{ color:'#a3a3a3', fontSize:13, lineHeight:1.5 }}>
+              Couldn’t reach the TPL Maps service. Check your network/VPN connection to <span style={{ fontFamily:"'JetBrains Mono', monospace", color:'#d1d1d1' }}>api.tplmaps.com</span> and try again.
+            </div>
+            <button
+              onClick={() => { setMapError(null); setMapLoaded(false); setRetryTick(t => t + 1); }}
+              style={{ marginTop:16, padding:'8px 18px', borderRadius:8, border:'1px solid rgba(255,255,255,0.18)', background:'#A72C32', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
 
       {!sn && multiDevices.length === 0 && (
         <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, pointerEvents:'none' }}>

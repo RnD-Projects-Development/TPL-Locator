@@ -113,9 +113,9 @@ export default function Search() {
     : { background: 'rgba(18,18,18,0.90)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '16px', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }
 
   const T = {
-    txt1:           isLight ? '#111827' : '#FFFFFF',
-    txt2:           isLight ? '#6B7280' : 'rgba(255,255,255,0.50)',
-    txt3:           isLight ? '#9CA3AF' : 'rgba(255,255,255,0.30)',
+    txt1:           isLight ? '#000000' : '#FFFFFF',
+    txt2:           isLight ? '#333333' : 'rgba(255,255,255,0.50)',
+    txt3:           isLight ? '#333333' : 'rgba(255,255,255,0.30)',
     accent:         isLight ? '#DC2626' : '#C44E54',
     accentBg:       isLight ? '#FEF2F2' : 'rgba(164,44,50,0.12)',
     accentBdr:      isLight ? '#FECACA' : 'rgba(164,44,50,0.28)',
@@ -128,7 +128,7 @@ export default function Search() {
     inputBdr:       isLight ? (focused ? '#DC2626' : '#C9C9C9') : (focused ? 'rgba(164,44,50,0.45)' : 'rgba(255,255,255,0.09)'),
     chipBg:         isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
     chipBdr:        isLight ? '#C9C9C9'  : 'rgba(255,255,255,0.09)',
-    chipTxt:        isLight ? '#6B7280'  : 'rgba(255,255,255,0.55)',
+    chipTxt:        isLight ? '#333333'  : 'rgba(255,255,255,0.55)',
     clearBg:        isLight ? '#D2D2D2'  : 'rgba(255,255,255,0.08)',
     statusGreenBg:  isLight ? '#ECFDF5'  : 'rgba(22,163,74,0.12)',
     statusGreenClr: isLight ? '#059669'  : '#4ade80',
@@ -182,11 +182,11 @@ export default function Search() {
             border: `1px solid ${isLight ? '#8B2328' : T.accentBdr}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <SearchIcon style={{ width: '15px', height: '15px', color: isLight ? '#000000' : T.accent }} />
+            <SearchIcon style={{ width: '15px', height: '15px', color: isLight ? '#FFFFFF' : T.accent }} />
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 800, color: T.txt1, letterSpacing: '-0.03em', margin: 0 }}>Search</h1>
         </div>
-        <p style={{ fontSize: '12px', color: T.txt3, margin: 0, paddingLeft: '42px' }}>
+        <p style={{ fontSize: '15px', color: isLight ? '#000000' : T.txt3, margin: 0, paddingLeft: '42px' }}>
           Find any device, shipment, owner, or location
         </p>
       </div>

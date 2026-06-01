@@ -86,8 +86,21 @@ body {
 
 body, button, input, div {
   font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: auto;
   letter-spacing: -0.01em;
+}
+
+/* ── Global text weight boost ─────────────────────────────────────────────────
+   Make every glyph render slightly bolder across ALL pages and BOTH themes,
+   regardless of the inline `fontWeight` each element sets. The brand fonts only
+   ship a couple of weights (Gudea 400/700, Josefin 300/400/600/700), so bumping
+   font-weight would snap unpredictably. Instead we thicken the glyph outline by a
+   hair using a stroke painted in the element's own text color (`currentColor`),
+   which works uniformly on any weight, font, color and theme. Kept very small so
+   text stays crisp, not heavy. */
+body * {
+  -webkit-text-stroke: 0.32px currentColor;
+  text-stroke: 0.32px currentColor;
 }
 
 /* ── Typography hierarchy ─────────────────────────────────────────────────────

@@ -198,26 +198,21 @@ function DeviceCard({ device, navigate, isLight, T }) {
         <RecoveryDonut score={device.recovery} isLight={isLight} />
       </div>
 
-      {/* Anomaly warning chips */}
-      {(battery < 25 || device.hoursAgo > 48) && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-          {battery < 25 && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-              background: '#DC2626', color: '#FFFFFF', border: '1px solid #B91C1C' }}>
-              <Battery style={{ width: 10, height: 10 }} /> Critical battery — may go offline soon
-            </span>
-          )}
-          {device.hoursAgo > 48 && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-              background: '#D97706', color: '#FFFFFF', border: '1px solid #B45309' }}>
-              <AlertTriangle style={{ width: 10, height: 10 }} /> Extended absence — 48h+
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Action buttons */}
-      <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+      {/* Anomaly warning chips + action buttons (one inline row) */}
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {battery < 25 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+            background: '#DC2626', color: '#FFFFFF', border: '1px solid #B91C1C' }}>
+            <Battery style={{ width: 10, height: 10 }} /> Critical battery — may go offline soon
+          </span>
+        )}
+        {device.hoursAgo > 48 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+            background: '#D97706', color: '#FFFFFF', border: '1px solid #B45309' }}>
+            <AlertTriangle style={{ width: 10, height: 10 }} /> Extended absence — 48h+
+          </span>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <button
           onClick={() => navigate(`/map?device=${device.id}`)}
           style={{ padding: '6px 14px', background: '#A72C32', border: '1px solid #8B2328', borderRadius: 8, color: '#FFFFFF', fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s' }}
@@ -242,6 +237,7 @@ function DeviceCard({ device, navigate, isLight, T }) {
         >
           Device Details
         </button>
+        </div>
       </div>
     </div>
   )
@@ -264,7 +260,7 @@ export default function MissingDevices() {
 
   const T = {
     panel,
-    txt1:        isLight ? '#111827' : '#f4f4f5',
+    txt1:        isLight ? '#000000' : '#f4f4f5',
     txt2:        isLight ? '#333333' : 'rgba(255,255,255,0.50)',
     txt3:        isLight ? '#333333' : 'rgba(255,255,255,0.32)',
     inputBg:     isLight ? '#FFFFFF' : 'rgba(255,255,255,0.05)',
@@ -357,11 +353,11 @@ export default function MissingDevices() {
               border: `1px solid ${isLight ? '#8B2328' : 'rgba(167,44,50,0.24)'}`,
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>
-              <AlertOctagon style={{ width: 20, height: 20, color: isLight ? '#000000' : '#C86068' }} />
+              <AlertOctagon style={{ width: 20, height: 20, color: isLight ? '#FFFFFF' : '#C86068' }} />
             </div>
             Offline Device Intelligence
           </h1>
-          <p style={{ fontSize: 13, color: T.txt2, marginTop: 8, marginBottom: 0, paddingLeft: 52 }}>
+          <p style={{ fontSize: 15, color: T.txt2, marginTop: 8, marginBottom: 0, paddingLeft: 52 }}>
             Devices offline 12–24h are <span style={{ color: isLight ? '#D97706' : '#fbbf24', fontWeight: 600 }}>At Risk</span> · offline 24h+ are <span style={{ color: isLight ? '#DC2626' : '#fca5a5', fontWeight: 600 }}>Missing</span>
           </p>
         </div>
@@ -409,15 +405,15 @@ export default function MissingDevices() {
         {/* Status filter */}
         <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, borderRadius: 10, border: `1px solid ${T.tabBorder}` }}>
           {[
-            { label: 'All',     count: allDevices.length },
-            { label: 'Missing', count: missing.length    },
-            { label: 'At Risk', count: atRisk.length     },
-          ].map(({ label, count }) => (
-            <button key={label} onClick={() => setFilter(label)} style={{
+            { key: 'All',     label: 'All',     count: allDevices.length },
+            { key: 'Missing', label: 'Offline', count: missing.length    },
+            { key: 'At Risk', label: 'At Risk', count: atRisk.length     },
+          ].map(({ key, label, count }) => (
+            <button key={key} onClick={() => setFilter(key)} style={{
               padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
               fontSize: 11, fontWeight: 700, transition: 'all 0.15s',
-              background: filter === label ? '#A72C32' : 'transparent',
-              color:      filter === label ? '#FFFFFF' : T.txt2,
+              background: filter === key ? '#A72C32' : 'transparent',
+              color:      filter === key ? '#FFFFFF' : T.txt2,
             }}>
               {label}{count > 0 ? ` (${count})` : ''}
             </button>
@@ -450,7 +446,9 @@ export default function MissingDevices() {
       </div>
 
       {/* ── Device list ─────────────────────────────────────────────────────── */}
-      {filtered.length === 0 ? (
+      {loading && allDevices.length === 0 ? (
+        <TPLLoader label="Scanning for offline devices…" />
+      ) : filtered.length === 0 ? (
         <div style={{ ...panel, padding: '64px 20px', textAlign: 'center' }}>
           <div style={{ width: 52, height: 52, borderRadius: 14,
             background: isLight ? '#ECFDF5' : 'rgba(5,150,105,0.12)',

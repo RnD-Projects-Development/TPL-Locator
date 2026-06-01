@@ -34,17 +34,17 @@ export default function LocatorDetail() {
 
   const T = {
     accent:        isLight ? '#DC2626' : '#A72C32',
-    txt1:          isLight ? '#111827' : '#FFFFFF',
-    txt2:          isLight ? '#6B7280' : 'rgba(255,255,255,0.45)',
-    txt3:          isLight ? '#9CA3AF' : 'rgba(255,255,255,0.30)',
+    txt1:          isLight ? '#000000' : '#FFFFFF',
+    txt2:          isLight ? '#333333' : 'rgba(255,255,255,0.45)',
+    txt3:          isLight ? '#333333' : 'rgba(255,255,255,0.30)',
     locColor:      isLight ? '#2563EB' : '#22D3EE',
     headIconBg:    isLight ? '#A72C32' : 'rgba(167,44,50,0.10)',
     headIconBdr:   isLight ? '#8B2328' : 'rgba(167,44,50,0.25)',
-    headIconColor: isLight ? '#000000' : '#C86068',
+    headIconColor: isLight ? '#FFFFFF' : '#C86068',
     fieldBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
     fieldBdr:      isLight ? '#CFCFCF' : 'rgba(255,255,255,0.05)',
     fieldLabel:    isLight ? '#333333' : 'rgba(255,255,255,0.30)',
-    fieldVal:      isLight ? '#111827' : 'rgba(255,255,255,0.85)',
+    fieldVal:      isLight ? '#000000' : 'rgba(255,255,255,0.85)',
     statLabel:     isLight ? '#333333' : 'rgba(255,255,255,0.35)',
     primBtnBg:     isLight ? '#A72C32' : 'rgba(167,44,50,0.10)',
     primBtnBdr:    isLight ? '#8B2328' : 'rgba(167,44,50,0.28)',
@@ -206,10 +206,10 @@ export default function LocatorDetail() {
 
       {/* Back */}
       <button onClick={() => navigate('/locators')}
-        style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.txt2, fontSize: 13,
+        style={{ display: 'flex', alignItems: 'center', gap: 6, color: isLight ? '#000000' : T.txt2, fontSize: 13,
           background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}
-        onMouseEnter={e => e.currentTarget.style.color = T.txt1}
-        onMouseLeave={e => e.currentTarget.style.color = T.txt2}>
+        onMouseEnter={e => e.currentTarget.style.color = isLight ? '#000000' : T.txt1}
+        onMouseLeave={e => e.currentTarget.style.color = isLight ? '#000000' : T.txt2}>
         <ArrowLeft style={{ width: 15, height: 15 }} /> Back to Locators
       </button>
 

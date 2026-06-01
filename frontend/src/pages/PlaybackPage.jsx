@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
+import MapInfoPanel from "../components/MapInfoPanel.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
@@ -377,10 +378,12 @@ export default function PlaybackPage() {
               <span className="pb-point-val">{formatTs(infoPoint)}</span>
             </div>
 
-            <div className={`pb-mode-badge ${isLiveMode ? "badge-live" : "badge-playback"}`}>
-              <span className="badge-dot" />
-              {isLiveMode ? "Live" : `Playback · ${SPEEDS.find(o => o.value === speed)?.label}`}
-            </div>
+            {!isLiveMode && (
+              <div className="pb-mode-badge badge-playback">
+                <span className="badge-dot" />
+                {`Playback · ${SPEEDS.find(o => o.value === speed)?.label}`}
+              </div>
+            )}
 
             <button className="pb-clear-btn" onClick={() => {
               setSessionTraj([]); setHistoricalTraj([]);
@@ -390,6 +393,16 @@ export default function PlaybackPage() {
             }}>Clear</button>
           </div>
         </div>
+
+        <MapInfoPanel
+          sn={sn}
+          deviceName={label}
+          point={infoPoint}
+          detections={trajectory.length}
+          online={sn ? (isLiveMode ? latest != null : true) : null}
+          detectionsLabel={dataSource === "historical" ? "Playback points" : "Session points"}
+          emptyHint="Select a device to view its playback details"
+        />
       </div>
     </div>
   );

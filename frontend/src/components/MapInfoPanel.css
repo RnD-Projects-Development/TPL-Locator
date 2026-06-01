@@ -1,0 +1,218 @@
+/* ═══════════════════════════════════════════════════════════════
+   MapInfoPanel — right-side device info sidebar for map pages
+   Single container, generous spacing, sections split by dividers.
+   ═══════════════════════════════════════════════════════════════ */
+
+.mip-panel {
+  width: 232px;
+  flex: 0 0 232px;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background:
+    linear-gradient(165deg, rgba(167, 44, 50, 0.18) 0%, rgba(167, 44, 50, 0.04) 30%, var(--surface-1) 70%);
+  border-left: 1px solid var(--border-subtle);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+/* ── One container holds everything ──────────────────────────── */
+.mip-card {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+}
+
+/* sections (everything after the header) get a soft top divider */
+.mip-card > .mip-stat,
+.mip-card > .mip-row {
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.mip-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mip-avatar {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  color: var(--brand);
+}
+.mip-avatar svg { width: 20px; height: 20px; }
+
+.mip-head-text { min-width: 0; flex: 1 1 auto; }
+
+.mip-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mip-sn {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Detections stat (inline) ────────────────────────────────── */
+.mip-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mip-stat-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.mip-stat-num {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-brand);
+}
+.mip-stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* ── Detail rows ─────────────────────────────────────────────── */
+.mip-row {
+  display: flex;
+  gap: 12px;
+}
+
+.mip-row-icon {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  color: var(--brand);
+}
+.mip-row-icon svg { width: 15px; height: 15px; }
+
+.mip-row-body { min-width: 0; flex: 1 1 auto; }
+
+/* Labels: small, subtle, low-emphasis */
+.mip-row-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 5px;
+}
+
+/* Main values: single line, scroll horizontally instead of wrapping */
+.mip-row-val {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.mip-row-val::-webkit-scrollbar { display: none; }
+.mip-row-val.mip-muted { color: var(--text-tertiary); font-weight: 500; }
+
+/* Supporting text: medium weight, secondary — also single line */
+.mip-row-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.mip-row-meta::-webkit-scrollbar { display: none; }
+
+.mip-coords {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--surface-inset);
+  border-radius: var(--radius-sm);
+  padding: 5px 9px;
+  display: block;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.mip-coords::-webkit-scrollbar { display: none; }
+
+/* ── Empty state ─────────────────────────────────────────────── */
+.mip-empty {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 32px 20px;
+}
+.mip-empty-icon {
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-3);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+}
+.mip-empty-icon svg { width: 28px; height: 28px; }
+.mip-empty-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.mip-empty-text {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  max-width: 220px;
+}

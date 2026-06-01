@@ -119,9 +119,9 @@ export default function Locators() {
     : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '18px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
 
   const T = {
-    txt1:        isLight ? '#111827' : '#f4f4f5',
-    txt2:        isLight ? '#6B7280' : 'rgba(255,255,255,0.50)',
-    txt3:        isLight ? '#9CA3AF' : 'rgba(255,255,255,0.32)',
+    txt1:        isLight ? '#000000' : '#f4f4f5',
+    txt2:        isLight ? '#333333' : 'rgba(255,255,255,0.50)',
+    txt3:        isLight ? '#333333' : 'rgba(255,255,255,0.32)',
     inputBg:     isLight ? '#FFFFFF' : 'rgba(255,255,255,0.05)',
     inputBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.10)',
     tabBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.05)',
@@ -132,7 +132,7 @@ export default function Locators() {
     unbindBorder: isLight ? '#FECACA' : 'rgba(220,38,38,0.20)',
     paginBg:     isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)',
     paginBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
-    paginColor:  isLight ? '#374151' : 'rgba(255,255,255,0.68)',
+    paginColor:  isLight ? '#333333' : 'rgba(255,255,255,0.68)',
     paginDisabled: isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)',
   }
 
@@ -342,7 +342,7 @@ export default function Locators() {
         <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
           {isLight ? (
             <div style={{ width: 44, height: 44, borderRadius: 12, background: '#A72C32', border: '1px solid #8B2328', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Radio style={{ width: 20, height: 20, color: '#000000' }} />
+              <Radio style={{ width: 20, height: 20, color: '#FFFFFF' }} />
             </div>
           ) : (
             <div style={{ padding: 9, background: 'rgba(167,44,50,0.14)', borderRadius: 12, border: '1px solid rgba(167,44,50,0.24)', display: 'flex' }}>
@@ -405,7 +405,7 @@ export default function Locators() {
             style={{
               background: T.inputBg, border: `1px solid ${T.inputBorder}`,
               borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12,
-              color: isLight ? '#111827' : 'rgba(255,255,255,0.70)', outline: 'none', width: isLight ? 190 : 176,
+              color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: isLight ? 190 : 176,
               boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
             }}
             onFocus={e => { if (isLight) { e.target.style.borderColor = '#DC2626'; e.target.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.08)' } }}
@@ -464,14 +464,14 @@ export default function Locators() {
             }}
           >
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', fontFamily: 'monospace', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#000000', fontFamily: 'monospace', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {loc.id}
               </div>
-              <div style={{ fontSize: 11, color: '#6B7280', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 11, color: '#333333', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {loc.displayName}
               </div>
             </div>
-            <ChevronRight style={{ width: 14, height: 14, color: '#9CA3AF', flexShrink: 0 }} />
+            <ChevronRight style={{ width: 14, height: 14, color: '#333333', flexShrink: 0 }} />
             {isAdmin && (
               <button
                 onClick={e => handleUnbind(loc.id, e)}

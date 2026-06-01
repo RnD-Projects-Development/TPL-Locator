@@ -402,7 +402,7 @@ export default function UsersPage() {
             <UserCog style={{ width: 22, height: 22, color: '#C44E54', flexShrink: 0 }} />
             Users
           </h1>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.38)', marginTop: 5, marginBottom: 0 }}>
+          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.38)', marginTop: 5, marginBottom: 0 }}>
             {users.length} registered account{users.length !== 1 ? 's' : ''}
           </p>
         </div>

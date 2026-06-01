@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
+import MapInfoPanel from "../components/MapInfoPanel.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
@@ -238,9 +239,6 @@ export default function TrajectoryPage() {
               <span className="tr-pill-dot" />{latest ? "Live" : "Searching"}
             </span>
           )}
-          {activeTraj.length > 0 && (
-            <span className="tr-pill pill-maroon">{activeTraj.length} pts</span>
-          )}
         </div>
 
         <div className="tr-topbar-right">
@@ -331,7 +329,7 @@ export default function TrajectoryPage() {
             <div className="tr-stats-strip">
               <div className="tr-stat-item">
                 <span className="tr-stat-label">Source</span>
-                <span className="tr-stat-val">{mode === "session" ? "Live session" : "Historical"}</span>
+                <span className="tr-stat-val">{mode === "session" ? "Session" : "Historical"}</span>
               </div>
               <div className="tr-stat-sep" />
               <div className="tr-stat-item">
@@ -366,6 +364,16 @@ export default function TrajectoryPage() {
             </div>
           )}
         </div>
+
+        <MapInfoPanel
+          sn={sn}
+          deviceName={label}
+          point={activeLatest}
+          detections={activeTraj.length}
+          online={sn ? latest != null : null}
+          detectionsLabel={mode === "historical" ? "Trajectory points" : "Session points"}
+          emptyHint="Select a device to view its trajectory details"
+        />
       </div>
     </div>
   );

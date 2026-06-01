@@ -76,14 +76,14 @@ export default function Alerts() {
     : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
 
   const T = {
-    txt1:      isLight ? '#111827' : '#FFFFFF',
-    txt2:      isLight ? '#6B7280' : 'rgba(255,255,255,0.35)',
-    txt3:      isLight ? '#9CA3AF' : 'rgba(255,255,255,0.25)',
+    txt1:      isLight ? '#000000' : '#FFFFFF',
+    txt2:      isLight ? '#333333' : 'rgba(255,255,255,0.35)',
+    txt3:      isLight ? '#333333' : 'rgba(255,255,255,0.25)',
     accent:    isLight ? '#DC2626' : '#A72C32',
     divider:   isLight ? '#CFCFCF' : 'rgba(255,255,255,0.05)',
     tabBg:     isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
     tabBdr:    isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
-    tabTxt:    isLight ? '#6B7280' : 'rgba(255,255,255,0.40)',
+    tabTxt:    isLight ? '#333333' : 'rgba(255,255,255,0.40)',
     btnGhostBg: isLight ? '#A72C32' : 'rgba(255,255,255,0.04)',
     btnGhostBdr: isLight ? '#8B2328' : 'rgba(255,255,255,0.10)',
     btnGhostTxt: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
@@ -130,14 +130,11 @@ export default function Alerts() {
             </div>
             Alerts & Notifications
           </h1>
-          <p style={{ color: T.txt2, fontSize: 13, marginTop: 8, marginBottom: 0, paddingLeft: 56 }}>
-            Live anomaly alerts — battery, offline, and geofence events
-            {lastFetched && (
-              <span style={{ marginLeft: 8, color: T.txt3 }}>
-                · updated {fmtLastFetched(lastFetched)}
-              </span>
-            )}
-          </p>
+          {lastFetched && (
+            <p style={{ color: isLight ? '#000000' : T.txt2, fontSize: 15, marginTop: 8, marginBottom: 0, paddingLeft: 56 }}>
+              updated {fmtLastFetched(lastFetched)}
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
