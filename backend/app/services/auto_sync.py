@@ -2,19 +2,23 @@ import asyncio
 from datetime import datetime, timedelta
 import logging
 import json
+import os
 from pathlib import Path
+from typing import Optional, Set
 
 from httpx import AsyncClient, HTTPStatusError, ConnectTimeout, RequestError, TimeoutException
 
 from app.dependencies import get_settings
 from app.services.mongodb import MongoService
 from app.services.citytag import CityTagClient, CityTagError
+from app.services.tracksolid import TrackSolidClient, TrackSolidError, get_tracksolid_config
 
 SYNC_INTERVAL_SECONDS = 300
 CITYTAG_PASSWORD = "Trakker123"
 
 ZOQIN_BASE_URL = "https://www.zoqin.com/ZQGPS/Device/getLocationListByTimeAndSN"
 ZOQIN_DEVICE_JSON_PATH = Path(__file__).resolve().parents[1] / "data" / "zoqin_devices.json"
+TRACKSOLID_DEVICE_JSON_PATH = Path(__file__).resolve().parents[1] / "data" / "tracksolid_devices.json"
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +214,134 @@ async def sync_zoqin(mongo: MongoService):
 
 
 # -----------------------------------------------------
+# LOAD TRACKSOLID DEVICES (optional filter)
+# -----------------------------------------------------
+
+def load_tracksolid_imei_filter() -> Optional[Set[str]]:
+    """Empty or missing JSON = sync all devices on the TrackSolid account."""
+    if not TRACKSOLID_DEVICE_JSON_PATH.exists():
+        return None
+
+    try:
+        with open(TRACKSOLID_DEVICE_JSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        logger.exception("auto_sync tracksolid json read failed path=%s", TRACKSOLID_DEVICE_JSON_PATH)
+        return None
+
+    devices = data.get("devices", []) if isinstance(data, dict) else data
+    imeis = []
+    for entry in devices:
+        if isinstance(entry, dict):
+            raw = entry.get("imei") or entry.get("sn")
+        else:
+            raw = entry
+        if raw:
+            imeis.append(str(raw).strip())
+
+    unique = {i for i in imeis if i}
+    return unique or None
+
+
+# -----------------------------------------------------
+# TRACKSOLID SYNC
+# -----------------------------------------------------
+
+async def sync_tracksolid(mongo: MongoService):
+    config = get_tracksolid_config()
+    if not config:
+        logger.info("auto_sync tracksolid skipped - not configured in .env")
+        return (0, 0)
+
+    admin_email = (
+        os.getenv("TRACKSOLID_ADMIN_EMAIL")
+        or os.getenv("VENDOR_ADMIN_TPL_EMAIL")
+        or "tpl@gmail.com"
+    ).strip()
+
+    admin = await mongo.accounts.find_one({"email": admin_email, "role": "admin"})
+    if not admin:
+        logger.warning("auto_sync tracksolid skipped - admin not found email=%s", admin_email)
+        return (0, 0)
+
+    admin_id = str(admin["_id"])
+    uid = admin.get("uid") or f"tracksolid_{config.account}"
+    imei_filter = load_tracksolid_imei_filter()
+
+    logger.info("auto_sync tracksolid sync started account=%s", config.account)
+
+    client = TrackSolidClient(config)
+    devices_count = 0
+    points_count = 0
+
+    try:
+        locations = await client.list_device_locations()
+    except TrackSolidError as exc:
+        logger.error("auto_sync tracksolid failed: %s", exc)
+        return (0, 0)
+    except Exception:
+        logger.exception("auto_sync tracksolid unhandled failure")
+        return (0, 0)
+
+    logger.info("auto_sync tracksolid fetched locations count=%s", len(locations))
+
+    for item in locations:
+        imei = str(item.get("imei") or "").strip()
+        if not imei:
+            continue
+        if imei_filter is not None and imei not in imei_filter:
+            continue
+
+        lat = item.get("lat")
+        lng = item.get("lng")
+        if lat in (None, "", 0) or lng in (None, "", 0):
+            continue
+
+        device_name = item.get("deviceName") or imei
+        await mongo.upsert_device_from_citytag(
+            admin_id=admin_id,
+            citytag_device={
+                "sn": imei,
+                "assigned_name": device_name,
+                "name": device_name,
+                "battery": item.get("batteryPowerVal") or item.get("electQuantity"),
+            },
+        )
+
+        history_item = {
+            "sn": imei,
+            "latitude": lat,
+            "longitude": lng,
+            "gpstime": item.get("gpsTime") or item.get("hbTime"),
+        }
+
+        try:
+            inserted = await mongo.upsert_location_from_citytag(
+                history_item=history_item,
+                uid=uid,
+                sn=imei,
+                battery_status=item.get("batteryPowerVal") or item.get("electQuantity"),
+            )
+        except Exception:
+            logger.exception("auto_sync tracksolid upsert_location failed imei=%s", imei)
+            continue
+
+        devices_count += 1
+        if inserted:
+            points_count += 1
+            logger.info(
+                "tracksolid_point_uploaded | imei=%s lat=%s lng=%s gpstime=%s",
+                imei,
+                lat,
+                lng,
+                history_item.get("gpstime"),
+            )
+
+    logger.info("auto_sync tracksolid sync finished devices=%s points=%s", devices_count, points_count)
+    return (devices_count, points_count)
+
+
+# -----------------------------------------------------
 # MAIN SYNC (CityTag part with separate point log)
 # -----------------------------------------------------
 
@@ -308,6 +440,14 @@ async def sync_all_users():
         total_points += z_points
     except Exception:
         logger.exception("auto_sync zoqin block failed")
+
+    # TRACKSOLID SYNC
+    try:
+        ts_devices, ts_points = await sync_tracksolid(mongo)
+        total_devices += ts_devices
+        total_points += ts_points
+    except Exception:
+        logger.exception("auto_sync tracksolid block failed")
 
     logger.info(
         "=== auto_sync completed === admins=%s devices=%s points=%s relogins=%s",
