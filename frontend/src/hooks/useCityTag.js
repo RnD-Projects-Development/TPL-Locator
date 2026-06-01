@@ -71,8 +71,8 @@ export function useCityTag() {
   );
 
   const signup = useCallback(
-    async ({ email, password, name, phone }) =>
-      apiFetch("/api/register", { method: "POST", body: { email, password, name: name || "", phone: phone || "" } }, null), []
+    async ({ identifier, password, name }) =>
+      apiFetch("/api/register", { method: "POST", body: { identifier, password, name: name || "" } }, null), []
   );
 
   const getDevices = useCallback(
@@ -141,8 +141,8 @@ export function useCityTag() {
   );
 
   const adminCreateUser = useCallback(
-    async ({ email, password, name }) =>
-      apiFetch("/api/admin/users", { method: "POST", body: { email, password, name } }, accessToken, logout),
+    async ({ identifier, password, name }) =>
+      apiFetch("/api/admin/users", { method: "POST", body: { identifier, password, name } }, accessToken, logout),
     [accessToken, logout]
   );
 

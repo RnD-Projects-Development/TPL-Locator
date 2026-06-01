@@ -2,10 +2,18 @@
 
 import React, { createContext, useContext, useMemo, useState } from "react";
 import { clearAppCaches } from "../utils/clearAppCaches.js";
+import { displayContact } from "../utils/userContact.js";
 
 const AuthContext = createContext(null);
 
 const STORAGE_KEY = "citytag_dashboard_auth";
+
+function normalizeUserForClient(user) {
+  if (!user) return null;
+  const contact = displayContact(user);
+  if (!contact) return user;
+  return { ...user, email: contact };
+}
 
 function loadStored() {
   try {
@@ -13,6 +21,7 @@ function loadStored() {
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (data.role === undefined) data.role = "user";
+    if (data.user) data.user = normalizeUserForClient(data.user);
     return data;
   } catch {
     return null;
@@ -34,10 +43,11 @@ export function AuthProvider({ children }) {
       isAdmin: (role ?? stored?.role) === "admin",
       isAuthed: Boolean(accessToken),
       loginSuccess: ({ user: newUser, accessToken: token, role: newRole }) => {
-        setUser(newUser);
+        const normalized = normalizeUserForClient(newUser);
+        setUser(normalized);
         setAccessToken(token);
         setRole(newRole ?? "user");
-        const payload = { user: newUser, accessToken: token, role: newRole ?? "user" };
+        const payload = { user: normalized, accessToken: token, role: newRole ?? "user" };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       },
       logout: () => {

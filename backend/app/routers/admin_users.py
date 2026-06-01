@@ -3,19 +3,21 @@ import logging
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from bson import ObjectId
 
+from app.account_identifier import resolve_identifier
 from app.dependencies import get_mongo_service, require_role
 from app.models.admin import AdminInDB
 from app.services.mongodb import MongoService
+from app.user_display import public_contact
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin_users"])
 
 
 class CreateUserRequest(BaseModel):
-    email: EmailStr
+    identifier: str  # email address OR phone number
     password: str
     name: str = ""
     role: Optional[str] = "user"
@@ -81,17 +83,27 @@ async def admin_create_user(
     current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    logger.info("admin_create_user started admin=%s email=%s", current_admin.email, payload.email)
+    logger.info("admin_create_user started admin=%s identifier=%s", current_admin.email, payload.identifier)
     try:
-        existing = await mongo.get_user_by_email(payload.email)
+        try:
+            email, phone = resolve_identifier(payload.identifier)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        existing = await mongo.get_account_by_email(email)
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
-        user = await mongo.create_user(payload.email, payload.password, payload.name, payload.role or "user")
+        if phone:
+            existing_phone = await mongo.get_user_by_phone(phone)
+            if existing_phone:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already registered")
+
+        user = await mongo.create_user(email, payload.password, payload.name, phone)
         created_at = datetime.now(timezone.utc)
         await mongo.accounts.update_one(
             {"_id": ObjectId(str(user.id)), "role": "user"},
-            {"$set": {"created_at": created_at}},
+            {"$set": {"created_at": created_at, "phone": phone}},
         )
         await mongo.update_user_admin(str(user.id), str(current_admin.id))
         updated = await mongo.get_user_by_id(str(user.id))
@@ -101,7 +113,8 @@ async def admin_create_user(
         devices = _populate_devices(updated.devices or [], device_map)
         response = {
             "id":         str(updated.id),
-            "email":      updated.email,
+            "email":      public_contact(str(updated.email), updated.phone),
+            "phone":      updated.phone,
             "name":       updated.name,
             "role":       updated.role or "user",
             "admin_id":   str(updated.admin_id) if updated.admin_id else None,
@@ -113,7 +126,7 @@ async def admin_create_user(
     except HTTPException:
         raise
     except Exception as err:
-        logger.exception("admin_create_user failed admin=%s email=%s", current_admin.email, payload.email)
+        logger.exception("admin_create_user failed admin=%s identifier=%s", current_admin.email, payload.identifier)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(err))
 
 
@@ -155,9 +168,12 @@ async def admin_list_users(
             last_logged_in = user_dict.get("last_logged_in")
             if isinstance(last_logged_in, datetime):
                 last_logged_in = last_logged_in.isoformat()
+            raw_email = user_dict.get("email", "")
+            raw_phone = user_dict.get("phone")
             result.append({
                 "id":             str(user_dict.get("_id", "")),
-                "email":          user_dict.get("email", ""),
+                "email":          public_contact(raw_email, raw_phone),
+                "phone":          raw_phone,
                 "name":           user_dict.get("name", ""),
                 "role":           user_dict.get("role", "user"),
                 "admin_id":       str(user_dict.get("admin_id", "")) if user_dict.get("admin_id") else None,
@@ -224,7 +240,8 @@ async def admin_update_user(
     devices = _populate_devices(updated.devices or [], device_map)
     response = {
         "id":         str(updated.id),
-        "email":      updated.email,
+        "email":      public_contact(str(updated.email), updated.phone),
+        "phone":      updated.phone,
         "name":       updated.name,
         "role":       updated.role or "user",
         "admin_id":   str(updated.admin_id) if updated.admin_id else None,

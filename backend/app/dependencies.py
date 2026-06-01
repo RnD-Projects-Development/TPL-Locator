@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.models.admin import AccountInDB, AdminInDB, AdminPublic
 from app.models.user import UserInDB, UserPublic
+from app.user_display import public_contact
 from app.services.mongodb import MongoService
 from app.services.citytag import CityTagClient
 from app.services.location import LocationService
@@ -180,8 +181,9 @@ def admin_to_public(admin: AdminInDB) -> AdminPublic:
 def user_to_public(user: UserInDB) -> UserPublic:
     return UserPublic(
         id=str(user.id),
-        email=user.email,
+        email=public_contact(str(user.email), user.phone),
         name=user.name,
+        phone=user.phone,
         admin_id=str(user.admin_id) if user.admin_id else None,
         devices=[str(d) for d in user.devices],
     )

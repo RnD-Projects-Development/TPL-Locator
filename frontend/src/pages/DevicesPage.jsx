@@ -8,6 +8,7 @@ import { useUserCache } from "../context/Usercachecontext.jsx";
 import { useHomePageCache } from "../context/HomePageCacheContext.jsx";
 import { invalidatePaginatedCache, usePaginatedDevices } from "../hooks/usePaginatedDevices.js";
 import { loadLocatorPageState, saveLocatorPageState } from "../utils/locatorPageState.js";
+import { isValidIdentifier } from "../utils/userContact.js";
 import "./DevicesPage.css";
 
 const SELECT_STYLE = {
@@ -128,7 +129,7 @@ const HomePage = () => {
 
   // ── Create user modal state ────────────────────────────────────────────────
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
-  const [createUserEmail, setCreateUserEmail]         = useState('');
+  const [createUserIdentifier, setCreateUserIdentifier] = useState('');
   const [createUserPassword, setCreateUserPassword]   = useState('');
   const [createUserName, setCreateUserName]           = useState('');
   const [createUserLoading, setCreateUserLoading]     = useState(false);
@@ -277,22 +278,30 @@ const HomePage = () => {
 
   // ── Create user ────────────────────────────────────────────────────────────
   const openCreateUserModal = () => {
-    setCreateUserEmail(''); setCreateUserPassword('');
+    setCreateUserIdentifier(''); setCreateUserPassword('');
     setCreateUserName(''); setCreateUserError('');
     setShowCreateUserModal(true);
   };
 
   const closeCreateUserModal = () => {
     setShowCreateUserModal(false);
-    setCreateUserEmail(''); setCreateUserPassword('');
+    setCreateUserIdentifier(''); setCreateUserPassword('');
     setCreateUserName(''); setCreateUserError('');
   };
 
   const handleCreateUser = async () => {
-    if (!createUserEmail.trim() || !createUserPassword.trim()) return;
+    if (!createUserIdentifier.trim() || !createUserPassword.trim()) return;
+    if (!isValidIdentifier(createUserIdentifier)) {
+      setCreateUserError('Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)');
+      return;
+    }
     setCreateUserLoading(true); setCreateUserError('');
     try {
-      await adminCreateUser({ email: createUserEmail.trim(), password: createUserPassword.trim(), name: createUserName.trim() });
+      await adminCreateUser({
+        identifier: createUserIdentifier.trim(),
+        password: createUserPassword.trim(),
+        name: createUserName.trim(),
+      });
       closeCreateUserModal(); refreshUsers();
     } catch (err) {
       setCreateUserError(err.message || "Failed to create user");
@@ -701,8 +710,8 @@ const HomePage = () => {
                 </div>
               )}
               <div className="hp-modal-field">
-                <label>Email <span className="required">*</span></label>
-                <input type="email" placeholder="e.g. user@example.com" value={createUserEmail} onChange={(e) => setCreateUserEmail(e.target.value)} autoFocus />
+                <label>Email or Phone Number <span className="required">*</span></label>
+                <input type="text" placeholder="Email or phone number" value={createUserIdentifier} onChange={(e) => setCreateUserIdentifier(e.target.value)} autoFocus />
               </div>
               <div className="hp-modal-field">
                 <label>Password <span className="required">*</span></label>
@@ -715,7 +724,7 @@ const HomePage = () => {
             </div>
             <div className="hp-modal-footer">
               <button className="hp-modal-cancel" onClick={closeCreateUserModal}>Cancel</button>
-              <button className="hp-modal-confirm" onClick={handleCreateUser} disabled={!createUserEmail.trim() || !createUserPassword.trim() || createUserLoading}>
+              <button className="hp-modal-confirm" onClick={handleCreateUser} disabled={!createUserIdentifier.trim() || !createUserPassword.trim() || createUserLoading}>
                 {createUserLoading ? "Creating…" : "Create User"}
               </button>
             </div>

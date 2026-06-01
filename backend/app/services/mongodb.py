@@ -98,7 +98,7 @@ class MongoService:
 
 
     async def get_user_by_phone(self, phone: str) -> Optional['UserInDB']:
-        doc = await self.users.find_one({"phone": phone.strip()})
+        doc = await self.accounts.find_one({"phone": phone.strip(), "role": "user"})
         if not doc:
             return None
         from app.models.user import UserInDB

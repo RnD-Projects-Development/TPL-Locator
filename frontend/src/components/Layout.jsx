@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import './Layout.css';
 import tplLogo from '../assets/tpl.png';
 import { useAuth } from '../context/AuthContext.jsx';
+import { contactLabel, displayContact } from '../utils/userContact.js';
 import { DeviceCacheProvider } from '../context/DeviceCacheContext.jsx';
 import { SidebarDevicesProvider } from '../context/SidebarDevicesContext.jsx';
 import { UserCacheProvider } from '../context/Usercachecontext.jsx';
@@ -92,7 +93,8 @@ function ProfileSettingsModal({ isOpen, onClose, user, role }) {
   const fileRef = useRef();
   const [tab, setTab]             = useState("profile");
   const [avatarSrc, setAvatar]    = useState(null);
-  const [displayName, setName]    = useState(user?.email?.split("@")[0] ?? "User");
+  const contact = displayContact(user);
+  const [displayName, setName]    = useState(user?.name || contact?.split("@")[0] || "User");
   const [phone, setPhone]         = useState("");
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw]         = useState("");
@@ -200,8 +202,10 @@ function ProfileSettingsModal({ isOpen, onClose, user, role }) {
               </div>
               <div style={{ height: 1, background: 'var(--border-subtle)' }} />
               <TextInput label="Display Name" value={displayName} onChange={e => setName(e.target.value)} placeholder="Your name" />
-              <TextInput label="Email Address" value={user?.email ?? "—"} readOnly />
-              <TextInput label="Phone (optional)" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+92 300 0000000" />
+              <TextInput label={contactLabel(user)} value={contact || "—"} readOnly />
+              {contact.includes("@") && (
+                <TextInput label="Phone (optional)" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+92 300 0000000" />
+              )}
               <TextInput label="Role" value={roleLabel} readOnly />
               <button onClick={handleSaveProfile} style={{ width: '100%', padding: '11px 0', borderRadius: 'var(--radius-md)', border: 'none', background: profileSaved ? 'var(--status-online)' : 'var(--brand)', color: '#fff', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background 0.2s' }}>
                 {profileSaved ? <><Icon d={ICONS.check} size={15} /> Saved</> : "Save Profile"}
@@ -246,6 +250,7 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, role, isAdmin, logout } = useAuth();
+  const contact = displayContact(user);
   const [showProfileMenu, setShowProfileMenu]         = useState(false);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -325,7 +330,7 @@ const Layout = ({ children }) => {
                   <circle cx="12" cy="7" r="4" strokeWidth="2"/>
                 </svg>
               </div>
-              <span className="profile-email">{user?.email ?? "Account"}</span>
+              <span className="profile-email">{contact || "Account"}</span>
               <svg className="dropdown-arrow" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd"/>
               </svg>

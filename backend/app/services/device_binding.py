@@ -4,6 +4,7 @@ from typing import Optional, Union
 
 from fastapi import HTTPException, status
 
+from app.account_identifier import normalize_phone
 from app.models.admin import AdminInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
@@ -22,15 +23,33 @@ async def _resolve_target_user(
     user_id: Optional[str] = None,
 ) -> UserInDB:
     if user_id:
-        target_user = await mongo.get_user_by_id(user_id)
+        uid = (user_id or "").strip()
+        target_user = await mongo.get_user_by_id(uid)
         if not target_user:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No user account found with user ID '{uid}'",
+            )
         return target_user
 
     if email:
-        target_user = await mongo.get_user_by_email(email.strip())
+        identifier = (email or "").strip()
+        if "@" in identifier:
+            target_user = await mongo.get_user_by_email(identifier.lower())
+            if not target_user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"No user account found with email '{identifier}'",
+                )
+            return target_user
+
+        phone = normalize_phone(identifier)
+        target_user = await mongo.get_user_by_phone(phone)
         if not target_user:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No user account found with phone number '{identifier}'",
+            )
         return target_user
 
     if _is_admin(current_account):

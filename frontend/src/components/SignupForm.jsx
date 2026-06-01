@@ -13,14 +13,17 @@ const inputCls = `
 
 const labelCls = "block text-xs font-semibold text-zinc-400 uppercase tracking-widest";
 
-// ── Phone validation helpers ───────────────────────────────────────────────────
-function normalizePhone(raw) {
-  return raw.replace(/[\s\-\(\)]/g, '');
-}
-
+// ── Identifier validation helpers ─────────────────────────────────────────────
 function isValidPakistaniPhone(raw) {
   const p = normalizePhone(raw);
   return /^03\d{9}$/.test(p) || /^\+92\d{10}$/.test(p);
+}
+
+function isValidIdentifier(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("@")) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  return isValidPakistaniPhone(trimmed);
 }
 
 export default function SignupForm() {
@@ -29,39 +32,37 @@ export default function SignupForm() {
   const { loginSuccess } = useAuth();
 
   const [name, setName]                       = useState("");
-  const [phone, setPhone]                     = useState("");
-  const [email, setEmail]                     = useState("");
+  const [identifier, setIdentifier]         = useState("");
   const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading]                 = useState(false);
   const [error, setError]                     = useState("");
 
   const passwordsMatch = !confirmPassword || password === confirmPassword;
-  const phoneError = phone && !isValidPakistaniPhone(phone);
+  const identifierError = identifier && !isValidIdentifier(identifier);
 
   const canSubmit = useMemo(
     () =>
       name.trim() &&
-      phone.trim() && isValidPakistaniPhone(phone) &&
-      email.trim() &&
+      identifier.trim() &&
+      isValidIdentifier(identifier) &&
       password &&
       password === confirmPassword &&
       !loading,
-    [name, phone, email, password, confirmPassword, loading]
+    [name, identifier, password, confirmPassword, loading]
   );
 
   async function onSubmit(e) {
     e.preventDefault();
     if (!passwordsMatch) return;
-    if (!isValidPakistaniPhone(phone)) return;
+    if (!isValidIdentifier(identifier)) return;
     setError("");
     setLoading(true);
     try {
       const res = await signup({
-        email: email.trim(),
+        identifier: identifier.trim(),
         password,
         name: name.trim(),
-        phone: normalizePhone(phone.trim()),
       });
       loginSuccess({
         user: res.user,
@@ -70,7 +71,7 @@ export default function SignupForm() {
       });
       localStorage.setItem(
         "citytag_last_login",
-        JSON.stringify({ email: email.trim(), role: "user" })
+        JSON.stringify({ email: identifier.trim(), role: "user" })
       );
       navigate("/devices");
     } catch (err) {
@@ -99,42 +100,26 @@ export default function SignupForm() {
         />
       </div>
 
-      {/* Phone Number ──────────────────────────────────────────── */}
+      {/* Email or Phone ─────────────────────────────────────────── */}
       <div>
         <label className={labelCls}>
-          Phone Number <span style={{ color: "#ef4444" }}>*</span>
+          Email or Phone Number <span style={{ color: "#ef4444" }}>*</span>
         </label>
         <input
           className={inputCls}
-          style={phoneError ? { borderColor: "#ef4444" } : {}}
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          type="tel"
-          placeholder="e.g. 03001234567 or +923001234567"
-          autoComplete="tel"
-          required
-        />
-        {phoneError && (
-          <p style={{ fontSize: 11, color: "#fca5a5", marginTop: 4 }}>
-            Enter a valid Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
-          </p>
-        )}
-      </div>
-
-      {/* Email ─────────────────────────────────────────────────── */}
-      <div>
-        <label className={labelCls}>
-          Email <span style={{ color: "#ef4444" }}>*</span>
-        </label>
-        <input
-          className={inputCls}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          type="email"
-          placeholder="e.g. john@example.com"
+          style={identifierError ? { borderColor: "#ef4444" } : {}}
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          type="text"
+          placeholder="Email or phone number"
           autoComplete="username"
           required
         />
+        {identifierError && (
+          <p style={{ fontSize: 11, color: "#fca5a5", marginTop: 4 }}>
+            Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
+          </p>
+        )}
       </div>
 
       {/* Password ──────────────────────────────────────────────── */}

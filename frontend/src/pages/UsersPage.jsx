@@ -8,6 +8,7 @@ import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
+import { displayContact, isValidIdentifier } from '../utils/userContact.js'
 
 /* ── Design tokens ────────────────────────────────────────────────────────── */
 const panel = {
@@ -131,7 +132,8 @@ function DeviceCard({ device, navigate, isAdmin, onUnbind }) {
 /* ── User row ─────────────────────────────────────────────────────────────── */
 function UserRow({ u, idx, isAdmin, onDelete, expanded, onToggle, boundDevices, navigate, onUnbindDevice }) {
   const [hov, setHov] = useState(false)
-  const initials = (u.name || u.email || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  const contact = displayContact(u)
+  const initials = (u.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
 
   return (
     <>
@@ -169,7 +171,7 @@ function UserRow({ u, idx, isAdmin, onDelete, expanded, onToggle, boundDevices, 
         {/* Email */}
         <td style={{ padding: '13px 16px' }}>
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', fontFamily: 'var(--font-mono)' }}>
-            {u.email || '—'}
+            {contact || '—'}
           </span>
         </td>
 
@@ -263,7 +265,7 @@ export default function UsersPage() {
 
   /* Create User state */
   const [showCreate,   setShowCreate]   = useState(false)
-  const [newEmail,     setNewEmail]     = useState('')
+  const [newIdentifier, setNewIdentifier] = useState('')
   const [newName,      setNewName]      = useState('')
   const [newPassword,  setNewPassword]  = useState('')
   const [createLoading, setCreateLoading] = useState(false)
@@ -288,7 +290,7 @@ export default function UsersPage() {
     const q = debouncedQ
     return users.filter(u => {
       if (!q) return true
-      return u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q)
+      return u.name?.toLowerCase().includes(q) || displayContact(u).toLowerCase().includes(q)
     })
   }, [users, debouncedQ])
 
@@ -317,17 +319,25 @@ export default function UsersPage() {
   }, [])
 
   /* ── Create user ────────────────────────────────────────────────────────── */
-  const openCreate = () => { setNewEmail(''); setNewName(''); setNewPassword(''); setCreateError(''); setShowCreate(true) }
+  const openCreate = () => { setNewIdentifier(''); setNewName(''); setNewPassword(''); setCreateError(''); setShowCreate(true) }
   const closeCreate = () => setShowCreate(false)
 
   const handleCreate = async () => {
-    if (!newEmail.trim() || !newPassword.trim() || !newName.trim()) {
-      setCreateError('Email, name and password are all required')
+    if (!newIdentifier.trim() || !newPassword.trim() || !newName.trim()) {
+      setCreateError('Email or phone, name and password are all required')
+      return
+    }
+    if (!isValidIdentifier(newIdentifier)) {
+      setCreateError('Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)')
       return
     }
     setCreateError(''); setCreateLoading(true)
     try {
-      await adminCreateUser(newEmail.trim(), newPassword.trim(), newName.trim())
+      await adminCreateUser({
+        identifier: newIdentifier.trim(),
+        password: newPassword.trim(),
+        name: newName.trim(),
+      })
       refresh()
       closeCreate()
     } catch (err) {
@@ -585,11 +595,11 @@ export default function UsersPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.58)' }}>
-                  Email <span style={{ color: '#C86068' }}>*</span>
+                  Email or Phone Number <span style={{ color: '#C86068' }}>*</span>
                 </label>
                 <input
-                  type="email" placeholder="user@example.com"
-                  value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                  type="text" placeholder="Email or phone number"
+                  value={newIdentifier} onChange={e => setNewIdentifier(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleCreate()}
                   style={inputStyle}
                 />
@@ -613,13 +623,13 @@ export default function UsersPage() {
               <button onClick={closeCreate} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>Cancel</button>
               <button
                 onClick={handleCreate}
-                disabled={createLoading || !newEmail.trim() || !newName.trim() || !newPassword.trim()}
+                disabled={createLoading || !newIdentifier.trim() || !newName.trim() || !newPassword.trim()}
                 style={{
                   padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                  cursor: (createLoading || !newEmail.trim() || !newName.trim() || !newPassword.trim()) ? 'not-allowed' : 'pointer',
+                  cursor: (createLoading || !newIdentifier.trim() || !newName.trim() || !newPassword.trim()) ? 'not-allowed' : 'pointer',
                   background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
                   border: '1px solid rgba(167,44,50,0.40)', color: '#fff',
-                  opacity: (createLoading || !newEmail.trim() || !newName.trim() || !newPassword.trim()) ? 0.50 : 1,
+                  opacity: (createLoading || !newIdentifier.trim() || !newName.trim() || !newPassword.trim()) ? 0.50 : 1,
                   transition: 'opacity 0.15s',
                 }}
               >{createLoading ? 'Creating…' : 'Create User'}</button>
@@ -641,7 +651,7 @@ export default function UsersPage() {
             <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginBottom: 8 }}>Delete User</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.52)', marginBottom: 20 }}>
               Permanently delete{' '}
-              <span style={{ color: '#FFFFFF', fontWeight: 600 }}>{deleteTarget.name || deleteTarget.email}</span>?{' '}
+              <span style={{ color: '#FFFFFF', fontWeight: 600 }}>{deleteTarget.name || displayContact(deleteTarget)}</span>?{' '}
               This cannot be undone.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>

@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import tplLogo from "../assets/tpl.png";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useUserCache } from "../context/Usercachecontext.jsx";
+import { displayContact } from "../utils/userContact.js";
 import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
+import { displayContact } from "../utils/userContact.js";
 import "./DevicesTable.css";
 
 const TPLLoader = ({ label = "Loading users…" }) => (
@@ -226,7 +228,7 @@ export default function UsersTable() {
             return (
               <tr key={u._id || u.id}>
                 <td style={{ textAlign:'center', color:'#52525b', fontSize:11, fontWeight:500, userSelect:'none' }}>{index + 1}.</td>
-                <td><span className="cell-client">{u.email ?? "—"}</span></td>
+                <td><span className="cell-client">{displayContact(u) || "—"}</span></td>
                 <td><span className="cell-serial">{u.name || "—"}</span></td>
                 <td><span className="cell-serial" style={{ textTransform: 'capitalize' }}>{u.role || "staff"}</span></td>
                 <td>
@@ -317,7 +319,7 @@ export default function UsersTable() {
 
           <div style={{ background:"#27272a", border:"1px solid #3f3f46", borderRadius:8, padding:"12px 14px" }}>
             <p style={{ margin:0, color:"#a1a1aa", fontSize:12, lineHeight:1.6 }}>
-              You are about to delete <strong style={{ color:"#f4f4f5" }}>{deleteTarget.email}</strong>.
+              You are about to delete <strong style={{ color:"#f4f4f5" }}>{displayContact(deleteTarget)}</strong>.
               {(deleteTarget.devices?.length ?? 0) > 0 && (
                 <> Their <strong style={{ color:"#fca5a5" }}>{deleteTarget.devices.length} assigned device{deleteTarget.devices.length !== 1 ? "s" : ""}</strong> will be unassigned automatically.</>
               )}
@@ -346,7 +348,7 @@ export default function UsersTable() {
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
               <h3 style={{ margin:0, color:"#f4f4f5", fontSize:15, fontWeight:600 }}>Edit User</h3>
-              <p style={{ margin:"4px 0 0", color:"#71717a", fontSize:12 }}>{editTarget.email}</p>
+              <p style={{ margin:"4px 0 0", color:"#71717a", fontSize:12 }}>{displayContact(editTarget)}</p>
             </div>
             {!editLoading && <CloseBtn onClick={() => setEditTarget(null)} />}
           </div>
@@ -364,7 +366,7 @@ export default function UsersTable() {
               </label>
               <input
                 type="text"
-                value={editTarget.email}
+                value={displayContact(editTarget)}
                 readOnly
                 style={{
                   width:"100%", padding:"8px 12px", background:"#27272a",
@@ -447,7 +449,7 @@ export default function UsersTable() {
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
               <h3 style={{ margin:0, color:"#f4f4f5", fontSize:15, fontWeight:600 }}>Manage Devices</h3>
-              <p style={{ margin:"4px 0 0", color:"#71717a", fontSize:12 }}>{selectedUser.name || selectedUser.email}</p>
+              <p style={{ margin:"4px 0 0", color:"#71717a", fontSize:12 }}>{selectedUser.name || displayContact(selectedUser)}</p>
             </div>
             <CloseBtn onClick={() => setSelectedUser(null)} />
           </div>

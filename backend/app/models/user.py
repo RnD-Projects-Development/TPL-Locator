@@ -36,7 +36,7 @@ class UserCreate(BaseModel):
 
 class UserPublic(BaseModel):
     id: str
-    email: EmailStr
+    email: str  # real email or phone when account was created with phone only
     name: Optional[str] = None
     phone: Optional[str] = None
     admin_id: Optional[str] = None

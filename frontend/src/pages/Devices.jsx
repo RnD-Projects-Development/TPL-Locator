@@ -6,6 +6,7 @@ import Playback from "../components/Playback.jsx";
 import MapView from "../components/MapView.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { displayContact } from "../utils/userContact.js";
 import AOS from "aos";
 import "aos/dist/aos.css";
 import "../pages/Devices.css";
@@ -13,6 +14,7 @@ import tplLogo from "../assets/tpl.png";
 
 export default function Devices() {
   const { logout, user } = useAuth();
+  const contact = displayContact(user);
   const { getDevices } = useCityTag();
 
   const [devices, setDevices] = useState([]);
@@ -129,11 +131,11 @@ export default function Devices() {
                     TPL Trakker
                   </p>
                   <p className="text-sm font-semibold text-white leading-none">
-                    {user?.email?.split("@")[0]}
+                    {user?.name || contact?.split("@")[0] || contact}
                   </p>
                 </div>
                 <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center text-[#800000] font-bold">
-                  {user?.email?.charAt(0).toUpperCase()}
+                  {(user?.name || contact)?.charAt(0).toUpperCase()}
                 </div>
               </button>
 
@@ -141,7 +143,7 @@ export default function Devices() {
                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden py-1 z-[60]">
                   <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
                     <p className="text-sm font-semibold text-white truncate">
-                      {user?.email}
+                      {contact}
                     </p>
                     <p className="text-[10px] text-slate-400 font-mono mt-1">
                       UID: {user?.uid}
