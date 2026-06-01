@@ -284,22 +284,8 @@ function UserDevicePanelCard({ devices }) {
               </text>
             )}
           </svg>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 8px', justifyContent: 'center', maxWidth: '180px' }}>
-            {slices.map((s, i) => (
-              <div key={s.user}
-                style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer',
-                  opacity: hovered === null ? 1 : hovered === i ? 1 : 0.28, transition: 'opacity 0.15s' }}
-                onMouseEnter={() => setHovered(i)}
-                onMouseLeave={() => setHovered(null)}>
-                <div style={{ width: '7px', height: '7px', borderRadius: '2px', flexShrink: 0, background: s.color }} />
-                <span style={{ fontSize: '11px', color: '#F0F0F0', fontWeight: 600,
-                  maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {s.user}
-                </span>
-                <span style={{ fontSize: '11px', color: s.color, fontWeight: 700 }}>{s.count}</span>
-              </div>
-            ))}
-          </div>
+          {/* 3.2 — legend removed; the device list beside the pie already maps
+             each user (color avatar + count), so the under-pie legend was redundant. */}
         </div>
         {/* Scrollable device list */}
         <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', maxHeight: '300px',
@@ -468,14 +454,12 @@ function RecentActivityPanel({ activityRows, filteredActivity, activitySearch, s
         <div>
           <div style={{ fontSize:'15px', fontWeight:700, color:'#FFFFFF', letterSpacing:'-0.01em' }}>Recent Activity</div>
           <div style={{ fontSize:'11px', color:'#E0E0E0', marginTop:'2px' }}>
-            {activityRows.length} locator{activityRows.length !== 1 ? 's' : ''} · sorted by last seen
+            {activitySearch
+              ? `${filteredActivity.length} of ${activityRows.length} locator${activityRows.length !== 1 ? 's' : ''}`
+              : `${activityRows.length} locator${activityRows.length !== 1 ? 's' : ''} · sorted by last seen`}
           </div>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
-            <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:'#22c55e', display:'block', animation:'pulse 2s ease-in-out infinite' }} />
-            <span style={{ fontSize:'10px', fontWeight:700, color:'#22c55e', letterSpacing:'0.08em' }}>LIVE</span>
-          </div>
           <input
             placeholder="Search devices…"
             value={activitySearch}
@@ -512,7 +496,17 @@ function RecentActivityPanel({ activityRows, filteredActivity, activitySearch, s
             onMouseEnter={e => e.currentTarget.style.background='rgba(167,44,50,0.06)'}
             onMouseLeave={e => e.currentTarget.style.background = idx%2===0?'transparent':'rgba(255,255,255,0.015)'}
           >
-            <span style={{ fontFamily:'monospace', fontSize:'12px', fontWeight:600, color:'#C44E54', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.id}</span>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:'6px', overflow:'hidden' }}>
+              <span style={{ fontFamily:'monospace', fontSize:'12px', fontWeight:600, color:'#C44E54', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.id}</span>
+              <span style={{
+                flexShrink:0, fontSize:'9px', fontWeight:700, letterSpacing:'0.04em', textTransform:'uppercase',
+                padding:'1px 6px', borderRadius:'4px', whiteSpace:'nowrap',
+                ...(row.type === 'Sticker'
+                  ? { background:'rgba(255,183,3,0.12)', color:'#FFB703', border:'1px solid rgba(255,183,3,0.24)' }
+                  : { background:'rgba(0,180,216,0.12)', color:'#00B4D8', border:'1px solid rgba(0,180,216,0.24)' }) }}>
+                {row.type}
+              </span>
+            </span>
             <span style={{ fontSize:'12px', color:'#F0F0F0', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:'8px' }}>{row.user}</span>
             <span>
               {row.status === 'online'
@@ -749,11 +743,15 @@ export default function Dashboard() {
         const isOnline = lastTs
           ? (Date.now() - new Date(lastTs).getTime()) < 30 * 60_000
           : false
+        // 5.6 — device-type badge: numeric-only SNs are Smart Stickers,
+        // everything else (e.g. CARD-* / alphanumeric) is a BLE Locator.
+        const type = /^\d+$/.test(String(sn)) ? 'Sticker' : 'Locator'
         return {
           id:       sn,
           user:     d.assigned_user_name ?? d.assignedUser ?? d.name ?? '—',
           status:   isOnline ? 'online' : 'offline',
           lastSeen: lastTs,
+          type,
           ts:       lastTs ? new Date(lastTs).getTime() : 0,
         }
       })
@@ -803,6 +801,13 @@ export default function Dashboard() {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'18px' }}>
+
+      {/* ── Dashboard header ──────────────────────────────────── */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
+        <div>
+          <h1 style={{ fontSize:22, fontWeight:800, color:'#FFFFFF', margin:0, letterSpacing:'-0.01em' }}>Dashboard</h1>
+        </div>
+      </div>
 
       {/* ── Row 1: 4 large glossy KPI cards ───────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'16px' }}>

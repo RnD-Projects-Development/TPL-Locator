@@ -137,15 +137,11 @@ async def admin_list_users(
 ) -> List[dict]:
     logger.info("admin_list_users started admin=%s", current_admin.email)
     try:
-        admin_id_obj = _to_oid(current_admin.id)
-        users_cursor = mongo.accounts.find({
-            "role": "user",
-            "$or": [
-                {"admin_id": admin_id_obj},
-                {"admin_id": None},
-                {"admin_id": {"$exists": False}},
-            ]
-        })
+        # Single-company deployment: all admin logins manage one shared fleet and
+        # user pool, so every registered end-user must be bindable from any admin.
+        # (Previously scoped to admin_id == self OR null, which silently hid users
+        #  linked to a different admin — that's the "missing from bind dropdown" bug.)
+        users_cursor = mongo.accounts.find({"role": "user"})
         user_dicts = await users_cursor.to_list(None)
 
         all_device_ids = []

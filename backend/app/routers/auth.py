@@ -159,10 +159,7 @@ async def register(
 
     user = await mongo.create_user(email, payload.password, name, phone)
 
-
-
-    # FIX 2: explicitly stamp name + phone + created_at on the doc.
-    # create_user() may not write these fields depending on its implementation.
+    # Ensure name/phone/created_at are present on the stored account document
     await mongo.accounts.update_one(
         {"_id": ObjectId(str(user.id)), "role": "user"},
         {"$set": {

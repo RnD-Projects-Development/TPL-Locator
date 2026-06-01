@@ -1,31 +1,33 @@
 import React, { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, RefreshCw, Bell } from 'lucide-react'
+import FieldStaffPill from '../FieldStaffPill.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
+import Switch from '../Switch.jsx'
 
 const crumbs = {
   '/dashboard':   ['Dashboard'],
   '/search':      ['Search'],
-  '/locators':    ['Devices', 'BLE Locators'],
+  '/locators':    ['Devices', 'Locators'],
   '/stickers':    ['Devices', 'Smart Stickers'],
-  '/missing':     ['Devices', 'Missing Devices'],
+  '/missing':     ['Devices', 'Offline Devices'],
   '/map':         ['Intelligence', 'Map View'],
   '/trajectory':  ['Intelligence', 'Trajectory'],
   '/playback':    ['Intelligence', 'Playback'],
   '/fence':       ['Intelligence', 'Fence'],
   '/alerts':      ['Alerts'],
   '/reports':     ['Reports & Admin', 'Reports'],
-  '/field-staff': ['Reports & Admin', 'Field Staff'],
+  '/field-staff': ['Dashboard', 'Field Staff'],
   '/users':       ['Reports & Admin', 'Users'],
 }
 const getCrumbs = path => {
   if (crumbs[path]) return crumbs[path]
-  if (path.startsWith('/locators/')) return ['Devices', 'BLE Locators', path.split('/')[2]]
+  if (path.startsWith('/locators/')) return ['Devices', 'Locators', path.split('/')[2]]
   if (path.startsWith('/stickers/')) return ['Devices', 'Smart Stickers', path.split('/')[2]]
   return ['Page']
 }
 
-export default function Header() {
+export default function Header({ pageTheme, setPageTheme }) {
   const { pathname } = useLocation()
   const navigate     = useNavigate()
   const [now, setNow] = useState(new Date())
@@ -48,23 +50,29 @@ export default function Header() {
 
   return (
     <header className="h-[60px] flex items-center px-5 gap-4 bg-black border-b border-gray-800 flex-shrink-0">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 text-xs flex-1">
-        <span className="text-gray-500 font-medium">TPL TRAKKER</span>
-        {parts.map((p, i) => (
-          <React.Fragment key={i}>
-            <ChevronRight className="w-3 h-3 text-gray-700" />
-            <span className={i === parts.length - 1 ? 'text-white font-semibold' : 'text-gray-400'}>{p}</span>
-          </React.Fragment>
-        ))}
-      </div>
+      {/* Breadcrumb / Dashboard hint */}
+      {pathname === '/dashboard' ? (
+        <div className="flex items-center gap-1.5 text-xs flex-1">
+          <span className="text-gray-500 font-medium">TPL TRAKKER</span>
+          <ChevronRight className="w-3 h-3 text-gray-700" />
+          <span className='text-white font-semibold'>Dashboard</span>
+          <div style={{ marginLeft: 8 }}>
+            <FieldStaffPill onClick={() => navigate('/field-staff')} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-xs flex-1">
+          <span className="text-gray-500 font-medium">TPL TRAKKER</span>
+          {parts.map((p, i) => (
+            <React.Fragment key={i}>
+              <ChevronRight className="w-3 h-3 text-gray-700" />
+              <span className={i === parts.length - 1 ? 'text-white font-semibold' : 'text-gray-400'}>{p}</span>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
 
-      {/* Search */}
-      <div className="relative hidden md:block">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-        <input placeholder="Search devices, locations…"
-          className="w-52 bg-[#1a1a1a] border border-gray-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-[#A72C32]/50 focus:ring-1 focus:ring-[#A72C32]/20 transition-all" />
-      </div>
+      {/* Search removed per user request */}
 
       {/* Clock */}
       <div className="hidden lg:flex flex-col items-end">
@@ -75,14 +83,16 @@ export default function Header() {
       {/* Alerts bell */}
       <button
         onClick={() => navigate('/alerts')}
-        style={{ position: 'relative', padding: 8, borderRadius: 12, background: 'transparent',
-          border: 'none', cursor: 'pointer', color: unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.35)',
+        style={{ position: 'relative', padding: 8, borderRadius: 12,
+          background: unreadCount > 0 ? 'rgba(167,44,50,0.16)' : 'transparent',
+          border: `1px solid ${unreadCount > 0 ? 'rgba(167,44,50,0.45)' : 'transparent'}`, cursor: 'pointer',
+          color: unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.65)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'color 0.2s, background 0.2s' }}
+          transition: 'color 0.2s, background 0.2s, border-color 0.2s' }}
         onMouseEnter={e => { e.currentTarget.style.background = '#1a1a1a'; e.currentTarget.style.color = '#FFFFFF' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.35)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = unreadCount > 0 ? 'rgba(167,44,50,0.16)' : 'transparent'; e.currentTarget.style.color = unreadCount > 0 ? '#FFFFFF' : 'rgba(255,255,255,0.65)' }}
         title={unreadCount > 0 ? `${unreadCount} unread alert${unreadCount !== 1 ? 's' : ''}` : 'Alerts'}>
-        <Bell style={{ width: 15, height: 15 }} />
+        <Bell style={{ width: 18, height: 18, strokeWidth: 2.4, fill: unreadCount > 0 ? 'rgba(255,255,255,0.16)' : 'none' }} />
         {unreadCount > 0 && (
           <span style={{
             position: 'absolute', top: 2, right: 2,
@@ -97,6 +107,17 @@ export default function Header() {
           </span>
         )}
       </button>
+
+      {/* Theme toggle */}
+      {typeof setPageTheme === 'function' && (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginRight: 8 }}>{pageTheme === 'light' ? 'Light' : pageTheme === 'dark' ? 'Dark' : 'Theme'}</span>
+          <Switch checked={pageTheme === 'light'} onChange={(checked) => {
+            const newTheme = checked ? 'light' : 'dark'
+            setPageTheme(newTheme)
+          }} />
+        </div>
+      )}
 
       {/* Refresh */}
       <button

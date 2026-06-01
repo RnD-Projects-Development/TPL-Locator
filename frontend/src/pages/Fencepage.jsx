@@ -7,7 +7,7 @@ import { useZoneCache } from '../context/ZoneCacheContext.jsx';
 import { createPolygonManager, pointInPolygon, pointInMultiPolygon } from '../utils/zonePolygonManager.js';
 import ZoneSidebar from '../components/ZoneSidebar.jsx';
 import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
-import tplLogo from '../assets/tpl.png';
+import TPLLoader from '../components/TPLLoader.jsx';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -112,6 +112,9 @@ function FencePageInner() {
   useEffect(() => {
     const map = {};
     devices.forEach((d) => {
+      // Skip devices with no valid SN — they can't be assigned via the API and
+      // would cause a 404 "not found" if sn were passed as undefined/null.
+      if (!d.sn || String(d.sn).trim() === '' || String(d.sn) === 'undefined') return;
       const deviceZones = d.fence_zone_ids?.length ? d.fence_zone_ids : (d.zone ? [d.zone] : []);
       deviceZones.forEach((zid) => {
         if (!map[zid]) map[zid] = [];
@@ -220,9 +223,19 @@ function FencePageInner() {
   // ── Assign device ─────────────────────────────────────────────────────────────
   async function handleAssign(zone_id, sn) {
     console.log('[FencePage] handleAssign zone_id=%s sn=%s', zone_id, sn);
+
+    // Guard: sn must be a non-empty string — if it's undefined/null the API will
+    // return 404 "not found" because the path becomes /api/admin/devices/undefined.
+    if (!sn || String(sn).trim() === '' || String(sn) === 'undefined') {
+      const msg = 'Cannot assign device: device serial number (SN) is missing or invalid.';
+      console.error('[FencePage]', msg, { zone_id, sn });
+      setAssigningZoneId(null);
+      throw new Error(msg);
+    }
+
     setAssigningZoneId(zone_id);
     try {
-      const url = `${API_BASE_URL}/api/admin/devices/${encodeURIComponent(sn)}`;
+      const url = `${API_BASE_URL}/api/devices/${encodeURIComponent(String(sn).trim())}`;
       const body = JSON.stringify({ add_zone: zone_id });
       console.log('[FencePage] PUT', url, body);
       const res = await fetch(url, { method: 'PUT', headers: authHeaders(), body });
@@ -253,7 +266,7 @@ function FencePageInner() {
       return next;
     });
     fetch(
-      `${API_BASE_URL}/api/admin/devices/${encodeURIComponent(sn)}`,
+      `${API_BASE_URL}/api/devices/${encodeURIComponent(sn)}`,
       { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ remove_zone: zone_id }) },
     ).catch(() => refresh());
   }
@@ -298,57 +311,13 @@ function FencePageInner() {
         />
         <div className="fp-map-wrap" ref={mapWrapRef}>
           <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />
+          {/* GPS tracks loading overlay — absolutely positioned inside the map
+              wrap (which is position:relative), so it always covers exactly the
+              map. Absolute positioning is unaffected by the transformed
+              <main>.page-anim ancestor that previously broke position:fixed. */}
+          {tracksLoading && <TPLLoader overlay label="Fetching GPS tracks…" />}
         </div>
       </div>
-
-      {/* GPS tracks loading overlay — fixed so it clears Leaflet's stacking context */}
-      {tracksLoading && (() => {
-        const r = mapWrapRef.current?.getBoundingClientRect();
-        if (!r) return null;
-        return (
-          <div style={{
-            position: 'fixed',
-            left: r.left, top: r.top, width: r.width, height: r.height,
-            zIndex: 99999,
-            background: 'rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            pointerEvents: 'none',
-          }}>
-            <style>{`
-              @keyframes fp-logo-pulse {
-                0%,100% { opacity:0.2; transform:scale(0.94); }
-                50%     { opacity:0.85; transform:scale(1.04); }
-              }
-            `}</style>
-            <div style={{
-              background: 'rgba(10,10,10,0.88)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 14,
-              padding: '28px 40px',
-              boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
-              textAlign: 'center',
-            }}>
-              <img
-                src={tplLogo}
-                alt="Loading"
-                style={{
-                  width: 52, height: 'auto',
-                  filter: 'brightness(0) invert(1)',
-                  animation: 'fp-logo-pulse 1.6s ease-in-out infinite',
-                  display: 'block', margin: '0 auto 14px',
-                }}
-              />
-              <span style={{
-                fontSize: 11, color: '#6b7280',
-                letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600,
-              }}>
-                Fetching GPS tracks…
-              </span>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Assign Device Modal */}
       {assignModal && (

@@ -4,8 +4,8 @@ import { useApp } from '../../App.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
   LayoutDashboard, Radio, Tag, Map, AlertOctagon,
-  Bell, FileText, ChevronLeft, ChevronRight,
-  LogOut, Search, Navigation, PlayCircle, Shield, Users, UserCog
+  FileText, ChevronRight,
+  LogOut, Search, Navigation, PlayCircle, Shield, UserCog
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
 
@@ -13,12 +13,11 @@ const nav = [
   { section: 'OVERVIEW', links: [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/search',    icon: Search,          label: 'Search' },
-    { to: '/alerts',    icon: Bell,            label: 'Alerts', badge: 'alerts' },
   ]},
-  { section: 'DEVICES', links: [
-    { to: '/locators', icon: Radio,        label: 'BLE Locators' },
+    { section: 'DEVICES', links: [
+    { to: '/locators', icon: Radio,        label: 'Locators' },
     { to: '/stickers', icon: Tag,          label: 'Smart Stickers' },
-    { to: '/missing',  icon: AlertOctagon, label: 'Missing Devices', badge: 'missing' },
+    { to: '/missing',  icon: AlertOctagon, label: 'Offline Devices' },
   ]},
   { section: 'INTELLIGENCE', links: [
     { to: '/map',        icon: Map,        label: 'Map View' },
@@ -28,7 +27,6 @@ const nav = [
   ]},
   { section: 'REPORTS & ADMIN', links: [
     { to: '/users',       icon: UserCog,  label: 'Users' },
-    { to: '/field-staff', icon: Users,    label: 'Field Staff' },
     { to: '/reports',     icon: FileText, label: 'Reports' },
   ]},
 ]
@@ -70,11 +68,12 @@ export default function Sidebar() {
                 const count = badge === 'alerts' ? unreadAlerts : badge === 'missing' ? missingCount : 0
                 return (
                   <NavLink key={to} to={to} title={!sidebarOpen ? label : undefined}
+                    onClick={() => setSidebarOpen(false)}
                     className={({ isActive }) =>
                       `flex items-center gap-2.5 px-2 py-2 rounded-xl text-xs font-medium transition-all duration-150 mb-0.5 relative
                        ${isActive
                          ? 'bg-[#A72C32]/20 text-[#C44E54]'
-                         : 'text-gray-400 hover:text-white hover:bg-[#1a1a1a]'}`}>
+                         : 'text-white hover:text-white hover:bg-[#1a1a1a]'}`}>
                     <Icon className="w-4 h-4 flex-shrink-0" />
                     {sidebarOpen && <span className="flex-1 truncate">{label}</span>}
                     {sidebarOpen && count > 0 && (
@@ -90,17 +89,18 @@ export default function Sidebar() {
           ))}
         </nav>
 
-        {/* Toggle */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`flex items-center gap-2 mx-1.5 mb-1 px-2 py-2 rounded-xl text-gray-500
-                      hover:text-white hover:bg-[#1a1a1a] transition-colors
-                      ${sidebarOpen ? '' : 'justify-center'}`}
-        >
-          {sidebarOpen
-            ? <><ChevronLeft className="w-3.5 h-3.5 flex-shrink-0" /><span className="text-xs font-medium">Collapse</span></>
-            : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
+        {/* Expand / view sidebar — only when collapsed. The sidebar auto-collapses
+            on navigation, so there is no manual "Collapse" button. */}
+        {!sidebarOpen && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            title="Open sidebar"
+            className="flex items-center justify-center mx-auto mb-2 mt-1 w-10 h-10 rounded-full
+                       bg-[#A72C32] text-white hover:bg-[#8B2328] active:scale-95 transition-all"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        )}
 
         {/* User */}
         <div className="border-t border-gray-800 p-2">

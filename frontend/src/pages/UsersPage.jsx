@@ -18,6 +18,22 @@ const panel = {
   boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
 }
 
+// Shared modal styling — identical to the Bind modal (Locators/Stickers).
+const modalPanel = {
+  background: '#000000',
+  border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 16,
+  boxShadow: '0 24px 64px rgba(0,0,0,0.72)',
+}
+
+// Full-viewport overlay: scrollable so tall modals are never clipped at the top.
+const modalOverlay = {
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+  backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)',
+  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+  zIndex: 9999, padding: 24, overflowY: 'auto',
+}
+
 const inputStyle = {
   width: '100%', boxSizing: 'border-box',
   padding: '10px 12px',
@@ -394,7 +410,7 @@ export default function UsersPage() {
             <UserCog style={{ width: 22, height: 22, color: '#C44E54', flexShrink: 0 }} />
             Users
           </h1>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.38)', marginTop: 5, marginBottom: 0 }}>
+          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.38)', marginTop: 5, marginBottom: 0 }}>
             {users.length} registered account{users.length !== 1 ? 's' : ''}
           </p>
         </div>
@@ -416,7 +432,7 @@ export default function UsersPage() {
             onMouseEnter={e => { if (!loading) e.currentTarget.style.background = 'rgba(167,44,50,0.18)' }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)' }}
           >
-            <RefreshCw style={{ width: 12, height: 12, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+              <RefreshCw style={{ width: 12, height: 12, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
             {loading ? 'Loading…' : 'Refresh'}
           </button>
 
@@ -443,6 +459,9 @@ export default function UsersPage() {
         <div style={{ position: 'relative', flex: '0 0 260px' }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: 'rgba(255,255,255,0.28)', pointerEvents: 'none' }} />
           <input
+            type="search"
+            name="users-table-search"
+            autoComplete="off"
             value={query}
             onChange={e => handleSearch(e.target.value)}
             placeholder="Search by name or email…"
@@ -473,9 +492,7 @@ export default function UsersPage() {
           {error}
         </div>
       ) : loading && users.length === 0 ? (
-        <div style={{ ...panel, padding: '64px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.38)', fontSize: 13 }}>
-          Loading users…
-        </div>
+        <TPLLoader label="Loading users…" />
       ) : (
         <div style={{ ...panel, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
@@ -552,13 +569,11 @@ export default function UsersPage() {
 
       {/* ── Create User Modal ────────────────────────────────────────────────── */}
       {showCreate && (
-        <div
-          onClick={closeCreate}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.74)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}
-        >
+        <ModalPortal>
+        <div onClick={closeCreate} style={modalOverlay}>
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: '#18181b', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.72)' }}
+            style={{ ...modalPanel, width: '100%', maxWidth: 440, margin: 'auto' }}
           >
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
@@ -587,6 +602,7 @@ export default function UsersPage() {
                 </label>
                 <input
                   type="text" placeholder="e.g. Ahmed Khan"
+                  name="cu-fullname" autoComplete="off"
                   value={newName} onChange={e => setNewName(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleCreate()}
                   autoFocus style={inputStyle}
@@ -611,6 +627,7 @@ export default function UsersPage() {
                 </label>
                 <input
                   type="password" placeholder="Minimum 8 characters"
+                  name="cu-password" autoComplete="new-password"
                   value={newPassword} onChange={e => setNewPassword(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleCreate()}
                   style={inputStyle}
@@ -636,6 +653,7 @@ export default function UsersPage() {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* ── Delete User Confirm Modal ─────────────────────────────────────────── */}

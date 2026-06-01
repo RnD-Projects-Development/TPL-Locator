@@ -47,7 +47,16 @@ async function _doFetch(url, method, headers, body, onUnauthorized) {
     if (res.status === 401 && onUnauthorized) {
       onUnauthorized();
     }
-    const message = typeof payload === "string" ? payload : payload?.detail || payload?.error || "Request failed";
+    // Normalize common FastAPI/Pydantic error shapes so Error.message becomes readable
+    let message;
+    if (typeof payload === "string") {
+      message = payload;
+    } else if (Array.isArray(payload?.detail)) {
+      // Pydantic validation errors: [{loc,msg,type}, ...]
+      message = payload.detail.map(e => (e?.msg || e?.message || JSON.stringify(e))).join("; ");
+    } else {
+      message = payload?.detail || payload?.error || "Request failed";
+    }
     const err = new Error(message);
     err.status = res.status;
     err.payload = payload;

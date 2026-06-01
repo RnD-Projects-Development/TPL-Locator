@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
+import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
 import "./ReportPage.css";
@@ -392,6 +393,8 @@ export default function Reports() {
                 </table>
               </div>
             </>
+          ) : loading ? (
+            <TPLLoader label="Generating report…" />
           ) : (
             <div className="rp-empty">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">

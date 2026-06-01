@@ -11,6 +11,9 @@ const DEFAULT = {
   iconBg:      'rgba(167,44,50,0.16)',
   iconBorder:  'rgba(167,44,50,0.26)',
   iconColor:   '#C86068',
+  valueColor:  '#FFFFFF',
+  titleColor:  'rgba(255,255,255,0.72)',
+  subColor:    'rgba(255,255,255,0.34)',
 }
 
 export default function KPICard({ title, value, sub, icon: Icon, trend, trendVal, onClick, colors = {} }) {
@@ -94,9 +97,9 @@ export default function KPICard({ title, value, sub, icon: Icon, trend, trendVal
           )}
         </div>
 
-        <div style={{ fontSize: '36px', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</div>
-        <div style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.72)', marginTop: '6px', letterSpacing: '0.01em' }}>{title}</div>
-        {sub && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.34)', marginTop: '5px' }}>{sub}</div>}
+        <div style={{ fontSize: '36px', fontWeight: 800, color: c.valueColor, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</div>
+        <div style={{ fontSize: '13px', fontWeight: 600, color: c.titleColor, marginTop: '6px', letterSpacing: '0.01em' }}>{title}</div>
+        {sub && <div style={{ fontSize: '11px', color: c.subColor, marginTop: '5px' }}>{sub}</div>}
       </div>
     </div>
   )
