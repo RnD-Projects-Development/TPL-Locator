@@ -366,12 +366,13 @@ class MongoService:
         uid: str,
         sn: Optional[str] = None,
         battery_status: Any = None,
+        persist_offset_hours: Optional[int] = None,
     ) -> bool:
         ts_raw = history_item.get("gpstime") or history_item.get("time") or history_item.get("timestamp")
         timestamp = self._parse_citytag_timestamp(ts_raw)
-        # Adjust incoming timestamp by subtracting 3 hours before persisting
         if timestamp is not None:
-            timestamp = timestamp - timedelta(hours=3)
+            offset = -3 if persist_offset_hours is None else persist_offset_hours
+            timestamp = timestamp + timedelta(hours=offset)
 
         doc = {
             "uid": uid,

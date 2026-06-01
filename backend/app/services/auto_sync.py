@@ -321,6 +321,7 @@ async def sync_tracksolid(mongo: MongoService):
                 uid=uid,
                 sn=imei,
                 battery_status=item.get("batteryPowerVal") or item.get("electQuantity"),
+                persist_offset_hours=5,
             )
         except Exception:
             logger.exception("auto_sync tracksolid upsert_location failed imei=%s", imei)
