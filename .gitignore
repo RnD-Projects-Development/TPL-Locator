@@ -20,3 +20,5 @@ package-lock.json
 yarn.lock
 .pytest_cache/
 coverage/.claude/ 
+.claude/
+frontend/.claude/
