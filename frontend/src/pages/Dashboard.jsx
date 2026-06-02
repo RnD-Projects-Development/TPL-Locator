@@ -497,7 +497,7 @@ function RecentActivityPanel({ activityRows, filteredActivity, activitySearch, s
             onMouseLeave={e => e.currentTarget.style.background = idx%2===0?'transparent':'rgba(255,255,255,0.015)'}
           >
             <span style={{ display:'inline-flex', alignItems:'center', gap:'6px', overflow:'hidden' }}>
-              <span style={{ fontFamily:'monospace', fontSize:'12px', fontWeight:600, color:'#C44E54', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.id}</span>
+              <span style={{ fontFamily:'monospace', fontSize:'12px', fontWeight:600, color:'#FFFFFF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.id}</span>
               <span style={{
                 flexShrink:0, fontSize:'9px', fontWeight:700, letterSpacing:'0.04em', textTransform:'uppercase',
                 padding:'1px 6px', borderRadius:'4px', whiteSpace:'nowrap',
@@ -533,11 +533,8 @@ function CriticalAlertStrip({ alerts, onView }) {
       <AlertOctagon style={{ width:'18px', height:'18px', color:'#f87171', flexShrink:0 }} />
       <div style={{ flex:1, fontSize:'13px' }}>
         <span style={{ color:'#fca5a5', fontWeight:600 }}>Critical Alerts: </span>
-        <span style={{ color:'#CFCFCF' }}>{critical.map(a => a.deviceId).join(', ')} require immediate attention</span>
+        <span style={{ color:'#CFCFCF' }}>{critical.map(a => a.deviceName || a.deviceId).join(', ')} require immediate attention</span>
       </div>
-      <button onClick={onView} style={{ flexShrink:0, padding:'7px 16px', background:'rgba(239,68,68,0.20)', border:'1px solid rgba(239,68,68,0.35)', borderRadius:'8px', color:'#fca5a5', fontSize:'12px', fontWeight:700, cursor:'pointer' }}>
-        View Now
-      </button>
     </div>
   )
 }

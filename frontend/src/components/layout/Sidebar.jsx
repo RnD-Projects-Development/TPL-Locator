@@ -4,7 +4,7 @@ import { useApp } from '../../App.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
   LayoutDashboard, Radio, Tag, Map, AlertOctagon,
-  FileText, ChevronRight,
+  FileText,
   LogOut, Search, Navigation, PlayCircle, Shield, UserCog
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
@@ -44,7 +44,10 @@ export default function Sidebar() {
 
   return (
     <>
-      <aside className={`flex flex-col flex-shrink-0 h-screen bg-black border-r border-gray-800 transition-all duration-300 ${sidebarOpen ? 'w-56' : 'w-14'}`}>
+      <aside
+        onMouseEnter={() => { if (!sidebarOpen) setSidebarOpen(true) }}
+        onMouseLeave={() => { if (sidebarOpen) setSidebarOpen(false) }}
+        className={`flex flex-col flex-shrink-0 h-screen bg-black border-r border-gray-800 transition-all duration-300 ${sidebarOpen ? 'w-56' : 'w-14'}`}>
         {/* Brand */}
         <div className="flex items-center gap-3 px-3 py-4 border-b border-gray-800 min-h-[60px]">
           <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center flex-shrink-0 shadow-lg">
@@ -88,19 +91,6 @@ export default function Sidebar() {
             </div>
           ))}
         </nav>
-
-        {/* Expand / view sidebar — only when collapsed. The sidebar auto-collapses
-            on navigation, so there is no manual "Collapse" button. */}
-        {!sidebarOpen && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            title="Open sidebar"
-            className="flex items-center justify-center mx-auto mb-2 mt-1 w-10 h-10 rounded-full
-                       bg-[#A72C32] text-white hover:bg-[#8B2328] active:scale-95 transition-all"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        )}
 
         {/* User */}
         <div className="border-t border-gray-800 p-2">

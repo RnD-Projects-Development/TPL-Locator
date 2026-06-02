@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react'
 import {
   Users, Search, X, RefreshCw, Shield, UserCog,
-  Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown,
+  Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown, Pencil,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useUserCache } from '../context/Usercachecontext.jsx'
@@ -146,7 +146,7 @@ function DeviceCard({ device, navigate, isAdmin, onUnbind }) {
 }
 
 /* ── User row ─────────────────────────────────────────────────────────────── */
-function UserRow({ u, idx, isAdmin, onDelete, expanded, onToggle, boundDevices, navigate, onUnbindDevice }) {
+function UserRow({ u, idx, isAdmin, onDelete, onEdit, expanded, onToggle, boundDevices, navigate, onUnbindDevice }) {
   const [hov, setHov] = useState(false)
   const contact = displayContact(u)
   const initials = (u.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
@@ -223,6 +223,21 @@ function UserRow({ u, idx, isAdmin, onDelete, expanded, onToggle, boundDevices, 
             </button>
             {isAdmin && (
               <button
+                onClick={() => onEdit(u)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)',
+                  color: '#C44E54', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.18)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.40)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.25)' }}
+              >
+                <Pencil style={{ width: 11, height: 11 }} /> Edit
+              </button>
+            )}
+            {isAdmin && (
+              <button
                 onClick={() => onDelete(u)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 4,
@@ -270,7 +285,7 @@ export default function UsersPage() {
   const { users, loading, error, refresh, lastFetched } = useUserCache()
   const { isAdmin } = useAuth()
   const { devices, refresh: refreshDevices } = useDeviceCache()
-  const { adminCreateUser, adminDeleteUser, unbindDevice } = useCityTag()
+  const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice } = useCityTag()
 
   const [query,      setQuery]      = useState('')
   const [debouncedQ, setDQ]         = useState('')
@@ -290,6 +305,14 @@ export default function UsersPage() {
   /* Delete User state */
   const [deleteTarget,  setDeleteTarget]  = useState(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+
+  /* Edit User state */
+  const [editTarget,   setEditTarget]   = useState(null)
+  const [editName,     setEditName]     = useState('')
+  const [editRole,     setEditRole]     = useState('user')
+  const [editPassword, setEditPassword] = useState('')
+  const [editLoading,  setEditLoading]  = useState(false)
+  const [editError,    setEditError]    = useState('')
 
   /* Unbind Device state (from user's device grid) */
   const [unbindTarget,  setUnbindTarget]  = useState(null)
@@ -374,6 +397,38 @@ export default function UsersPage() {
       setDeleteTarget(null)
     } catch {}
     finally { setDeleteLoading(false) }
+  }
+
+  /* ── Edit user ──────────────────────────────────────────────────────────── */
+  const openEdit = (u) => {
+    setEditTarget(u)
+    setEditName(u.name || '')
+    setEditRole((u.role || 'user').toLowerCase())
+    setEditPassword('')
+    setEditError('')
+  }
+  const closeEdit = () => { if (!editLoading) setEditTarget(null) }
+
+  const handleEditUser = async () => {
+    if (!editTarget) return
+    if (!editName.trim()) {
+      setEditError('Name is required')
+      return
+    }
+    setEditError(''); setEditLoading(true)
+    try {
+      const uid = editTarget._id || editTarget.id
+      const payload = { name: editName.trim(), role: editRole }
+      // Only send a new password if the admin actually typed one.
+      if (editPassword.trim()) payload.password = editPassword.trim()
+      await adminUpdateUser(uid, payload)
+      refresh()
+      setEditTarget(null)
+    } catch (err) {
+      setEditError(err.message || 'Failed to update user')
+    } finally {
+      setEditLoading(false)
+    }
   }
 
   /* ── Unbind device from user grid ───────────────────────────────────────── */
@@ -524,6 +579,7 @@ export default function UsersPage() {
                         idx={i}
                         isAdmin={isAdmin}
                         onDelete={setDeleteTarget}
+                        onEdit={openEdit}
                         expanded={expanded.has(uid)}
                         onToggle={() => toggleExpand(uid)}
                         boundDevices={bound}
@@ -650,6 +706,104 @@ export default function UsersPage() {
                   transition: 'opacity 0.15s',
                 }}
               >{createLoading ? 'Creating…' : 'Create User'}</button>
+            </div>
+          </div>
+        </div>
+        </ModalPortal>
+      )}
+
+      {/* ── Edit User Modal ──────────────────────────────────────────────────── */}
+      {editTarget && (
+        <ModalPortal>
+        <div onClick={closeEdit} style={modalOverlay}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ ...modalPanel, width: '100%', maxWidth: 440, margin: 'auto' }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ padding: 7, background: 'rgba(167,44,50,0.14)', borderRadius: 8, border: '1px solid rgba(167,44,50,0.24)', display: 'flex' }}>
+                  <Pencil style={{ width: 14, height: 14, color: '#C86068' }} />
+                </div>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Edit User</span>
+              </div>
+              <button onClick={closeEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.38)', padding: 4, display: 'flex', borderRadius: 6 }}>
+                <X style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {editError && (
+                <div style={{ padding: '8px 12px', background: 'rgba(127,29,29,0.20)', border: '1px solid rgba(127,29,29,0.40)', borderRadius: 6, color: '#fca5a5', fontSize: 12 }}>
+                  {editError}
+                </div>
+              )}
+
+              {/* Email (read-only — backend does not change email) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.58)' }}>Email</label>
+                <input
+                  type="email" value={editTarget.email || ''} disabled
+                  style={{ ...inputStyle, opacity: 0.55, cursor: 'not-allowed' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.58)' }}>
+                  Full Name <span style={{ color: '#C86068' }}>*</span>
+                </label>
+                <input
+                  type="text" placeholder="e.g. Ahmed Khan"
+                  name="eu-fullname" autoComplete="off"
+                  value={editName} onChange={e => setEditName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleEditUser()}
+                  autoFocus style={inputStyle}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.58)' }}>Role</label>
+                <select
+                  value={editRole} onChange={e => setEditRole(e.target.value)}
+                  style={{ ...inputStyle, cursor: 'pointer' }}
+                >
+                  <option value="user">User</option>
+                  <option value="operator">Operator</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.58)' }}>
+                  New Password <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.32)' }}>(leave blank to keep current)</span>
+                </label>
+                <input
+                  type="password" placeholder="Minimum 8 characters"
+                  name="eu-password" autoComplete="new-password"
+                  value={editPassword} onChange={e => setEditPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleEditUser()}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+              <button onClick={closeEdit} disabled={editLoading} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>Cancel</button>
+              <button
+                onClick={handleEditUser}
+                disabled={editLoading || !editName.trim()}
+                style={{
+                  padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  cursor: (editLoading || !editName.trim()) ? 'not-allowed' : 'pointer',
+                  background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+                  border: '1px solid rgba(167,44,50,0.40)', color: '#fff',
+                  opacity: (editLoading || !editName.trim()) ? 0.50 : 1,
+                  transition: 'opacity 0.15s',
+                }}
+              >{editLoading ? 'Saving…' : 'Save Changes'}</button>
             </div>
           </div>
         </div>

@@ -181,12 +181,19 @@ export function useCityTag() {
   );
 
   const adminUpdateUser = useCallback(
-    async (userId, { name, password } = {}) =>
-      apiFetch(
+    async (userId, { name, password, role } = {}) => {
+      // Only include fields that were actually provided — backend treats
+      // null/undefined as "leave unchanged".
+      const body = {};
+      if (name !== undefined)     body.name = name;
+      if (password !== undefined) body.password = password;
+      if (role !== undefined)     body.role = role;
+      return apiFetch(
         `/api/admin/users/${encodeURIComponent(userId)}`,
-        { method: "PUT", body: { name, password } },
+        { method: "PUT", body },
         accessToken, logout
-      ),
+      );
+    },
     [accessToken, logout]
   );
 
