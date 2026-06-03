@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import tplLogo from "../assets/tpl.png";
 import DevicesTable from "../components/DevicesTable.jsx";
 import UsersTable from "../components/UsersTable.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
 import { useUserCache } from "../context/Usercachecontext.jsx";
+import { useHomePageCache } from "../context/HomePageCacheContext.jsx";
+import { invalidatePaginatedCache, usePaginatedDevices } from "../hooks/usePaginatedDevices.js";
+import { loadLocatorPageState, saveLocatorPageState } from "../utils/locatorPageState.js";
+import { isValidIdentifier } from "../utils/userContact.js";
 import "./DevicesPage.css";
 
 const SELECT_STYLE = {
@@ -30,28 +33,63 @@ const SELECT_OPTION_STYLE = { background: "#27272a", color: "#f4f4f5" };
 
 const HomePage = () => {
   const { isAdmin } = useAuth();
+  const restoredState = loadLocatorPageState();
   const {
     bindDevice, unbindDevice,
     adminCreateUser, adminAssignDeviceToUser, adminUpdateDevice,
+    updateDevice,
     getAvailableDevices,
   } = useCityTag();
 
-  const { devices, loading: devicesLoading, error: devicesError, refresh: refreshDevices } = useDeviceCache();
+  const [searchTerm, setSearchTerm]     = useState(restoredState.searchTerm);
+  const [filterStatus, setFilterStatus] = useState(restoredState.filterStatus);
+  const [debouncedSearch, setDebouncedSearch] = useState(() => restoredState.searchTerm.trim());
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const paginationOptions = useMemo(
+    () => ({ search: debouncedSearch, status: filterStatus }),
+    [debouncedSearch, filterStatus]
+  );
+
+  const {
+    devices,
+    loading: devicesLoading,
+    error: devicesError,
+    page,
+    limit,
+    total,
+    totalPages,
+    hasNextPage,
+    hasPreviousPage,
+    goToPage,
+    refresh: refreshDevices,
+  } = usePaginatedDevices(20, paginationOptions);
   const { users, loading: usersLoading, refresh: refreshUsers } = useUserCache();
+  const { locations, refreshAll: refreshHomeData } = useHomePageCache();
 
   const [error, setError]               = useState("");
-  const [searchTerm, setSearchTerm]     = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [viewMode, setViewMode]         = useState('devices');
+  const [viewMode, setViewMode]         = useState(() => (
+    isAdmin && restoredState.viewMode === 'users' ? 'users' : 'devices'
+  ));
+
+  useEffect(() => {
+    saveLocatorPageState(
+      {
+        searchTerm,
+        filterStatus,
+        viewMode: isAdmin ? viewMode : 'devices',
+      },
+      { merge: true, deviceType: null },
+    );
+  }, [searchTerm, filterStatus, viewMode, isAdmin]);
 
   // ── Available (unbound) devices for user bind dropdown ────────────────────
   const [availableDevices, setAvailableDevices] = useState([]);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      getAvailableDevices().then(setAvailableDevices).catch(() => setAvailableDevices([]));
-    }
-  }, [isAdmin, getAvailableDevices]);
+  const [availableDevicesLoading, setAvailableDevicesLoading] = useState(false);
 
   // ── Bind modal state ───────────────────────────────────────────────────────
   const [showBindModal, setShowBindModal] = useState(false);
@@ -63,9 +101,35 @@ const HomePage = () => {
   const [bindLoading, setBindLoading]     = useState(false);
   const [bindError, setBindError]         = useState('');
 
+  useEffect(() => {
+    if (!showBindModal) return;
+
+    let cancelled = false;
+    setAvailableDevicesLoading(true);
+    getAvailableDevices()
+      .then((data) => {
+        if (cancelled) return;
+        const nextDevices = Array.isArray(data) ? data : data?.devices ?? [];
+        setAvailableDevices(nextDevices);
+        if (isAdmin && nextDevices.length > 0) {
+          setBindSn((current) => current || nextDevices[0].sn);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableDevices([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAvailableDevicesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showBindModal, getAvailableDevices, isAdmin]);
+
   // ── Create user modal state ────────────────────────────────────────────────
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
-  const [createUserEmail, setCreateUserEmail]         = useState('');
+  const [createUserIdentifier, setCreateUserIdentifier] = useState('');
   const [createUserPassword, setCreateUserPassword]   = useState('');
   const [createUserName, setCreateUserName]           = useState('');
   const [createUserLoading, setCreateUserLoading]     = useState(false);
@@ -90,8 +154,7 @@ const HomePage = () => {
     setBindError(''); setBindClient(''); setBindName(''); setBindCategory('');
 
     if (isAdmin) {
-      const unbound   = devices.filter((d) => !d.assigned_user_name && !d.user_id);
-      const defaultSn = sn || (unbound.length > 0 ? unbound[0].sn : '');
+      const defaultSn = sn || (availableDevices.length > 0 ? availableDevices[0].sn : '');
       setBindSn(defaultSn);
       const defaultUserId = users.length > 0 ? users[0].id : '';
       setBindUserId(defaultUserId);
@@ -114,7 +177,7 @@ const HomePage = () => {
       setBindError(''); setBindLoading(true);
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory });
-        refreshDevices(); refreshUsers(); closeBindModal();
+        invalidatePaginatedCache(); refreshDevices(); refreshUsers(); refreshHomeData(); closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
       } finally {
@@ -125,9 +188,8 @@ const HomePage = () => {
       setBindError(''); setBindLoading(true);
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory });
-        refreshDevices();
-        // Refresh available devices so the just-bound SN disappears from the dropdown
-        getAvailableDevices().then(setAvailableDevices).catch(() => {});
+        invalidatePaginatedCache(); refreshDevices();
+        refreshHomeData();
         closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
@@ -146,7 +208,7 @@ const HomePage = () => {
     } else {
       // For regular users, use simple confirm
       if (!window.confirm(`Remove binding for ${sn}?`)) return;
-      try { await unbindDevice(sn); refreshDevices(); refreshUsers(); }
+      try { invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); refreshUsers(); }
       catch (err) { setError(err.message || "Failed to unbind"); }
     }
   };
@@ -156,7 +218,7 @@ const HomePage = () => {
     setDeleteDeviceLoading(true);
     try {
       await unbindDevice(deleteDeviceTarget.sn);
-      refreshDevices(); refreshUsers();
+      invalidatePaginatedCache(); refreshDevices(); refreshUsers(); refreshHomeData();
       setDeleteDeviceTarget(null);
     } catch (err) {
       setError(err.message || "Failed to delete device");
@@ -173,7 +235,7 @@ const HomePage = () => {
 
   const handleUserUnbind = async (sn) => {
     if (!window.confirm(`Remove binding for ${sn}?`)) return;
-    try { await unbindDevice(sn); refreshDevices(); }
+    try { invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); refreshHomeData(); }
     catch (err) { setError(err.message || "Failed to unbind"); }
   };
 
@@ -196,13 +258,17 @@ const HomePage = () => {
     if (!editDevice) return;
     setEditDeviceLoading(true); setEditDeviceError('');
     try {
-      await adminUpdateDevice(editDevice.sn, {
-        name:     editDeviceName.trim()   || undefined,
-        client:   editDeviceClient.trim() || undefined,
-        region:   editDeviceRegion.trim() || undefined,
+      const payload = {
+        name: editDeviceName.trim() || undefined,
+        client: editDeviceClient.trim() || undefined,
         category: editDeviceCategory.trim() || undefined,
-      });
-      closeEditDevice(); refreshDevices();
+      };
+      if (isAdmin) {
+        await adminUpdateDevice(editDevice.sn, { ...payload, region: editDeviceRegion.trim() || undefined });
+      } else {
+        await updateDevice(editDevice.sn, payload);
+      }
+      closeEditDevice(); invalidatePaginatedCache(); refreshDevices(); refreshHomeData();
     } catch (err) {
       setEditDeviceError(err.message || 'Failed to update device');
     } finally {
@@ -212,22 +278,30 @@ const HomePage = () => {
 
   // ── Create user ────────────────────────────────────────────────────────────
   const openCreateUserModal = () => {
-    setCreateUserEmail(''); setCreateUserPassword('');
+    setCreateUserIdentifier(''); setCreateUserPassword('');
     setCreateUserName(''); setCreateUserError('');
     setShowCreateUserModal(true);
   };
 
   const closeCreateUserModal = () => {
     setShowCreateUserModal(false);
-    setCreateUserEmail(''); setCreateUserPassword('');
+    setCreateUserIdentifier(''); setCreateUserPassword('');
     setCreateUserName(''); setCreateUserError('');
   };
 
   const handleCreateUser = async () => {
-    if (!createUserEmail.trim() || !createUserPassword.trim()) return;
+    if (!createUserIdentifier.trim() || !createUserPassword.trim()) return;
+    if (!isValidIdentifier(createUserIdentifier)) {
+      setCreateUserError('Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)');
+      return;
+    }
     setCreateUserLoading(true); setCreateUserError('');
     try {
-      await adminCreateUser({ email: createUserEmail.trim(), password: createUserPassword.trim(), name: createUserName.trim() });
+      await adminCreateUser({
+        identifier: createUserIdentifier.trim(),
+        password: createUserPassword.trim(),
+        name: createUserName.trim(),
+      });
       closeCreateUserModal(); refreshUsers();
     } catch (err) {
       setCreateUserError(err.message || "Failed to create user");
@@ -236,7 +310,7 @@ const HomePage = () => {
     }
   };
 
-  const unboundDevices = devices.filter((d) => !d.assigned_user_name && !d.user_id);
+  const unboundDevices = availableDevices;
   const displayError   = error || devicesError;
 
   return (
@@ -319,16 +393,71 @@ const HomePage = () => {
           {isAdmin && viewMode === 'users' ? (
             <UsersTable />
           ) : (
-            <DevicesTable
-              devices={devices}
-              searchTerm={searchTerm}
-              filterStatus={filterStatus}
-              isAdmin={isAdmin}
-              onBind={(sn) => openBindModal(sn)}
-              onUnbind={isAdmin ? handleUnbind : handleUserUnbind}
-              onEdit={isAdmin ? openEditDevice : undefined}
-              loading={loading}
-            />
+            <>
+              <DevicesTable
+                devices={devices}
+                locations={locations}
+                serverFiltered
+                rowOffset={(page - 1) * limit}
+                isAdmin={isAdmin}
+                onBind={(sn) => openBindModal(sn)}
+                onUnbind={isAdmin ? handleUnbind : handleUserUnbind}
+                onEdit={openEditDevice}
+                loading={loading}
+              />
+
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginTop: 14,
+                padding: '12px 14px',
+                border: '1px solid rgba(63,63,70,0.9)',
+                borderRadius: 10,
+                background: 'rgba(24,24,27,0.75)',
+                color: '#a1a1aa',
+                fontSize: 12,
+                flexWrap: 'wrap',
+              }}>
+                <button
+                  type="button"
+                  onClick={() => goToPage(page - 1)}
+                  disabled={!hasPreviousPage || loading}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #3f3f46',
+                    background: !hasPreviousPage || loading ? 'rgba(39,39,42,0.4)' : '#18181b',
+                    color: !hasPreviousPage || loading ? '#52525b' : '#f4f4f5',
+                    cursor: !hasPreviousPage || loading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Previous
+                </button>
+
+                <div style={{ textAlign: 'center', flex: '1 1 220px' }}>
+                  Page {page} of {totalPages} · {total} locator{total === 1 ? '' : 's'}
+                  {(debouncedSearch || filterStatus !== 'all') ? ' matching filters' : ' total'}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => goToPage(page + 1)}
+                  disabled={!hasNextPage || loading}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #3f3f46',
+                    background: !hasNextPage || loading ? 'rgba(39,39,42,0.4)' : '#18181b',
+                    color: !hasNextPage || loading ? '#52525b' : '#f4f4f5',
+                    cursor: !hasNextPage || loading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -361,7 +490,9 @@ const HomePage = () => {
                 <>
                   <div className="hp-modal-field">
                     <label>Serial Number <span className="required">*</span></label>
-                    {unboundDevices.length === 0 ? (
+                    {availableDevicesLoading ? (
+                      <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>Loading available locators…</p>
+                    ) : unboundDevices.length === 0 ? (
                       <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>No unbound locators available</p>
                     ) : (
                       <select value={bindSn} onChange={(e) => setBindSn(e.target.value)} style={SELECT_STYLE}>
@@ -525,15 +656,17 @@ const HomePage = () => {
                   onChange={(e) => setEditDeviceClient(e.target.value)}
                 />
               </div>
-              <div className="hp-modal-field">
-                <label>Region</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Wagha Town"
-                  value={editDeviceRegion}
-                  onChange={(e) => setEditDeviceRegion(e.target.value)}
-                />
-              </div>
+              {isAdmin && (
+                <div className="hp-modal-field">
+                  <label>Region</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Wagha Town"
+                    value={editDeviceRegion}
+                    onChange={(e) => setEditDeviceRegion(e.target.value)}
+                  />
+                </div>
+              )}
               <div className="hp-modal-field">
                 <label>Category</label>
                 <select value={editDeviceCategory} onChange={(e) => setEditDeviceCategory(e.target.value)} style={SELECT_STYLE}>
@@ -577,8 +710,8 @@ const HomePage = () => {
                 </div>
               )}
               <div className="hp-modal-field">
-                <label>Email <span className="required">*</span></label>
-                <input type="email" placeholder="e.g. user@example.com" value={createUserEmail} onChange={(e) => setCreateUserEmail(e.target.value)} autoFocus />
+                <label>Email or Phone Number <span className="required">*</span></label>
+                <input type="text" placeholder="Email or phone number" value={createUserIdentifier} onChange={(e) => setCreateUserIdentifier(e.target.value)} autoFocus />
               </div>
               <div className="hp-modal-field">
                 <label>Password <span className="required">*</span></label>
@@ -591,7 +724,7 @@ const HomePage = () => {
             </div>
             <div className="hp-modal-footer">
               <button className="hp-modal-cancel" onClick={closeCreateUserModal}>Cancel</button>
-              <button className="hp-modal-confirm" onClick={handleCreateUser} disabled={!createUserEmail.trim() || !createUserPassword.trim() || createUserLoading}>
+              <button className="hp-modal-confirm" onClick={handleCreateUser} disabled={!createUserIdentifier.trim() || !createUserPassword.trim() || createUserLoading}>
                 {createUserLoading ? "Creating…" : "Create User"}
               </button>
             </div>

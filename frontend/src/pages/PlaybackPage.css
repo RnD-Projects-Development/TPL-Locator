@@ -1,4 +1,4 @@
-.pb-page { display:flex; flex-direction:column; height:calc(100vh - 56px); background:var(--surface-base); overflow:visible; }
+.pb-page { display:flex; flex-direction:column; height:100%; background:var(--surface-base); overflow:visible; }
 
 /* Top bar */
 .pb-topbar { display:flex; align-items:center; justify-content:space-between; padding:9px 20px; background:var(--surface-1); border-bottom:1px solid var(--border-default); flex-shrink:0; gap:12px; flex-wrap:nowrap; overflow-x:auto; overflow-y:visible; position:relative; z-index:1000; }

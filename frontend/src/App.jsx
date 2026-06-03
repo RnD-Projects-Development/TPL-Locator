@@ -1,74 +1,136 @@
-// frontend/src/App.jsx
-import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import React, { createContext, useContext, useReducer, useState } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { useAuth } from './context/AuthContext.jsx'
+import { DeviceCacheProvider } from './context/DeviceCacheContext.jsx'
+import { ZoneCacheProvider } from './context/ZoneCacheContext.jsx'
+import { UserCacheProvider } from './context/Usercachecontext.jsx'
+import { AlertsProvider, useAlerts } from './context/AlertsContext.jsx'
+import { FieldStaffCacheProvider } from './context/FieldStaffCacheContext.jsx'
+import { SidebarDevicesProvider } from './context/SidebarDevicesContext.jsx'
+import Login from './pages/Login.jsx'
+import Layout from './components/layout/Layout.jsx'
+import { detectionEvents } from './data/mockData.js'
 
-import Login from "./pages/Login.jsx";
-import { useAuth } from "./context/AuthContext.jsx";
-import { MapThemeProvider } from "./context/MapThemeContext.jsx";
-import { BindCacheProvider } from "./context/BindCacheContext.jsx";
-import { ZoneCacheProvider } from "./context/ZoneCacheContext.jsx";
+import Dashboard        from './pages/Dashboard.jsx'
+import Search           from './pages/Search.jsx'
+import Locators         from './pages/Locators.jsx'
+import Stickers         from './pages/Stickers.jsx'
+import LocatorDetail    from './pages/LocatorDetail.jsx'
+import StickerDetail    from './pages/StickerDetail.jsx'
+import MissingDevices   from './pages/MissingDevices.jsx'
+import MapViewPage      from './pages/MapViewPage.jsx'
+import Alerts           from './pages/Alerts.jsx'
+import Reports          from './pages/Reports.jsx'
+import TrajectoryPage   from './pages/TrajectoryPage.jsx'
+import PlaybackPage     from './pages/PlaybackPage.jsx'
+import FencePage        from './pages/Fencepage.jsx'
+import FieldStaffDashboard from './pages/FieldStaffDashboard.jsx'
+import UsersPage           from './pages/UsersPage.jsx'
 
-import Layout from "./components/Layout.jsx";
-import HomePage from "./pages/HomePage.jsx";
-import DevicesPage from "./pages/DevicesPage.jsx";
-import TrajectoryPage from "./pages/TrajectoryPage.jsx";
-import MapViewPage from "./pages/MapViewPage.jsx";
-import PlaybackPage from "./pages/PlaybackPage.jsx";
-import ReportPage from "./pages/ReportPage.jsx";
-import FencePage from "./pages/Fencepage.jsx";
-import FieldStaffDashboard from "./pages/FieldStaffDashboard.jsx";
+export const AppCtx = createContext(null)
+export const useApp = () => useContext(AppCtx)
 
-function ProtectedRoute({ children }) {
-  const { accessToken } = useAuth();
-  if (!accessToken) return <Navigate to="/login" replace />;
-  return children;
+function reducer(state, action) {
+  switch (action.type) {
+    default: return state
+  }
 }
 
-function AdminRoute({ children }) {
-  const { accessToken, isAdmin } = useAuth();
-  if (!accessToken) return <Navigate to="/login" replace />;
-  if (!isAdmin) return <Navigate to="/devices" replace />;
-  return children;
+// ── AppShell: reads AlertsContext for unreadCount, then provides AppCtx ───────
+// Must live inside AlertsProvider so useAlerts() is available.
+
+function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin, logout }) {
+  const { unreadCount } = useAlerts()
+
+  const appUser = {
+    name:    user?.name    || user?.email || 'User',
+    role:    isAdmin ? 'admin' : (user?.role || 'user'),
+    company: user?.company || '',
+    email:   user?.email   || '',
+  }
+
+  return (
+    <AppCtx.Provider value={{
+      user: appUser,
+      setUser: () => logout(),
+      isAdmin,
+      sidebarOpen,
+      setSidebarOpen,
+      state,
+      dispatch,
+      unreadAlerts: unreadCount,
+    }}>
+      <DeviceCacheProvider>
+      <UserCacheProvider>
+      <ZoneCacheProvider>
+      <FieldStaffCacheProvider>
+      <SidebarDevicesProvider>
+      <Layout>
+        <Routes>
+          <Route path="/dashboard"    element={<Dashboard />} />
+          <Route path="/search"       element={<Search />} />
+          <Route path="/locators"     element={<Locators />} />
+          <Route path="/locators/:id" element={<LocatorDetail />} />
+          <Route path="/stickers"     element={<Stickers />} />
+          <Route path="/stickers/:id" element={<StickerDetail />} />
+          <Route path="/missing"      element={<MissingDevices />} />
+          <Route path="/map"          element={<MapViewPage />} />
+          <Route path="/trajectory"   element={<TrajectoryPage />} />
+          <Route path="/playback"     element={<PlaybackPage />} />
+          <Route path="/fence"        element={<FencePage />} />
+          <Route path="/users"        element={<UsersPage />} />
+          <Route path="/field-staff"  element={<FieldStaffDashboard />} />
+          <Route path="/alerts"       element={<Alerts />} />
+          <Route path="/reports"      element={<Reports />} />
+          {/* Legacy redirects */}
+          <Route path="/Homepage"     element={<Navigate to="/dashboard" replace />} />
+          <Route path="/devices"      element={<Navigate to="/locators" replace />} />
+          <Route path="/geofence"     element={<Navigate to="/fence" replace />} />
+          <Route path="*"             element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </Layout>
+      </SidebarDevicesProvider>
+      </FieldStaffCacheProvider>
+      </ZoneCacheProvider>
+      </UserCacheProvider>
+      </DeviceCacheProvider>
+    </AppCtx.Provider>
+  )
 }
 
-function AdminRedirect() {
-  const { isAdmin } = useAuth();
-  return <Navigate to={isAdmin ? "/Homepage" : "/devices"} replace />;
+// ── AppInner: handles auth gate, then delegates to AppShell ──────────────────
+// Device loading is now done per-page via usePaginatedDevices (server-side).
+
+function AppInner() {
+  const { accessToken, user, isAdmin, logout } = useAuth()
+
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [state, dispatch] = useReducer(reducer, {
+    // locators/stickers are now empty — pages use usePaginatedDevices (server-side)
+    // These empty arrays prevent crashes in secondary pages not yet migrated
+    locators:   [],
+    stickers:   [],
+    detections: detectionEvents,
+  })
+
+  if (!accessToken) return <Login />
+
+  // AlertsProvider wraps AppShell so AppShell can call useAlerts()
+  return (
+    <AlertsProvider>
+      <AppShell
+        state={state}
+        dispatch={dispatch}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        user={user}
+        isAdmin={isAdmin}
+        logout={logout}
+      />
+    </AlertsProvider>
+  )
 }
 
 export default function App() {
-  return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      {/* Signup is now handled inside the login page toggle */}
-      <Route path="/signup" element={<Navigate to="/login" replace />} />
-      <Route
-        path="/*"
-        element={
-          <ProtectedRoute>
-            <BindCacheProvider>
-            <ZoneCacheProvider>
-            <MapThemeProvider>
-              <Layout>
-                <Routes>
-                  <Route path="/" element={<AdminRedirect />} />
-                  <Route path="/Homepage" element={<AdminRoute><HomePage /></AdminRoute>} />
-                  <Route path="/devices" element={<DevicesPage />} />
-                  <Route path="/trajectory" element={<TrajectoryPage />} />
-                  <Route path="/mapview" element={<MapViewPage />} />
-                  <Route path="/playback" element={<PlaybackPage />} />
-                  <Route path="/fence" element={<FencePage />} />
-                  <Route path="/report" element={<ReportPage />} />
-                  <Route path="/field-staff-dashboard" element={<AdminRoute><FieldStaffDashboard /></AdminRoute>} />
-                  <Route path="*" element={<Navigate to="/Homepage" replace />} />
-                </Routes>
-              </Layout>
-            </MapThemeProvider>
-            </ZoneCacheProvider>
-            </BindCacheProvider>
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
-  );
+  return <AppInner />
 }

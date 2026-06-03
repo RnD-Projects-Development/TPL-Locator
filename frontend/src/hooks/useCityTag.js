@@ -47,7 +47,16 @@ async function _doFetch(url, method, headers, body, onUnauthorized) {
     if (res.status === 401 && onUnauthorized) {
       onUnauthorized();
     }
-    const message = typeof payload === "string" ? payload : payload?.detail || payload?.error || "Request failed";
+    // Normalize common FastAPI/Pydantic error shapes so Error.message becomes readable
+    let message;
+    if (typeof payload === "string") {
+      message = payload;
+    } else if (Array.isArray(payload?.detail)) {
+      // Pydantic validation errors: [{loc,msg,type}, ...]
+      message = payload.detail.map(e => (e?.msg || e?.message || JSON.stringify(e))).join("; ");
+    } else {
+      message = payload?.detail || payload?.error || "Request failed";
+    }
     const err = new Error(message);
     err.status = res.status;
     err.payload = payload;
@@ -71,12 +80,32 @@ export function useCityTag() {
   );
 
   const signup = useCallback(
-    async ({ email, password, name, phone }) =>
-      apiFetch("/api/register", { method: "POST", body: { email, password, name: name || "", phone: phone || "" } }, null), []
+    async ({ identifier, password, name }) =>
+      apiFetch("/api/register", { method: "POST", body: { identifier, password, name: name || "" } }, null), []
   );
 
   const getDevices = useCallback(
-    async () => apiFetch("/api/devices", {}, accessToken, logout),
+    async ({ page, limit, search, status, device_type, search_scope } = {}) => {
+      const params = new URLSearchParams();
+      if (page != null) params.set("page", String(page));
+      if (limit != null) params.set("limit", String(limit));
+      if (search != null && String(search).trim()) params.set("search", String(search).trim());
+      if (status != null && status !== "all") params.set("status", String(status));
+      if (device_type != null) params.set("device_type", String(device_type));
+      if (search_scope != null) params.set("search_scope", String(search_scope));
+      const query = params.toString();
+      return apiFetch(query ? `/api/devices?${query}` : "/api/devices", {}, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
+  const getDevicesSummary = useCallback(
+    async () => apiFetch("/api/devices/summary", {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
+  const getDeviceBySn = useCallback(
+    async (sn) => apiFetch(`/api/devices/${encodeURIComponent(sn)}`, {}, accessToken, logout),
     [accessToken, logout]
   );
 
@@ -121,8 +150,8 @@ export function useCityTag() {
   );
 
   const adminCreateUser = useCallback(
-    async ({ email, password, name }) =>
-      apiFetch("/api/admin/users", { method: "POST", body: { email, password, name } }, accessToken, logout),
+    async ({ identifier, password, name }) =>
+      apiFetch("/api/admin/users", { method: "POST", body: { identifier, password, name } }, accessToken, logout),
     [accessToken, logout]
   );
 
@@ -152,20 +181,37 @@ export function useCityTag() {
   );
 
   const adminUpdateUser = useCallback(
-    async (userId, { name, password } = {}) =>
-      apiFetch(
+    async (userId, { name, password, role } = {}) => {
+      // Only include fields that were actually provided — backend treats
+      // null/undefined as "leave unchanged".
+      const body = {};
+      if (name !== undefined)     body.name = name;
+      if (password !== undefined) body.password = password;
+      if (role !== undefined)     body.role = role;
+      return apiFetch(
         `/api/admin/users/${encodeURIComponent(userId)}`,
-        { method: "PUT", body: { name, password } },
+        { method: "PUT", body },
         accessToken, logout
-      ),
+      );
+    },
     [accessToken, logout]
   );
 
   const adminUpdateDevice = useCallback(
     async (sn, { name, client, region, category } = {}) =>
       apiFetch(
-        `/api/admin/devices/${encodeURIComponent(sn)}`,
+        `/api/devices/${encodeURIComponent(sn)}`,
         { method: "PUT", body: { name, client, region, category } },
+        accessToken, logout
+      ),
+    [accessToken, logout]
+  );
+
+  const updateDevice = useCallback(
+    async (sn, { name, client, category } = {}) =>
+      apiFetch(
+        `/api/devices/${encodeURIComponent(sn)}`,
+        { method: "PUT", body: { name, client, category } },
         accessToken, logout
       ),
     [accessToken, logout]
@@ -178,6 +224,16 @@ export function useCityTag() {
 
   const getLatestLocation = useCallback(
     async (sn) => apiFetch(`/api/location/${encodeURIComponent(sn)}`, {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
+  const getLatestLocationsBatch = useCallback(
+    async (sns) => apiFetch(
+      "/api/location/latest-batch",
+      { method: "POST", body: { sns: Array.isArray(sns) ? sns : [] } },
+      accessToken,
+      logout,
+    ),
     [accessToken, logout]
   );
 
@@ -201,18 +257,51 @@ export function useCityTag() {
     }, [accessToken, logout]
   );
 
+  const getPlaybackBatch = useCallback(
+    async (sns, start, end) => apiFetch(
+      "/api/devices/playback-batch",
+      {
+        method: "POST",
+        body: {
+          sns: Array.isArray(sns) ? sns : [],
+          start: start instanceof Date ? start.toISOString() : start,
+          end: end instanceof Date ? end.toISOString() : end,
+        },
+      },
+      accessToken,
+      logout,
+    ),
+    [accessToken, logout]
+  );
+
   const getFieldStaffLiveDevices = useCallback(
-    async () => apiFetch("/api/field-staff/live-devices", {}, accessToken, logout),
+    async ({ page, limit, search, zoneId, lastSeenFrom, lastSeenTo } = {}) => {
+      const params = new URLSearchParams();
+      if (page != null) params.set("page", String(page));
+      if (limit != null) params.set("limit", String(limit));
+      if (search != null && String(search).trim()) params.set("search", String(search).trim());
+      if (zoneId) params.set("zone_id", String(zoneId));
+      if (lastSeenFrom) params.set("last_seen_from", lastSeenFrom);
+      if (lastSeenTo) params.set("last_seen_to", lastSeenTo);
+      const query = params.toString();
+      return apiFetch(
+        query ? `/api/field-staff/live-devices?${query}` : "/api/field-staff/live-devices",
+        {},
+        accessToken,
+        logout,
+      );
+    },
     [accessToken, logout]
   );
 
   return {
     login, adminLogin, signup,
-    getDevices, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
+    getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
-    adminUpdateDevice,
+    adminUpdateDevice, updateDevice,
     bindDevice, bindDeviceByEmail, unbindDevice, adminUnbindDevice,
     searchDevice, getLatestLocation, getTrajectory, getPlayback,
+    getLatestLocationsBatch, getPlaybackBatch,
     getFieldStaffLiveDevices,
   };
 }

@@ -9,6 +9,10 @@
 
 const _cache = new Map();
 
+export function resetTplGeocodeCache() {
+  _cache.clear();
+}
+
 function _parseResponse(raw) {
   let parsed = raw;
   if (raw && typeof raw.body === 'string') {

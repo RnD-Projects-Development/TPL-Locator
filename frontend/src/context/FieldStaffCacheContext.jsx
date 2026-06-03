@@ -1,56 +1,164 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useCityTag } from '../hooks/useCityTag.js';
+import { registerCacheResetListener } from '../utils/clearAppCaches.js';
+
+const DEFAULT_LIMIT = 20;
 
 const FieldStaffCacheContext = createContext(null);
+
+function normalizeResponse(payload, fallbackPage, fallbackLimit) {
+  const devices = Array.isArray(payload) ? payload : payload?.devices ?? [];
+  const limit = Number(payload?.limit ?? fallbackLimit) || DEFAULT_LIMIT;
+  const page = Number(payload?.page ?? fallbackPage) || 1;
+  const total = Number(payload?.total ?? devices.length) || 0;
+  const totalPages = Number(
+    payload?.total_pages ?? Math.max(1, Math.ceil(total / Math.max(limit, 1)))
+  );
+  const onlineCount = Number(payload?.online_count ?? 0);
+  return { devices, page, limit, total, totalPages, onlineCount };
+}
 
 export function FieldStaffCacheProvider({ children }) {
   const { getFieldStaffLiveDevices } = useCityTag();
 
-  const [devices,     setDevices]     = useState([]);
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState(null);
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [locationCache, setLocationCache] = useState({});
   const [lastFetched, setLastFetched] = useState(null);
 
-  const initDoneRef = useRef(false);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [onlineCount, setOnlineCount] = useState(0);
 
-  // ── Fetch once on mount ───────────────────────────────────────────────────
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [zoneId, setZoneId] = useState(null);
+
+  const getDevicesRef = useRef(getFieldStaffLiveDevices);
+  const filtersRef = useRef({ search: '', dateFrom: '', dateTo: '', zoneId: null });
+
   useEffect(() => {
-    if (initDoneRef.current) return;
-    initDoneRef.current = true;
-    fetchDevices();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    getDevicesRef.current = getFieldStaffLiveDevices;
+  }, [getFieldStaffLiveDevices]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    filtersRef.current = { search: debouncedSearch, dateFrom, dateTo, zoneId };
+  }, [debouncedSearch, dateFrom, dateTo, zoneId]);
+
+  const resetFieldStaffCache = useCallback(() => {
+    setDevices([]);
+    setLoading(false);
+    setError(null);
+    setLocationCache({});
+    setLastFetched(null);
+    setPage(1);
+    setLimit(DEFAULT_LIMIT);
+    setTotal(0);
+    setTotalPages(1);
+    setOnlineCount(0);
+    setSearch('');
+    setDebouncedSearch('');
+    setDateFrom('');
+    setDateTo('');
+    setZoneId(null);
+    filtersRef.current = { search: '', dateFrom: '', dateTo: '', zoneId: null };
   }, []);
 
-  async function fetchDevices() {
+  useEffect(() => registerCacheResetListener(resetFieldStaffCache), [resetFieldStaffCache]);
+
+  const fetchPage = useCallback(async (targetPage = 1, options = {}) => {
+    const f = filtersRef.current;
+
+    setLoading(true);
+    setError(null);
+
+    // 30-second timeout so a hanging backend never freezes the page
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Request timed out after 30s')), 30_000)
+    );
+
     try {
-      setLoading(true);
-      setError(null);
-      const data = await getFieldStaffLiveDevices();
-      setDevices(data);
+      const payload = await Promise.race([
+        getDevicesRef.current({
+          page: targetPage,
+          limit: DEFAULT_LIMIT,
+          search: f.search || undefined,
+          lastSeenFrom: f.dateFrom || undefined,
+          lastSeenTo: f.dateTo || undefined,
+          zoneId: f.zoneId || undefined,
+        }),
+        timeoutPromise,
+      ]);
+      const snapshot = normalizeResponse(payload, targetPage, DEFAULT_LIMIT);
+      setDevices(snapshot.devices);
+      setPage(snapshot.page);
+      setLimit(snapshot.limit);
+      setTotal(snapshot.total);
+      setTotalPages(snapshot.totalPages);
+      setOnlineCount(snapshot.onlineCount);
       setLastFetched(Date.now());
+      return snapshot;
     } catch (err) {
       setError(err.message || 'Failed to load field staff data');
+      throw err;
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  // Manual refresh — re-fetches devices but preserves locationCache
+  useEffect(() => {
+    setPage(1);
+    void fetchPage(1, { force: true });
+  }, [debouncedSearch, dateFrom, dateTo, zoneId, fetchPage]);
+
+  const goToPage = useCallback((nextPage) => {
+    const safe = Math.max(1, Math.min(nextPage, totalPages));
+    return fetchPage(safe);
+  }, [fetchPage, totalPages]);
+
   const refresh = useCallback(async () => {
-    await fetchDevices();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getFieldStaffLiveDevices]);
+    return fetchPage(page, { force: true });
+  }, [fetchPage, page]);
 
-  // Called by the dashboard to persist reverse-geocode results across navigations
   const updateLocationCache = useCallback((sn, label) => {
     setLocationCache(prev => ({ ...prev, [sn]: label }));
   }, []);
 
   return (
     <FieldStaffCacheContext.Provider value={{
-      devices, loading, error, locationCache, lastFetched,
-      refresh, updateLocationCache,
+      devices,
+      loading,
+      error,
+      locationCache,
+      lastFetched,
+      page,
+      limit,
+      total,
+      totalPages,
+      onlineCount,
+      hasNextPage: page < totalPages,
+      hasPreviousPage: page > 1,
+      search,
+      setSearch,
+      dateFrom,
+      setDateFrom,
+      dateTo,
+      setDateTo,
+      zoneId,
+      setZoneId,
+      goToPage,
+      refresh,
+      updateLocationCache,
     }}>
       {children}
     </FieldStaffCacheContext.Provider>

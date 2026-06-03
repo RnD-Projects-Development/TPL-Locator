@@ -17,6 +17,7 @@ class UserInDB(BaseModel):
     devices: List[PyObjectId] = Field(default_factory=list)
     role: str = "user"  # user or admin
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_logged_in: Optional[datetime] = None
 
     class Config:
         json_encoders = {ObjectId: str}
@@ -35,7 +36,7 @@ class UserCreate(BaseModel):
 
 class UserPublic(BaseModel):
     id: str
-    email: EmailStr
+    email: str  # real email or phone when account was created with phone only
     name: Optional[str] = None
     phone: Optional[str] = None
     admin_id: Optional[str] = None

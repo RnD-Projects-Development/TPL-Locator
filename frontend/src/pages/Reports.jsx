@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
+import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { reverseGeocode } from "../utils/reverseGeocode.js";
 import "./ReportPage.css";
@@ -8,7 +9,6 @@ import * as XLSX from "xlsx";
 
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 
-// Pakistan Time (PKT) offset: UTC+5, so subtract 5 hours to align queries with stored data
 const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
 
 function toPktTime(utcDateStr, timeStr) {
@@ -97,24 +97,24 @@ const ClockIcon = () => (
   </svg>
 );
 
-export default function ReportPage() {
+export default function Reports() {
   const [searchParams] = useSearchParams();
   const { getPlayback } = useCityTag();
 
-  const [sn, setSn]     = useState(searchParams.get("device") || "");
+  const [sn, setSn]       = useState(searchParams.get("device") || "");
   const [label, setLabel] = useState("");
 
   const [startDate, setStartDate] = useState(todayStr());
-  const [endDate, setEndDate]     = useState(todayStr());
+  const [endDate,   setEndDate]   = useState(todayStr());
   const [startTime, setStartTime] = useState("00:00");
-  const [endTime, setEndTime]     = useState("23:59");
+  const [endTime,   setEndTime]   = useState("23:59");
 
-  const [points, setPoints]                 = useState([]);
-  const [geocoded, setGeocoded]             = useState({});
-  const [loading, setLoading]               = useState(false);
-  const [error, setError]                   = useState("");
+  const [points,         setPoints]         = useState([]);
+  const [geocoded,       setGeocoded]       = useState({});
+  const [loading,        setLoading]        = useState(false);
+  const [error,          setError]          = useState("");
   const [activeShortcut, setActiveShortcut] = useState(null);
-  const [queryRange, setQueryRange]         = useState({ start: null, end: null });
+  const [queryRange,     setQueryRange]     = useState({ start: null, end: null });
 
   const handleSelectDevice = (device) => {
     const newSn    = typeof device === "string" ? device : (device?.sn ?? "");
@@ -129,20 +129,14 @@ export default function ReportPage() {
 
   const geocodePoints = useCallback(async (pts) => {
     const results = {};
-
-    // Deduplicate by coordinate key first — no point hitting the API twice
-    // for points that are within ~1m of each other
-    const unique = [];
-    const seen   = new Set();
+    const unique  = [];
+    const seen    = new Set();
     for (const p of pts) {
       const c = extractCoords(p);
       if (!c) continue;
       const key = `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`;
       if (!seen.has(key)) { seen.add(key); unique.push({ c, key }); }
     }
-
-    // Geocode in small parallel batches to avoid hammering the API
-    // Update state after each batch so results appear progressively
     const BATCH = 5;
     for (let i = 0; i < unique.length; i += BATCH) {
       await Promise.all(unique.slice(i, i + BATCH).map(async ({ c, key }) => {
@@ -161,9 +155,8 @@ export default function ReportPage() {
     setError("");
     setLoading(true);
     try {
-      // Convert picker values to Pakistan time for database alignment
       const start = overrideStart ?? toPktTime(startDate, `${startTime}:00`);
-      const end   = overrideEnd   ?? toPktTime(endDate, `${endTime}:59`);
+      const end   = overrideEnd   ?? toPktTime(endDate,   `${endTime}:59`);
       if (start >= end) throw new Error("Start must be before end");
       setQueryRange({ start, end });
       const res = await getPlayback(sn, start, end);
@@ -210,10 +203,8 @@ export default function ReportPage() {
 
   const exportCSV = () => {
     if (points.length === 0) return;
-
     const deviceName = label || sn;
     const cols = ["#", "Timestamp", "Coordinates", "Landmark"];
-
     const dataRows = points.map((p, i) => {
       const c        = extractCoords(p);
       const loc      = getLocationLabel(p);
@@ -223,70 +214,35 @@ export default function ReportPage() {
       const landmark = sec ? `${loc} — ${sec}` : loc;
       return [i + 1, ts, coords, landmark];
     });
-
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet([
-      [deviceName, "", "", ""],   // Row 1: STP title
-      cols,                        // Row 2: column headers
-      ...dataRows,                 // Row 3+: data
+      [deviceName, "", "", ""],
+      cols,
+      ...dataRows,
     ]);
-
-    // Column widths
     ws["!cols"] = [{ wch: 6 }, { wch: 22 }, { wch: 26 }, { wch: 50 }];
-
-    // Merge title row across all 4 columns
     ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }];
-
-    // Style helpers
     const titleStyle = {
       font: { bold: true, sz: 13, color: { rgb: "FFFFFF" } },
       fill: { fgColor: { rgb: "7F1D1D" } },
       alignment: { horizontal: "center", vertical: "center" },
-      border: {
-        top:    { style: "thin", color: { rgb: "000000" } },
-        bottom: { style: "thin", color: { rgb: "000000" } },
-        left:   { style: "thin", color: { rgb: "000000" } },
-        right:  { style: "thin", color: { rgb: "000000" } },
-      },
+      border: { top: { style: "thin", color: { rgb: "000000" } }, bottom: { style: "thin", color: { rgb: "000000" } }, left: { style: "thin", color: { rgb: "000000" } }, right: { style: "thin", color: { rgb: "000000" } } },
     };
     const headerStyle = {
       font: { bold: true, sz: 11, color: { rgb: "FFFFFF" } },
       fill: { fgColor: { rgb: "991B1B" } },
       alignment: { horizontal: "center", vertical: "center" },
-      border: {
-        top:    { style: "thin", color: { rgb: "000000" } },
-        bottom: { style: "thin", color: { rgb: "000000" } },
-        left:   { style: "thin", color: { rgb: "000000" } },
-        right:  { style: "thin", color: { rgb: "000000" } },
-      },
+      border: { top: { style: "thin", color: { rgb: "000000" } }, bottom: { style: "thin", color: { rgb: "000000" } }, left: { style: "thin", color: { rgb: "000000" } }, right: { style: "thin", color: { rgb: "000000" } } },
     };
     const cellStyle = (i) => ({
       fill: { fgColor: { rgb: i % 2 === 0 ? "1C1C1C" : "141414" } },
       font: { sz: 10, color: { rgb: "E5E5E5" } },
       alignment: { vertical: "center", wrapText: true },
-      border: {
-        top:    { style: "thin", color: { rgb: "2D2D2D" } },
-        bottom: { style: "thin", color: { rgb: "2D2D2D" } },
-        left:   { style: "thin", color: { rgb: "2D2D2D" } },
-        right:  { style: "thin", color: { rgb: "2D2D2D" } },
-      },
+      border: { top: { style: "thin", color: { rgb: "2D2D2D" } }, bottom: { style: "thin", color: { rgb: "2D2D2D" } }, left: { style: "thin", color: { rgb: "2D2D2D" } }, right: { style: "thin", color: { rgb: "2D2D2D" } } },
     });
-
     const colLetters = ["A", "B", "C", "D"];
-
-    // Apply title style
-    colLetters.forEach(col => {
-      if (!ws[`${col}1`]) ws[`${col}1`] = { v: "", t: "s" };
-      ws[`${col}1`].s = titleStyle;
-    });
-
-    // Apply header style (row 2)
-    colLetters.forEach(col => {
-      const cell = ws[`${col}2`];
-      if (cell) cell.s = headerStyle;
-    });
-
-    // Apply cell styles (rows 3+)
+    colLetters.forEach(col => { if (!ws[`${col}1`]) ws[`${col}1`] = { v: "", t: "s" }; ws[`${col}1`].s = titleStyle; });
+    colLetters.forEach(col => { const cell = ws[`${col}2`]; if (cell) cell.s = headerStyle; });
     dataRows.forEach((_, rowIdx) => {
       const excelRow = rowIdx + 3;
       colLetters.forEach(col => {
@@ -295,7 +251,6 @@ export default function ReportPage() {
         ws[cellRef].s = cellStyle(rowIdx);
       });
     });
-
     XLSX.utils.book_append_sheet(wb, ws, "Report");
     XLSX.writeFile(wb, `report_${sn}_${startDate}_${endDate}.xlsx`);
   };
@@ -410,7 +365,6 @@ export default function ReportPage() {
                       <th>Landmark</th>
                       <th>Latitude</th>
                       <th>Longitude</th>
-
                     </tr>
                   </thead>
                   <tbody>
@@ -432,7 +386,6 @@ export default function ReportPage() {
                           </td>
                           <td className="mono">{c?.lat?.toFixed(6) ?? "—"}</td>
                           <td className="mono">{c?.lng?.toFixed(6) ?? "—"}</td>
-
                         </tr>
                       );
                     })}
@@ -440,6 +393,8 @@ export default function ReportPage() {
                 </table>
               </div>
             </>
+          ) : loading ? (
+            <TPLLoader label="Generating report…" />
           ) : (
             <div className="rp-empty">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">

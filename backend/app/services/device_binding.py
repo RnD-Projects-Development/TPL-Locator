@@ -4,6 +4,7 @@ from typing import Optional, Union
 
 from fastapi import HTTPException, status
 
+from app.account_identifier import normalize_phone
 from app.models.admin import AdminInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
@@ -22,15 +23,33 @@ async def _resolve_target_user(
     user_id: Optional[str] = None,
 ) -> UserInDB:
     if user_id:
-        target_user = await mongo.get_user_by_id(user_id)
+        uid = (user_id or "").strip()
+        target_user = await mongo.get_user_by_id(uid)
         if not target_user:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No user account found with user ID '{uid}'",
+            )
         return target_user
 
     if email:
-        target_user = await mongo.get_user_by_email(email.strip())
+        identifier = (email or "").strip()
+        if "@" in identifier:
+            target_user = await mongo.get_user_by_email(identifier.lower())
+            if not target_user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"No user account found with email '{identifier}'",
+                )
+            return target_user
+
+        phone = normalize_phone(identifier)
+        target_user = await mongo.get_user_by_phone(phone)
         if not target_user:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No user account found with phone number '{identifier}'",
+            )
         return target_user
 
     if _is_admin(current_account):
@@ -71,13 +90,9 @@ async def bind_device_service(
     if not _is_admin(current_account) and str(target_user.id) != str(current_account.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign device to another user")
 
-    # Admin must target their own users only
-    if _is_admin(current_account):
-        if target_user.admin_id and str(target_user.admin_id) != str(current_account.id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Cannot assign users that belong to another admin",
-            )
+    # Single-company deployment: every admin login shares one fleet and user pool,
+    # so any admin may bind any registered user (mirrors admin_list_users, which
+    # now returns all users). Cross-admin ownership is intentionally NOT enforced.
 
     device = await mongo.get_device_by_sn(sn)
     if not device:
@@ -94,7 +109,15 @@ async def bind_device_service(
     # Stamp optional metadata
     update_fields = {}
     if name:
-        update_fields["name"] = name.strip()
+        clean_name = name.strip()
+        if clean_name and device.admin_id and await mongo.is_device_name_taken(
+            str(device.admin_id), clean_name, exclude_sn=sn
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'A device named "{clean_name}" already exists. Device names must be unique.',
+            )
+        update_fields["name"] = clean_name
     if client:
         update_fields["client"] = client.strip()
     if category:

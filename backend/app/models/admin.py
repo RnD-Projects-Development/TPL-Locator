@@ -51,10 +51,6 @@ class AdminCreate(BaseModel):
     uid: str
 
 
-class AdminPublic(BaseModel):
-    id: str
-    email: EmailStr
-    uid: str
 
 
 # ───────────────────────────────────────────────────────
@@ -77,6 +73,7 @@ class AccountInDB(BaseModel):
     
     # User fields
     name: Optional[str] = None
+    phone: Optional[str] = None
     admin_id: Optional[PyObjectId] = None
     devices: List[PyObjectId] = Field(default_factory=list)
     

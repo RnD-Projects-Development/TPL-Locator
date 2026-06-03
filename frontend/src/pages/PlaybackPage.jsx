@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
+import MapInfoPanel from "../components/MapInfoPanel.jsx";
+import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
+import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import "./PlaybackPage.css";
 
@@ -63,6 +66,7 @@ const TIME_SHORTCUTS = [
 export default function PlaybackPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation, getPlayback } = useCityTag();
+  const { ensureDevice } = useSidebarDevices();
   const [label, setLabel] = useState("");
   const { zones } = useZoneCache();
   const [showFences, setShowFences] = useState(false);
@@ -113,6 +117,11 @@ export default function PlaybackPage() {
     if (sn && isLiveMode) liveIntervalRef.current = setInterval(() => refreshLive(), 15000);
     return () => clearInterval(liveIntervalRef.current);
   }, [sn, isLiveMode, refreshLive]);
+
+  useEffect(() => {
+    const param = searchParams.get("device");
+    if (param) void ensureDevice(param);
+  }, [searchParams, ensureDevice]);
 
   const handleSelectDevice = (device) => {
     const newSn    = typeof device === "string" ? device : (device?.sn ?? "");
@@ -191,15 +200,15 @@ export default function PlaybackPage() {
     return null;
   }, [isLiveMode, playbackIndex, trajectory]);
 
-  // ── Progressive trajectory ────────────────────────────────────────────────
-  // During historical playback: only expose points up to current index so
-  // MapView's incremental renderer draws the line as the marker travels.
-  // In live/session mode: pass the full array (points arrive one-by-one anyway).
-  const visibleTrajectory = useMemo(() => {
-    if (isLiveMode || dataSource !== "historical") return trajectory;
-    // +1 so the current point is always included in the drawn segment
-    return trajectory.slice(0, playbackIndex + 1);
-  }, [isLiveMode, dataSource, trajectory, playbackIndex]);
+  // ── Trajectory for MapView ────────────────────────────────────────────────
+  // For the Playback page, we pass the FULL unsliced trajectory and let
+  // MapView's isolated playback renderer control which segments are visible
+  // via the playbackIndex prop. This is what enables strict one-segment-at-a-time
+  // growth — MapView advances its own committed pointer instead of receiving a
+  // pre-sliced array that can jump many points at once on seek/scrub.
+  //
+  // In live mode, MapView clears all pb layers automatically (isLiveMode guard).
+  const trajectoryForMap = trajectory;
 
   const handlePlay   = () => {
     if (trajectory.length === 0) { setHistError("No data yet. Collect live points or load historical."); return; }
@@ -319,13 +328,16 @@ export default function PlaybackPage() {
               sn={sn}
               label={label}
               latest={latest}
-              trajectory={visibleTrajectory}
+              trajectory={trajectoryForMap}
               playbackPoint={playbackPoint}
               showLine={false}
               showFences={showFences}
               zones={zones}
               playbackSpeed={speed}
+              isPlaybackPage={true}
+              playbackIndex={playbackIndex}
             />
+            {histLoading && <TPLLoader overlay label="Loading playback…" />}
           </div>
 
           {/* Playback controls */}
@@ -366,10 +378,12 @@ export default function PlaybackPage() {
               <span className="pb-point-val">{formatTs(infoPoint)}</span>
             </div>
 
-            <div className={`pb-mode-badge ${isLiveMode ? "badge-live" : "badge-playback"}`}>
-              <span className="badge-dot" />
-              {isLiveMode ? "Live" : `Playback · ${SPEEDS.find(o => o.value === speed)?.label}`}
-            </div>
+            {!isLiveMode && (
+              <div className="pb-mode-badge badge-playback">
+                <span className="badge-dot" />
+                {`Playback · ${SPEEDS.find(o => o.value === speed)?.label}`}
+              </div>
+            )}
 
             <button className="pb-clear-btn" onClick={() => {
               setSessionTraj([]); setHistoricalTraj([]);
@@ -379,6 +393,16 @@ export default function PlaybackPage() {
             }}>Clear</button>
           </div>
         </div>
+
+        <MapInfoPanel
+          sn={sn}
+          deviceName={label}
+          point={infoPoint}
+          detections={trajectory.length}
+          online={sn ? (isLiveMode ? latest != null : true) : null}
+          detectionsLabel={dataSource === "historical" ? "Playback points" : "Session points"}
+          emptyHint="Select a device to view its playback details"
+        />
       </div>
     </div>
   );

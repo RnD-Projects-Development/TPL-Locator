@@ -11,7 +11,8 @@
  *   Consume with useBindCache() anywhere inside the tree.
  */
 
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { registerCacheResetListener } from '../utils/clearAppCaches.js';
 
 // ── Storage ───────────────────────────────────────────────────────────
 const STORAGE_KEY = 'tpl_bind_cache_v2';
@@ -31,6 +32,12 @@ const BindCacheContext = createContext(null);
 export function BindCacheProvider({ children }) {
   // { [sn]: isoBindTime }  — grows over time, never shrinks
   const [history, setHistory] = useState(readStorage);
+
+  const resetBindCache = useCallback(() => {
+    setHistory({});
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetBindCache), [resetBindCache]);
 
   /**
    * Call this whenever a fresh device list arrives from the API.

@@ -15,6 +15,13 @@ function isValidPakistaniPhone(raw) {
   return /^03\d{9}$/.test(p) || /^\+92\d{10}$/.test(p);
 }
 
+function isValidIdentifier(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("@")) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  return isValidPakistaniPhone(trimmed);
+}
+
 export default function LoginForm() {
   const navigate = useNavigate();
   const { login, signup } = useCityTag();
@@ -22,8 +29,7 @@ export default function LoginForm() {
 
   const [mode, setMode] = useState(MODE.LOGIN);
   const [name, setName]                       = useState("");
-  const [phone, setPhone]                     = useState("");
-  const [identifier, setIdentifier]           = useState(""); // email or phone for login
+  const [identifier, setIdentifier]           = useState(""); // email or phone
   const [password, setPassword]               = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading]                 = useState(false);
@@ -32,15 +38,14 @@ export default function LoginForm() {
   const isSignup = mode === MODE.SIGNUP;
   const isLogin  = mode === MODE.LOGIN;
 
-  const phoneError = isSignup && phone && !isValidPakistaniPhone(phone);
+  const identifierError = identifier && !isValidIdentifier(identifier);
 
   const canSubmit = (() => {
     if (loading) return false;
-    if (isLogin) return identifier.trim() && password;
-    // signup
-    if (!name.trim() || !phone.trim() || !identifier.trim() || !password) return false;
-    if (!isValidPakistaniPhone(phone)) return false;
-    if (!confirmPassword || password !== confirmPassword) return false;
+    if (!identifier.trim() || !password) return false;
+    if (!isValidIdentifier(identifier)) return false;
+    if (isLogin) return true;
+    if (!name.trim() || !confirmPassword || password !== confirmPassword) return false;
     return true;
   })();
 
@@ -48,7 +53,6 @@ export default function LoginForm() {
     setMode(newMode);
     setError("");
     setConfirmPassword("");
-    setPhone("");
   }
 
   async function onSubmit(e) {
@@ -59,10 +63,9 @@ export default function LoginForm() {
       if (isSignup) {
         // 1) Create the user account (email is the identifier field in signup mode)
         await signup({
-          email: identifier.trim(),
+          identifier: identifier.trim(),
           password,
           name: name.trim(),
-          phone: normalizePhone(phone.trim()),
         });
         // 2) Auto-login after signup
         const res = await login({
@@ -146,42 +149,24 @@ export default function LoginForm() {
           </div>
         )}
 
-        {/* Phone (signup only) */}
-        {isSignup && (
-          <div>
-            <label className="block text-sm font-medium text-white">Phone Number</label>
-            <input
-              className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-              style={{ borderColor: phoneError ? "#ef4444" : "" }}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              type="tel"
-              placeholder="e.g. 03001234567 or +923001234567"
-              autoComplete="tel"
-              required
-            />
-            {phoneError && (
-              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
-                Enter a valid Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Email / identifier */}
+        {/* Email or phone */}
         <div>
-          <label className="block text-sm font-medium text-white">
-            {isSignup ? "Email" : "Email or Phone Number"}
-          </label>
+          <label className="block text-sm font-medium text-white">Email or Phone Number</label>
           <input
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+            className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+            style={{ borderColor: identifierError ? "#ef4444" : "#cbd5e1" }}
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
-            type={isSignup ? "email" : "text"}
-            autoComplete={isSignup ? "username" : "off"}
-            placeholder={isSignup ? "you@example.com" : "Email or phone number"}
+            type="text"
+            autoComplete="username"
+            placeholder="Email or phone number"
             required
           />
+          {identifierError && (
+            <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+              Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
+            </p>
+          )}
         </div>
 
         {/* Password */}

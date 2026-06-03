@@ -26,7 +26,7 @@ class LocationService:
 
     async def get_trajectory(
         self,
-        uid: str,
+        uid: Optional[str],
         sn: str,
         start_time: datetime,
         end_time: datetime,
@@ -86,7 +86,7 @@ class LocationService:
 
     async def get_playback_points(
         self,
-        uid: str,
+        uid: Optional[str],
         sn: str,
         start_time: datetime,
         end_time: datetime,
