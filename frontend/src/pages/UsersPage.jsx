@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { displayContact, isValidIdentifier } from '../utils/userContact.js'
+import TPLLoader from '../components/TPLLoader.jsx'
+import ModalPortal from '../components/common/ModalPortal.jsx'
 
 /* ── Design tokens ────────────────────────────────────────────────────────── */
 const panel = {
