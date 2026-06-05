@@ -46,18 +46,20 @@ export function SidebarDevicesProvider({ children }) {
   const { getDevices } = useCityTag();
   const { user } = useAuth();
 
-  const [defaultDevices, setDefaultDevices] = useState([]);
-  const [searchResults, setSearchResults]   = useState([]);
-  const [searchTerm, setSearchTerm]         = useState("");
+  const [defaultDevices, setDefaultDevices]   = useState([]);
+  const [searchResults, setSearchResults]     = useState([]);
+  const [searchTerm, setSearchTerm]           = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [recentSns, setRecentSns]           = useState(loadRecentSns);
-  const [total, setTotal]                   = useState(0);
-  const [totalPages, setTotalPages]         = useState(1);
-  const [page, setPage]                     = useState(1);
-  const [loading, setLoading]               = useState(false);
-  const [searchLoading, setSearchLoading]   = useState(false);
-  const [error, setError]                   = useState("");
-  const [registryTick, setRegistryTick]     = useState(0);
+  const [recentSns, setRecentSns]             = useState(loadRecentSns);
+  const [total, setTotal]                     = useState(0);
+  const [totalPages, setTotalPages]           = useState(1);
+  const [page, setPage]                       = useState(1);
+  const [loading, setLoading]                 = useState(false);
+  const [searchLoading, setSearchLoading]     = useState(false);
+  const [error, setError]                     = useState("");
+  const [registryTick, setRegistryTick]       = useState(0);
+  // 'locator' | 'sticker' | null (= All)
+  const [deviceTypeFilter, setDeviceTypeFilter] = useState(null);
 
   const registryRef = useRef(new Map());
   const getDevicesRef = useRef(getDevices);
@@ -103,7 +105,9 @@ export function SidebarDevicesProvider({ children }) {
     setLoading(true);
     setError("");
     try {
-      const payload = await getDevicesRef.current({ page: targetPage, limit: DEFAULT_LIMIT });
+      const params = { page: targetPage, limit: DEFAULT_LIMIT };
+      if (deviceTypeFilter) params.device_type = deviceTypeFilter;
+      const payload = await getDevicesRef.current(params);
       const list    = normalizeList(payload);
       registerDevices(list);
       setDefaultDevices(list);
@@ -120,7 +124,7 @@ export function SidebarDevicesProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [registerDevices, user]);
+  }, [registerDevices, user, deviceTypeFilter]);
 
   const runSearch = useCallback(async (term) => {
     if (!user || !term) {
@@ -130,11 +134,9 @@ export function SidebarDevicesProvider({ children }) {
     setSearchLoading(true);
     setError("");
     try {
-      const payload = await getDevicesRef.current({
-        page: 1,
-        limit: SEARCH_LIMIT,
-        search: term,
-      });
+      const searchParams = { page: 1, limit: SEARCH_LIMIT, search: term };
+      if (deviceTypeFilter) searchParams.device_type = deviceTypeFilter;
+      const payload = await getDevicesRef.current(searchParams);
       const list = normalizeList(payload);
       registerDevices(list);
       setSearchResults(list);
@@ -144,7 +146,7 @@ export function SidebarDevicesProvider({ children }) {
     } finally {
       setSearchLoading(false);
     }
-  }, [registerDevices, user]);
+  }, [registerDevices, user, deviceTypeFilter]);
 
   useEffect(() => {
     if (!user) {
@@ -263,6 +265,8 @@ export function SidebarDevicesProvider({ children }) {
     recordRecent,
     getDevice,
     ensureDevice,
+    deviceTypeFilter,
+    setDeviceTypeFilter,
   }), [
     displayDevices,
     recentDevices,
@@ -282,6 +286,7 @@ export function SidebarDevicesProvider({ children }) {
     recordRecent,
     getDevice,
     ensureDevice,
+    deviceTypeFilter,
   ]);
 
   return (

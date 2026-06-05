@@ -55,6 +55,7 @@ export default function Search() {
 
   const { devices: searchDocs, loading: searchLoading, total } = usePaginatedDevices(20, {
     search: debouncedQuery,
+    status: 'online',
   })
 
   const mappedDocs = searchDocs.map(d => {
@@ -305,11 +306,12 @@ export default function Search() {
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {[
-                'Recent Devices', 'Recent Locations', 'Recent Shipments',
-              ].map(s => (
+                { label: 'Recent Devices',   route: '/locators' },
+                { label: 'Recent Locations', route: '/map'      },
+              ].map(({ label, route }) => (
                 <button
-                  key={s}
-                  onClick={() => pickSuggestion(s)}
+                  key={label}
+                  onClick={() => navigate(route)}
                   style={{
                     padding: '7px 14px', borderRadius: '20px',
                     background: T.chipBg, border: `1px solid ${T.chipBdr}`,
@@ -327,7 +329,7 @@ export default function Search() {
                     e.currentTarget.style.color = T.chipTxt
                   }}
                 >
-                  {s}
+                  {label}
                 </button>
               ))}
             </div>

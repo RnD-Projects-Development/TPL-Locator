@@ -3,6 +3,27 @@ import tplLogo from "../assets/tpl.png";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import "./DeviceSidebar.css";
 
+/* ── Detect device type the same way as Locators/Stickers pages ─────────── */
+const isSticker = (sn) => /^\d+$/.test(String(sn ?? ""));
+
+/* ── Locator icon (radio/signal) ─────────────────────────────────────────── */
+function LocatorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+    </svg>
+  );
+}
+
+/* ── Sticker icon (tag/label) ────────────────────────────────────────────── */
+function StickerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>
+    </svg>
+  );
+}
+
 function formatDateTime(value) {
   if (!value) return null;
   try {
@@ -24,6 +45,7 @@ function DeviceRow({ device, selectedSn, onSelect }) {
   const bindTime     = formatDateTime(device.bindTime);
   const isBound      = !!assignedUser;
   const isSelected   = sn === selectedSn;
+  const sticker      = isSticker(sn);
 
   return (
     <button
@@ -32,9 +54,7 @@ function DeviceRow({ device, selectedSn, onSelect }) {
       onClick={() => onSelect(device)}
     >
       <div className={`dsb-icon ${status === "online" ? "icon-online" : "icon-offline"}`}>
-        <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
-        </svg>
+        {sticker ? <StickerIcon /> : <LocatorIcon />}
       </div>
 
       <div className="dsb-info">
@@ -68,6 +88,13 @@ function DeviceRow({ device, selectedSn, onSelect }) {
   );
 }
 
+/* ── Type filter tabs ─────────────────────────────────────────────────────── */
+const TYPE_TABS = [
+  { key: null,       label: "All"      },
+  { key: "locator",  label: "Locators" },
+  { key: "sticker",  label: "Stickers" },
+];
+
 export default function DeviceSidebar({ selectedSn, onSelect }) {
   const {
     displayDevices,
@@ -83,6 +110,8 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
     offline,
     refresh,
     recordRecent,
+    deviceTypeFilter,
+    setDeviceTypeFilter,
   } = useSidebarDevices();
 
   const handleSelect = (device) => {
@@ -90,45 +119,65 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
     onSelect(device);
   };
 
-  const defaultSnSet = new Set(defaultDevices.map((d) => d.sn));
-  const recentOnly = recentDevices.filter((d) => !defaultSnSet.has(d.sn));
+  const defaultSnSet    = new Set(defaultDevices.map((d) => d.sn));
+  const recentOnly      = recentDevices.filter((d) => !defaultSnSet.has(d.sn));
   const showRecentSection = !isSearching && recentOnly.length > 0;
+
+  /* Labels — title is always "Devices"; search/empty hints adapt to the active filter */
+  const searchPlaceholder = deviceTypeFilter === "sticker" ? "Search stickers…" : deviceTypeFilter === "locator" ? "Search locators…" : "Search all devices…";
+  const emptyLabel        = deviceTypeFilter === "sticker" ? "stickers" : deviceTypeFilter === "locator" ? "locators" : "devices";
 
   return (
     <div className="dsb-sidebar">
 
       <div className="dsb-header">
-        <div className="dsb-title">
-          Locators
-          <span className="dsb-count" title="Total locators in your account">
-            {isSearching ? displayDevices.length : total}
-          </span>
+        {/* Row 1: title + refresh button */}
+        <div className="dsb-header-row">
+          <div className="dsb-title">
+            Devices
+            <span className="dsb-count" title={`Total ${emptyLabel} in your account`}>
+              {isSearching ? displayDevices.length : total}
+            </span>
+          </div>
+          <button
+            className="dsb-refresh-btn"
+            onClick={refresh}
+            disabled={loading}
+            title={`Refresh ${emptyLabel}`}
+            onMouseEnter={(e) => { if (!loading) e.currentTarget.style.color = "#fca5a5"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = loading ? "#3f3f46" : "#71717a"; }}
+          >
+            <svg
+              viewBox="0 0 20 20" fill="currentColor" width={14} height={14}
+              style={{ animation: loading ? "dsb-spin 0.8s linear infinite" : "none" }}
+            >
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+            </svg>
+          </button>
         </div>
+        {/* Row 2: online / offline stats */}
         <div className="dsb-stats">
           <span className="dsb-stat online">● {online} online</span>
           <span className="dsb-stat offline">● {offline} offline</span>
         </div>
-        <button
-          onClick={refresh}
-          disabled={loading}
-          title="Refresh locators"
-          style={{
-            marginLeft: "auto", background: "none", border: "none",
-            color: loading ? "#3f3f46" : "#71717a",
-            cursor: loading ? "not-allowed" : "pointer",
-            padding: "4px", borderRadius: 4,
-            display: "flex", alignItems: "center",
-          }}
-          onMouseEnter={(e) => { if (!loading) e.currentTarget.style.color = "#fca5a5"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = loading ? "#3f3f46" : "#71717a"; }}
-        >
-          <svg
-            viewBox="0 0 20 20" fill="currentColor" width={14} height={14}
-            style={{ animation: loading ? "dsb-spin 0.8s linear infinite" : "none" }}
+      </div>
+
+      {/* ── Device type filter ───────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 3, padding: "6px 8px", borderBottom: "1px solid #1f1f22" }}>
+        {TYPE_TABS.map(({ key, label }) => (
+          <button
+            key={String(key)}
+            onClick={() => setDeviceTypeFilter(key)}
+            style={{
+              flex: 1, padding: "4px 0", borderRadius: 6, border: "none",
+              fontSize: 10, fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
+              background: deviceTypeFilter === key ? "#A72C32" : "rgba(255,255,255,0.05)",
+              color:      deviceTypeFilter === key ? "#FFFFFF"  : "#71717a",
+            }}
           >
-            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
-          </svg>
-        </button>
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="dsb-search-wrap">
@@ -137,7 +186,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
         </svg>
         <input
           className="dsb-search"
-          placeholder="Search all locators…"
+          placeholder={searchPlaceholder}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -172,7 +221,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
               }}
             />
             <span style={{ fontSize: 10, color: "#52525b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              {isSearching ? "Searching…" : "Loading locators…"}
+              {isSearching ? "Searching…" : `Loading ${emptyLabel}…`}
             </span>
           </div>
         )}
@@ -183,7 +232,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
 
         {!loading && !error && displayDevices.length === 0 && (
           <div className="dsb-state">
-            {isSearching ? "No locators match your search" : "No locators found"}
+            {isSearching ? `No ${emptyLabel} match your search` : `No ${emptyLabel} found`}
           </div>
         )}
 
@@ -193,7 +242,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
             {recentOnly.map((d) => (
               <DeviceRow key={`recent-${d.sn}`} device={d} selectedSn={selectedSn} onSelect={handleSelect} />
             ))}
-            <div className="dsb-section-label">Locators</div>
+            <div className="dsb-section-label">Devices</div>
           </>
         )}
 
@@ -204,6 +253,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
           <DeviceRow key={d.sn} device={d} selectedSn={selectedSn} onSelect={handleSelect} />
         ))}
       </div>
+
     </div>
   );
 }

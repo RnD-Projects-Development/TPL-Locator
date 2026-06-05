@@ -3,6 +3,33 @@ import tplLogo from "../assets/tpl.png";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import "./MultiDeviceSidebar.css";
 
+/* ── Detect device type the same way as Locators/Stickers pages ─────────── */
+const isSticker = (sn) => /^\d+$/.test(String(sn ?? ""));
+
+/* ── Locator icon ────────────────────────────────────────────────────────── */
+function LocatorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+    </svg>
+  );
+}
+
+/* ── Sticker icon ────────────────────────────────────────────────────────── */
+function StickerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>
+    </svg>
+  );
+}
+
+const TYPE_TABS = [
+  { key: null,       label: "All"      },
+  { key: "locator",  label: "Locators" },
+  { key: "sticker",  label: "Stickers" },
+];
+
 function fmtTs(point) {
   const ts = point?.timestamp ?? point?.time ?? point?.locTime;
   if (!ts) return null;
@@ -45,7 +72,13 @@ export default function MultiDeviceSidebar({
     offline,
     refresh,
     recordRecent,
+    deviceTypeFilter,
+    setDeviceTypeFilter,
   } = useSidebarDevices();
+
+  /* Title is always "Devices"; search/empty hints adapt to the active filter */
+  const searchPlaceholder = deviceTypeFilter === "sticker" ? "Search stickers…" : deviceTypeFilter === "locator" ? "Search locators…" : "Search all devices…";
+  const emptyLabel        = deviceTypeFilter === "sticker" ? "stickers" : deviceTypeFilter === "locator" ? "locators" : "devices";
 
   const defaultSnSet = new Set(defaultDevices.map((d) => d.sn));
   const recentOnly = recentDevices.filter((d) => !defaultSnSet.has(d.sn));
@@ -97,9 +130,7 @@ export default function MultiDeviceSidebar({
         />
 
         <div className={`mdsb-icon ${status === "online" ? "icon-online" : "icon-offline"}`}>
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>
-          </svg>
+          {isSticker(sn) ? <StickerIcon /> : <LocatorIcon />}
         </div>
 
         <div className="mdsb-info">
@@ -144,18 +175,18 @@ export default function MultiDeviceSidebar({
     <div className="mdsb-sidebar">
 
       <div className="mdsb-header">
+        {/* Row 1: title + refresh button */}
         <div className="mdsb-title">
-          Locators
-          <span className="mdsb-count" title="Total locators in your account">
+          Devices
+          <span className="mdsb-count" title={`Total ${emptyLabel} in your account`}>
             {isSearching ? displayDevices.length : total}
           </span>
         </div>
         <button
           onClick={refresh}
           disabled={loading}
-          title="Refresh locators"
+          title={`Refresh ${emptyLabel}`}
           className="mdsb-refresh-icon-btn"
-          style={{ marginLeft: "auto" }}
           onMouseEnter={(e) => { if (!loading) e.currentTarget.style.color = "#fca5a5"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = loading ? "#3f3f46" : "#71717a"; }}
         >
@@ -166,6 +197,7 @@ export default function MultiDeviceSidebar({
             <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
           </svg>
         </button>
+        {/* Row 2: online/offline stats (wraps via flex-wrap) */}
         <div className="mdsb-stats">
           <span className="mdsb-stat online">● {online} online</span>
           <span className="mdsb-stat offline">● {offline} offline</span>
@@ -194,13 +226,31 @@ export default function MultiDeviceSidebar({
         )}
       </div>
 
+      {/* ── Device type filter ─────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 3, padding: "6px 8px", borderBottom: "1px solid #1f1f22" }}>
+        {TYPE_TABS.map(({ key, label }) => (
+          <button
+            key={String(key)}
+            onClick={() => setDeviceTypeFilter(key)}
+            style={{
+              flex: 1, padding: "4px 0", borderRadius: 6, border: "none",
+              fontSize: 10, fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
+              background: deviceTypeFilter === key ? "#A72C32" : "rgba(255,255,255,0.05)",
+              color:      deviceTypeFilter === key ? "#FFFFFF"  : "#71717a",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="mdsb-search-wrap">
         <svg className="mdsb-search-icon" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd"/>
         </svg>
         <input
           className="mdsb-search"
-          placeholder="Search all locators…"
+          placeholder={searchPlaceholder}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -230,7 +280,7 @@ export default function MultiDeviceSidebar({
               }}
             />
             <span style={{ fontSize: 10, color: "#52525b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              {isSearching ? "Searching…" : "Loading locators…"}
+              {isSearching ? "Searching…" : `Loading ${emptyLabel}…`}
             </span>
           </div>
         )}
@@ -241,7 +291,7 @@ export default function MultiDeviceSidebar({
 
         {!loading && !error && displayDevices.length === 0 && (
           <div className="mdsb-state">
-            {isSearching ? "No locators match your search" : "No locators found"}
+            {isSearching ? `No ${emptyLabel} match your search` : `No ${emptyLabel} found`}
           </div>
         )}
 
@@ -249,7 +299,7 @@ export default function MultiDeviceSidebar({
           <>
             <div className="mdsb-section-label">Recent</div>
             {recentOnly.map(renderDevice)}
-            <div className="mdsb-section-label">Locators</div>
+            <div className="mdsb-section-label">Devices</div>
           </>
         )}
 

@@ -152,12 +152,35 @@ export default function Stickers() {
     status: serverStatus,
     device_type: 'sticker',
     search_scope: 'sn_name',
+    initialPage: 1,
   })
 
   const refreshDevices = useCallback(() => {
     refreshList()
     refreshDeviceCache()
   }, [refreshList, refreshDeviceCache])
+
+  // ── Smooth pagination queue ───────────────────────────────────────────────
+  const pendingPageRef = useRef(null)
+  const loadingRef     = useRef(loading)
+  useEffect(() => { loadingRef.current = loading }, [loading])
+
+  useEffect(() => {
+    if (!loading && pendingPageRef.current !== null) {
+      const p = pendingPageRef.current
+      pendingPageRef.current = null
+      goToPage(Math.max(1, p))
+    }
+  }, [loading, goToPage])
+
+  const goToPagePersisted = useCallback((nextPage) => {
+    const safePage = Math.max(1, Number(nextPage) || 1)
+    if (loadingRef.current) {
+      pendingPageRef.current = safePage
+      return
+    }
+    return goToPage(safePage)
+  }, [goToPage])
 
   /* ── Bind modal state ──────────────────────────────────────────────── */
   const [availableDevices, setAvailableDevices] = useState([])
@@ -388,100 +411,78 @@ export default function Stickers() {
 
       {/* ── Card grid ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: isLight ? 12 : 14 }}>
-        {loading && stickerRows.length === 0 && (
+        {/* Loader — shown on any loading state (search, pagination, first load) */}
+        {loading && (
           <div style={{ gridColumn: '1 / -1' }}>
-            <TPLLoader label="Loading stickers…" />
+            <TPLLoader label={debouncedQuery ? 'Searching…' : 'Loading stickers…'} />
           </div>
         )}
 
-        {/* LIGHT — same single-row structure as dark, light colors */}
-        {isLight && stickerRows.map(s => (
-          <div
-            key={s.id}
-            onClick={() => navigate(`/stickers/${s.id}`)}
-            style={{
-              ...panel, borderLeft: '3px solid #A72C32', padding: 16, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-              transition: 'box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.boxShadow = '0 4px 16px rgba(167,44,50,0.14), 0 12px 32px rgba(0,0,0,0.08)'
-              e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.borderColor = '#A72C32'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.boxShadow = panel.boxShadow
-              e.currentTarget.style.transform = 'translateY(0)'
-              e.currentTarget.style.borderColor = '#C9C9C9'
-              e.currentTarget.style.borderLeftColor = '#A72C32'
-            }}
-          >
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#000000', fontFamily: 'monospace', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.id}
+        {/* LIGHT */}
+        {!loading && isLight && stickerRows.map(s => {
+          const isActive = s.status === 'Active'
+          const dotColor = isActive ? '#059669' : '#DC2626'
+          const dotGlow  = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
+          return (
+            <div key={s.id} onClick={() => navigate(`/stickers/${s.id}`)}
+              style={{ ...panel, borderLeft: '3px solid #A72C32', padding: 16, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                transition: 'box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s' }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow='0 4px 16px rgba(167,44,50,0.14), 0 12px 32px rgba(0,0,0,0.08)'; e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.borderColor='#A72C32' }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow=panel.boxShadow; e.currentTarget.style.transform='translateY(0)'; e.currentTarget.style.borderColor='#C9C9C9'; e.currentTarget.style.borderLeftColor='#A72C32' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#000000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.displayName}</span>
+                </div>
+                <div style={{ fontSize: 10, color: '#555555', marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13 }}>{s.id}</div>
               </div>
-              <div style={{ fontSize: 11, color: '#333333', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.displayName}
-              </div>
+              <ChevronRight style={{ width: 14, height: 14, color: '#333333', flexShrink: 0 }} />
+              {isAdmin && (
+                <button onClick={e => handleUnbind(s.id, e)}
+                  style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#FFFFFF',
+                    background: '#A72C32', border: '1px solid #8B2328', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#8B2328' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#A72C32' }}>
+                  <Trash2 style={{ width: 10, height: 10 }} /> Unbind
+                </button>
+              )}
             </div>
-            <ChevronRight style={{ width: 14, height: 14, color: '#333333', flexShrink: 0 }} />
-            {isAdmin && (
-              <button
-                onClick={e => handleUnbind(s.id, e)}
-                style={{
-                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4,
-                  fontSize: 10, color: '#FFFFFF',
-                  background: '#A72C32', border: '1px solid #8B2328',
-                  borderRadius: 6, padding: '3px 8px', cursor: 'pointer', transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = '#8B2328' }}
-                onMouseLeave={e => { e.currentTarget.style.background = '#A72C32' }}
-              >
-                <Trash2 style={{ width: 10, height: 10 }} /> Unbind
-              </button>
-            )}
-          </div>
-        ))}
+          )
+        })}
 
-        {/* DARK — original simple row card */}
-        {!isLight && stickerRows.map(s => (
-          <div
-            key={s.id}
-            onClick={() => navigate(`/stickers/${s.id}`)}
-            style={{
-              ...panel, padding: 16, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-              transition: 'box-shadow 0.22s ease, transform 0.22s ease',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 44px rgba(167,44,50,0.40), 0 12px 40px rgba(0,0,0,0.55)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = panel.boxShadow; e.currentTarget.style.transform = 'translateY(0)' }}
-          >
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#FFFFFF', fontFamily: 'monospace', letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.id}
+        {/* DARK */}
+        {!loading && !isLight && stickerRows.map(s => {
+          const isActive = s.status === 'Active'
+          const dotColor = isActive ? '#059669' : '#DC2626'
+          const dotGlow  = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
+          return (
+            <div key={s.id} onClick={() => navigate(`/stickers/${s.id}`)}
+              style={{ ...panel, padding: 16, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                transition: 'box-shadow 0.22s ease, transform 0.22s ease' }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow='0 0 44px rgba(167,44,50,0.40), 0 12px 40px rgba(0,0,0,0.55)'; e.currentTarget.style.transform='translateY(-2px)' }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow=panel.boxShadow; e.currentTarget.style.transform='translateY(0)' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.displayName}</span>
+                </div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13 }}>{s.id}</div>
               </div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {s.displayName}
-              </div>
+              <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />
+              {isAdmin && (
+                <button onClick={e => handleUnbind(s.id, e)}
+                  style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#fff',
+                    background: '#A72C32', border: '1px solid rgba(167,44,50,0.60)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#8B2328' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '#A72C32' }}>
+                  <Trash2 style={{ width: 10, height: 10 }} /> Unbind
+                </button>
+              )}
             </div>
-            <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />
-            {isAdmin && (
-              <button
-                onClick={e => handleUnbind(s.id, e)}
-                style={{
-                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4,
-                  fontSize: 10, color: '#fff',
-                  background: '#A72C32', border: '1px solid rgba(167,44,50,0.60)',
-                  borderRadius: 6, padding: '3px 8px', cursor: 'pointer', transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = '#8B2328' }}
-                onMouseLeave={e => { e.currentTarget.style.background = '#A72C32' }}
-              >
-                <Trash2 style={{ width: 10, height: 10 }} /> Unbind
-              </button>
-            )}
-          </div>
-        ))}
+          )
+        })}
 
         {!loading && stickerRows.length === 0 && (
           <div style={{ gridColumn: '1 / -1', ...panel, padding: '60px 22px', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
@@ -492,123 +493,97 @@ export default function Stickers() {
 
       {/* ── Pagination (LIGHT) ─────────────────────────────────────────────── */}
       {total > 0 && isLight && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, padding: '4px 2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, padding: '4px 2px', opacity: loading ? 0.45 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
           <span style={{ fontSize: 11, color: '#333333', marginRight: 6, fontWeight: 500 }}>
             {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total}
+            {pendingPageRef.current && <span style={{ marginLeft: 6, color: '#A72C32', fontStyle: 'italic' }}>→ pg {pendingPageRef.current}</span>}
           </span>
-
-          <button
-            onClick={() => goToPage(page - 1)}
-            disabled={!hasPreviousPage}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-              cursor: !hasPreviousPage ? 'not-allowed' : 'pointer',
-              background: T.paginBg, border: `1px solid ${T.paginBorder}`,
-              color: !hasPreviousPage ? T.paginDisabled : T.paginColor,
-              boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.borderColor = '#000000'; e.currentTarget.style.color = '#000000' }}}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = T.paginBorder; e.currentTarget.style.color = !hasPreviousPage ? T.paginDisabled : T.paginColor }}
-          >
+          <button onClick={() => goToPagePersisted(page - 1)} disabled={!hasPreviousPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasPreviousPage?'not-allowed':'pointer', background: T.paginBg, border: `1px solid ${T.paginBorder}`,
+              color: !hasPreviousPage?T.paginDisabled:T.paginColor, boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.borderColor='#000'; e.currentTarget.style.color='#000'; e.currentTarget.style.transform='translateX(-2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.borderColor=T.paginBorder; e.currentTarget.style.color=!hasPreviousPage?T.paginDisabled:T.paginColor; e.currentTarget.style.transform='translateX(0)' }}>
             ← Prev
           </button>
-
           <div style={{ display: 'flex', gap: 4 }}>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const p = totalPages <= 7 ? i + 1 : (page < 4 ? i + 1 : page - 3 + i)
               if (p > totalPages) return null
+              const isPending = pendingPageRef.current === p
               return (
-                <button key={p} onClick={() => goToPage(p)}
-                  style={{
-                    width: 28, height: 28, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    background: p === page ? '#000000' : T.paginBg,
-                    border: p === page ? '1px solid #000000' : `1px solid ${T.paginBorder}`,
-                    color: p === page ? '#FFFFFF' : T.paginColor,
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                    transition: 'all 0.15s',
-                  }}>
+                <button key={p} onClick={() => goToPagePersisted(p)}
+                  style={{ width: 28, height: 28, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    background: p===page?'#000':T.paginBg,
+                    border: isPending?'1px solid #A72C32':p===page?'1px solid #000':`1px solid ${T.paginBorder}`,
+                    color: p===page?'#FFF':isPending?'#A72C32':T.paginColor,
+                    boxShadow: isPending?'0 0 0 2px rgba(167,44,50,0.20)':'0 1px 2px rgba(0,0,0,0.04)',
+                    transition: 'all 0.18s ease, transform 0.15s ease' }}
+                  onMouseEnter={e => { if (p!==page) { e.currentTarget.style.transform='scale(1.18)'; e.currentTarget.style.background='#E0E0E0'; e.currentTarget.style.borderColor='#000' }}}
+                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; e.currentTarget.style.background=p===page?'#000':T.paginBg; e.currentTarget.style.borderColor=isPending?'#A72C32':p===page?'#000':T.paginBorder }}>
                   {p}
                 </button>
               )
             })}
           </div>
-
-          <button
-            onClick={() => goToPage(page + 1)}
-            disabled={!hasNextPage}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-              cursor: !hasNextPage ? 'not-allowed' : 'pointer',
-              background: T.paginBg, border: `1px solid ${T.paginBorder}`,
-              color: !hasNextPage ? T.paginDisabled : T.paginColor,
-              boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.borderColor = '#000000'; e.currentTarget.style.color = '#000000' }}}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = T.paginBorder; e.currentTarget.style.color = !hasNextPage ? T.paginDisabled : T.paginColor }}
-          >
+          <button onClick={() => goToPagePersisted(page + 1)} disabled={!hasNextPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasNextPage?'not-allowed':'pointer', background: T.paginBg, border: `1px solid ${T.paginBorder}`,
+              color: !hasNextPage?T.paginDisabled:T.paginColor, boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.borderColor='#000'; e.currentTarget.style.color='#000'; e.currentTarget.style.transform='translateX(2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.borderColor=T.paginBorder; e.currentTarget.style.color=!hasNextPage?T.paginDisabled:T.paginColor; e.currentTarget.style.transform='translateX(0)' }}>
             Next →
           </button>
         </div>
       )}
 
-      {/* ── Pagination (DARK — original layout) ──────────────────────────────── */}
+      {/* ── Pagination (DARK) ────────────────────────────────────────────────── */}
       {total > 0 && !isLight && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '4px 2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '4px 2px', opacity: loading ? 0.45 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.30)', marginRight: 4 }}>
             {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total} device{total !== 1 ? 's' : ''}
+            {pendingPageRef.current && <span style={{ marginLeft: 6, color: '#C86068', fontStyle: 'italic' }}>→ pg {pendingPageRef.current}</span>}
           </span>
           <div style={{ display: 'flex', gap: 4 }}>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const p = totalPages <= 7 ? i + 1 : (page < 4 ? i + 1 : page - 3 + i)
               if (p > totalPages) return null
+              const isPending = pendingPageRef.current === p
               return (
-                <button key={p} onClick={() => goToPage(p)}
-                  style={{
-                    width: 26, height: 26, borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    background: p === page ? '#B7B2A8' : 'rgba(255,255,255,0.05)',
-                    border: p === page ? '1px solid #B7B2A8' : '1px solid rgba(255,255,255,0.08)',
-                    color: p === page ? '#000000' : 'rgba(255,255,255,0.45)',
-                    transition: 'all 0.15s',
-                  }}>
+                <button key={p} onClick={() => goToPagePersisted(p)}
+                  style={{ width: 26, height: 26, borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    background: p===page?'#B7B2A8':'rgba(255,255,255,0.05)',
+                    border: isPending?'1px solid #C86068':p===page?'1px solid #B7B2A8':'1px solid rgba(255,255,255,0.08)',
+                    color: p===page?'#000':isPending?'#C86068':'rgba(255,255,255,0.45)',
+                    boxShadow: isPending?'0 0 0 2px rgba(200,96,104,0.20)':'none',
+                    transition: 'all 0.18s ease, transform 0.15s ease' }}
+                  onMouseEnter={e => { if (p!==page) { e.currentTarget.style.transform='scale(1.18)'; e.currentTarget.style.background='rgba(255,255,255,0.14)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.60)' }}}
+                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; e.currentTarget.style.background=p===page?'#B7B2A8':'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor=isPending?'#C86068':p===page?'#B7B2A8':'rgba(255,255,255,0.08)' }}>
                   {p}
                 </button>
               )
             })}
           </div>
-
-          <button
-            onClick={() => goToPage(page - 1)}
-            disabled={!hasPreviousPage}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: !hasPreviousPage ? 'not-allowed' : 'pointer',
-              background: !hasPreviousPage ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
+          <button onClick={() => goToPagePersisted(page - 1)} disabled={!hasPreviousPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasPreviousPage?'not-allowed':'pointer',
+              background: !hasPreviousPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)',
               border: '1px solid rgba(255,255,255,0.10)',
-              color: !hasPreviousPage ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.65)',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.background = 'rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor = 'rgba(183,178,168,0.45)'; e.currentTarget.style.color = '#B7B2A8' }}}
-            onMouseLeave={e => { e.currentTarget.style.background = !hasPreviousPage ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = !hasPreviousPage ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.65)' }}
-          >
+              color: !hasPreviousPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)',
+              transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.background='rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.45)'; e.currentTarget.style.color='#B7B2A8'; e.currentTarget.style.transform='translateX(-2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.background=!hasPreviousPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color=!hasPreviousPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)'; e.currentTarget.style.transform='translateX(0)' }}>
             ← Prev
           </button>
-
-          <button
-            onClick={() => goToPage(page + 1)}
-            disabled={!hasNextPage}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: !hasNextPage ? 'not-allowed' : 'pointer',
-              background: !hasNextPage ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
+          <button onClick={() => goToPagePersisted(page + 1)} disabled={!hasNextPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasNextPage?'not-allowed':'pointer',
+              background: !hasNextPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)',
               border: '1px solid rgba(255,255,255,0.10)',
-              color: !hasNextPage ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.65)',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.background = 'rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor = 'rgba(183,178,168,0.45)'; e.currentTarget.style.color = '#B7B2A8' }}}
-            onMouseLeave={e => { e.currentTarget.style.background = !hasNextPage ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = !hasNextPage ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.65)' }}
-          >
+              color: !hasNextPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)',
+              transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.background='rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.45)'; e.currentTarget.style.color='#B7B2A8'; e.currentTarget.style.transform='translateX(2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.background=!hasNextPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color=!hasNextPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)'; e.currentTarget.style.transform='translateX(0)' }}>
             Next →
           </button>
         </div>

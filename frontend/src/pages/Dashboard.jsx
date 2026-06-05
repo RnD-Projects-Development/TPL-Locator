@@ -886,7 +886,6 @@ export default function Dashboard() {
           icon={Activity}
           trend="up"
           trendVal="Online now"
-          onClick={() => navigate('/locators')}
           colors={{
             gradient:    'linear-gradient(145deg, #1A3328 0%, #142820 40%, #0F2018 70%, #0A1810 100%)',
             border:      'rgba(46,196,182,0.25)',

@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertOctagon, AlertTriangle, Shield, Clock,
   Battery, MapPin, Radio, Tag, Search, X,
@@ -260,18 +260,22 @@ export default function MissingDevices() {
 
   const T = {
     panel,
-    txt1:        isLight ? '#000000' : '#f4f4f5',
-    txt2:        isLight ? '#333333' : 'rgba(255,255,255,0.50)',
-    txt3:        isLight ? '#333333' : 'rgba(255,255,255,0.32)',
-    inputBg:     isLight ? '#FFFFFF' : 'rgba(255,255,255,0.05)',
-    inputBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.10)',
-    tabBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.05)',
-    tabBorder:   isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
-    fieldBg:     isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
-    divider:     isLight ? '#CFCFCF' : 'rgba(255,255,255,0.08)',
+    txt1:          isLight ? '#000000' : '#f4f4f5',
+    txt2:          isLight ? '#333333' : 'rgba(255,255,255,0.50)',
+    txt3:          isLight ? '#333333' : 'rgba(255,255,255,0.32)',
+    inputBg:       isLight ? '#FFFFFF' : 'rgba(255,255,255,0.05)',
+    inputBorder:   isLight ? '#C9C9C9' : 'rgba(255,255,255,0.10)',
+    tabBg:         isLight ? '#DCDCDC' : 'rgba(255,255,255,0.05)',
+    tabBorder:     isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
+    fieldBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
+    divider:       isLight ? '#CFCFCF' : 'rgba(255,255,255,0.08)',
+    paginBg:       isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)',
+    paginBorder:   isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
+    paginColor:    isLight ? '#333333' : 'rgba(255,255,255,0.68)',
+    paginDisabled: isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)',
   }
 
-  const { devices: offlineDocs, loading, total } = usePaginatedDevices(50, { status: 'offline' })
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [filter,     setFilter]  = useState('All')
   const [query,      setQuery]   = useState('')
@@ -282,8 +286,82 @@ export default function MissingDevices() {
   const handleSearch = useCallback((val) => {
     setQuery(val)
     clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => setDQ(val.trim().toLowerCase()), 300)
+    // trimmed (not lowercased) so it is safe to pass to the server as-is
+    debounceRef.current = setTimeout(() => setDQ(val.trim()), 300)
   }, [])
+
+  // ── Server-side paginated fetch — same hook & cache as Locators/Stickers ──
+  // Always starts from page 1 on mount/refresh; search changes also reset via the effect below
+  const {
+    devices: offlineDocs, page, totalPages, total, loading,
+    hasNextPage, hasPreviousPage, goToPage,
+  } = usePaginatedDevices(20, {
+    status: 'offline',
+    search: debouncedQ,
+    search_scope: 'sn_name',
+    initialPage: 1,
+  })
+
+  // ── Smooth pagination queue ───────────────────────────────────────────────
+  const pendingPageRef = useRef(null)
+  const loadingRef     = useRef(loading)
+  useEffect(() => { loadingRef.current = loading }, [loading])
+
+  // Clear URL page param whenever search term or filter changes → always lands on page 1
+  useEffect(() => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('page')
+      return next
+    }, { replace: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQ, filter, sortBy])
+
+  useEffect(() => {
+    if (!loading && pendingPageRef.current !== null) {
+      const p = pendingPageRef.current
+      pendingPageRef.current = null
+      const safePage = Math.max(1, p)
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev)
+        if (safePage <= 1) next.delete('page')
+        else next.set('page', String(safePage))
+        return next
+      }, { replace: true })
+      goToPage(safePage)
+    }
+  }, [loading, goToPage, setSearchParams])
+
+  // Wrap goToPage to also sync ?page= in the URL (same pattern as Locators)
+  const goToPagePersisted = useCallback((nextPage) => {
+    const safePage = Math.max(1, Number(nextPage) || 1)
+    if (loadingRef.current) {
+      pendingPageRef.current = safePage
+      return
+    }
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (safePage <= 1) next.delete('page')
+      else next.set('page', String(safePage))
+      return next
+    }, { replace: true })
+    return goToPage(safePage)
+  }, [goToPage, setSearchParams])
+
+  // Keep URL in sync when the hook changes page internally
+  useEffect(() => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (page <= 1) {
+        if (!next.has('page')) return prev
+        next.delete('page')
+        return next
+      }
+      if (next.get('page') === String(page)) return prev
+      next.set('page', String(page))
+      return next
+    }, { replace: true })
+  }, [page, setSearchParams])
 
   /* Enrich offline devices */
   const allDevices = useMemo(() => {
@@ -325,10 +403,11 @@ export default function MissingDevices() {
   const filtered = useMemo(() => {
     let list = filter === 'Missing' ? missing : filter === 'At Risk' ? atRisk : allDevices
     if (debouncedQ) {
+      const q = debouncedQ.toLowerCase()
       list = list.filter(d =>
-        d.id.toLowerCase().includes(debouncedQ) ||
-        d.displayName.toLowerCase().includes(debouncedQ) ||
-        (d.lastLocation || '').toLowerCase().includes(debouncedQ)
+        d.id.toLowerCase().includes(q) ||
+        d.displayName.toLowerCase().includes(q) ||
+        (d.lastLocation || '').toLowerCase().includes(q)
       )
     }
     return [...list].sort((a, b) => {
@@ -338,6 +417,7 @@ export default function MissingDevices() {
       return 0
     })
   }, [allDevices, missing, atRisk, filter, debouncedQ, sortBy])
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -446,8 +526,8 @@ export default function MissingDevices() {
       </div>
 
       {/* ── Device list ─────────────────────────────────────────────────────── */}
-      {loading && allDevices.length === 0 ? (
-        <TPLLoader label="Scanning for offline devices…" />
+      {loading ? (
+        <TPLLoader label={debouncedQ ? 'Searching…' : 'Loading devices…'} />
       ) : filtered.length === 0 ? (
         <div style={{ ...panel, padding: '64px 20px', textAlign: 'center' }}>
           <div style={{ width: 52, height: 52, borderRadius: 14,
@@ -470,6 +550,104 @@ export default function MissingDevices() {
           {filtered.map(device => (
             <DeviceCard key={device.id} device={device} navigate={navigate} isLight={isLight} T={T} />
           ))}
+        </div>
+      )}
+
+      {/* ── Pagination (LIGHT) ────────────────────────────────────────────── */}
+      {total > 0 && isLight && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, padding: '4px 2px', opacity: loading ? 0.45 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+          <span style={{ fontSize: 11, color: '#333333', marginRight: 6, fontWeight: 500 }}>
+            {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total}
+            {pendingPageRef.current && <span style={{ marginLeft: 6, color: '#A72C32', fontStyle: 'italic' }}>→ pg {pendingPageRef.current}</span>}
+          </span>
+          <button onClick={() => goToPagePersisted(page - 1)} disabled={!hasPreviousPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasPreviousPage?'not-allowed':'pointer', background: T.paginBg, border: `1px solid ${T.paginBorder}`,
+              color: !hasPreviousPage?T.paginDisabled:T.paginColor, boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.borderColor='#000'; e.currentTarget.style.color='#000'; e.currentTarget.style.transform='translateX(-2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.borderColor=T.paginBorder; e.currentTarget.style.color=!hasPreviousPage?T.paginDisabled:T.paginColor; e.currentTarget.style.transform='translateX(0)' }}>
+            ← Prev
+          </button>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              const p = totalPages <= 7 ? i + 1 : (page < 4 ? i + 1 : page - 3 + i)
+              if (p > totalPages) return null
+              const isPending = pendingPageRef.current === p
+              return (
+                <button key={p} onClick={() => goToPagePersisted(p)}
+                  style={{ width: 28, height: 28, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    background: p===page?'#000':T.paginBg,
+                    border: isPending?'1px solid #A72C32':p===page?'1px solid #000':`1px solid ${T.paginBorder}`,
+                    color: p===page?'#FFF':isPending?'#A72C32':T.paginColor,
+                    boxShadow: isPending?'0 0 0 2px rgba(167,44,50,0.20)':'0 1px 2px rgba(0,0,0,0.04)',
+                    transition: 'all 0.18s ease, transform 0.15s ease' }}
+                  onMouseEnter={e => { if (p!==page) { e.currentTarget.style.transform='scale(1.18)'; e.currentTarget.style.background='#E0E0E0'; e.currentTarget.style.borderColor='#000' }}}
+                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; e.currentTarget.style.background=p===page?'#000':T.paginBg; e.currentTarget.style.borderColor=isPending?'#A72C32':p===page?'#000':T.paginBorder }}>
+                  {p}
+                </button>
+              )
+            })}
+          </div>
+          <button onClick={() => goToPagePersisted(page + 1)} disabled={!hasNextPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasNextPage?'not-allowed':'pointer', background: T.paginBg, border: `1px solid ${T.paginBorder}`,
+              color: !hasNextPage?T.paginDisabled:T.paginColor, boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.borderColor='#000'; e.currentTarget.style.color='#000'; e.currentTarget.style.transform='translateX(2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.borderColor=T.paginBorder; e.currentTarget.style.color=!hasNextPage?T.paginDisabled:T.paginColor; e.currentTarget.style.transform='translateX(0)' }}>
+            Next →
+          </button>
+        </div>
+      )}
+
+      {/* ── Pagination (DARK) ─────────────────────────────────────────────── */}
+      {total > 0 && !isLight && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '4px 2px', opacity: loading ? 0.45 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.30)', marginRight: 4 }}>
+            {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total} device{total !== 1 ? 's' : ''}
+            {pendingPageRef.current && <span style={{ marginLeft: 6, color: '#C86068', fontStyle: 'italic' }}>→ pg {pendingPageRef.current}</span>}
+          </span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              const p = totalPages <= 7 ? i + 1 : (page < 4 ? i + 1 : page - 3 + i)
+              if (p > totalPages) return null
+              const isPending = pendingPageRef.current === p
+              return (
+                <button key={p} onClick={() => goToPagePersisted(p)}
+                  style={{ width: 26, height: 26, borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    background: p===page?'#B7B2A8':'rgba(255,255,255,0.05)',
+                    border: isPending?'1px solid #C86068':p===page?'1px solid #B7B2A8':'1px solid rgba(255,255,255,0.08)',
+                    color: p===page?'#000':isPending?'#C86068':'rgba(255,255,255,0.45)',
+                    boxShadow: isPending?'0 0 0 2px rgba(200,96,104,0.20)':'none',
+                    transition: 'all 0.18s ease, transform 0.15s ease' }}
+                  onMouseEnter={e => { if (p!==page) { e.currentTarget.style.transform='scale(1.18)'; e.currentTarget.style.background='rgba(255,255,255,0.14)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.60)' }}}
+                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; e.currentTarget.style.background=p===page?'#B7B2A8':'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor=isPending?'#C86068':p===page?'#B7B2A8':'rgba(255,255,255,0.08)' }}>
+                  {p}
+                </button>
+              )
+            })}
+          </div>
+          <button onClick={() => goToPagePersisted(page - 1)} disabled={!hasPreviousPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasPreviousPage?'not-allowed':'pointer',
+              background: !hasPreviousPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              color: !hasPreviousPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)',
+              transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.background='rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.45)'; e.currentTarget.style.color='#B7B2A8'; e.currentTarget.style.transform='translateX(-2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.background=!hasPreviousPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color=!hasPreviousPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)'; e.currentTarget.style.transform='translateX(0)' }}>
+            ← Prev
+          </button>
+          <button onClick={() => goToPagePersisted(page + 1)} disabled={!hasNextPage}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+              cursor: !hasNextPage?'not-allowed':'pointer',
+              background: !hasNextPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              color: !hasNextPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)',
+              transition: 'all 0.18s ease, transform 0.15s ease' }}
+            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.background='rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.45)'; e.currentTarget.style.color='#B7B2A8'; e.currentTarget.style.transform='translateX(2px)' }}}
+            onMouseLeave={e => { e.currentTarget.style.background=!hasNextPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color=!hasNextPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)'; e.currentTarget.style.transform='translateX(0)' }}>
+            Next →
+          </button>
         </div>
       )}
 
