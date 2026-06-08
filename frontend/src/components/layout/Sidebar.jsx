@@ -1,13 +1,14 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useApp } from '../../App.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
   LayoutDashboard, Radio, Tag, Map, AlertOctagon,
-  FileText,
+  FileText, Layers,
   LogOut, Search, Navigation, PlayCircle, Shield, UserCog
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
+import ModalPortal from '../common/ModalPortal.jsx'
 
 const nav = [
   { section: 'OVERVIEW', links: [
@@ -15,6 +16,7 @@ const nav = [
     { to: '/search',    icon: Search,          label: 'Search' },
   ]},
     { section: 'DEVICES', links: [
+    { to: '/devices',  icon: Layers,       label: 'Devices' },
     { to: '/locators', icon: Radio,        label: 'Locators' },
     { to: '/stickers', icon: Tag,          label: 'Smart Stickers' },
     { to: '/missing',  icon: AlertOctagon, label: 'Offline Devices' },
@@ -35,6 +37,14 @@ export default function Sidebar() {
   const { user, setUser, sidebarOpen, setSidebarOpen, unreadAlerts } = useApp()
   const { alerts } = useAlerts()
   const navigate = useNavigate()
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+
+  // Actual logout — only runs after the user confirms in the modal
+  const confirmLogout = () => {
+    setShowLogoutConfirm(false)
+    setUser(null)
+    navigate('/')
+  }
 
   // Count offline device alerts (OFFLINE-* type) as the "missing" badge number.
   // AlertsContext scans the first 200 devices every 5 min — a good proxy for missing count.
@@ -155,9 +165,10 @@ export default function Sidebar() {
               <div className="text-gray-200 text-xs font-semibold truncate">{user.name}</div>
               <div className="text-gray-500 text-[10px] capitalize">{user.role}</div>
             </div>
-            {/* Logout button — always visible but shifts with sidebar */}
+            {/* Logout button — opens a confirmation modal (logout fires only on confirm) */}
             <button
-              onClick={() => { setUser(null); navigate('/') }}
+              onClick={() => setShowLogoutConfirm(true)}
+              title="Log out"
               className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors flex-shrink-0"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -165,6 +176,47 @@ export default function Sidebar() {
           </div>
         </div>
       </aside>
+
+      {/* ── Logout confirmation modal ───────────────────────────────────── */}
+      {showLogoutConfirm && (
+        <ModalPortal>
+          <div
+            onClick={() => setShowLogoutConfirm(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+              backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24 }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16,
+                boxShadow: '0 24px 64px rgba(0,0,0,0.72)', width: '100%', maxWidth: 380, padding: 22 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <LogOut style={{ width: 16, height: 16, color: '#C86068' }} />
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Log out?</div>
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.52)', marginBottom: 20 }}>
+                You’ll be signed out of your account and returned to the login screen.
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  onClick={() => setShowLogoutConfirm(false)}
+                  style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}
+                >Cancel</button>
+                <button
+                  onClick={confirmLogout}
+                  style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff' }}
+                >Log out</button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
     </>
   )
 }

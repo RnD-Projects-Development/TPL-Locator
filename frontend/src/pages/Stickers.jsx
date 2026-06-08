@@ -1,12 +1,14 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   Tag, Search, Package, ChevronRight,
-  Plus, X, Link2, Trash2,
+  Plus, X, Link2, Trash2, Download,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
+import { useBindCache } from '../context/BindCacheContext.jsx'
+import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
 import { deviceDisplayName } from '../utils/deviceDisplayName.js'
@@ -98,11 +100,12 @@ function StatusBadge({ status, isLight }) {
   )
 }
 
-export default function Stickers() {
+export default function Stickers({ embedded = false }) {
   const { isAdmin } = useAuth()
   const navigate  = useNavigate()
-  const { bindDevice, adminAssignDeviceToUser, unbindDevice, getAvailableDevices } = useCityTag()
+  const { bindDevice, adminAssignDeviceToUser, unbindDevice, getAvailableDevices, getDevices, getLatestLocationsBatch } = useCityTag()
   const { devices: cacheDevices, refresh: refreshDeviceCache } = useDeviceCache()
+  const { recordBind } = useBindCache()
   const { users } = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)
@@ -241,6 +244,7 @@ export default function Stickers() {
       setBindError(''); setBindLoading(true)
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory })
+        recordBind(bindSn)            // persist bind history immediately
         refreshDevices(); closeBindModal()
       } catch (err) { setBindError(err.message || 'Failed to bind sticker') }
       finally { setBindLoading(false) }
@@ -251,6 +255,7 @@ export default function Stickers() {
       setBindError(''); setBindLoading(true)
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory })
+        recordBind(bindSn.trim())     // persist bind history immediately
         refreshDevices()
         getAvailableDevices()
           .then(list => setAvailableDevices((list || []).filter(d => /^\d+$/.test(String(d.sn ?? '')))))
@@ -301,6 +306,21 @@ export default function Stickers() {
     }
   }), [stickers])
 
+  // CSV export — pulls the FULL sticker fleet from the DB (all pages) with
+  // owner, bound-at, last location, detections, battery, etc.
+  const [exporting, setExporting] = useState(false)
+  const exportCSV = useCallback(async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await exportDevicesCsv(getDevices, getLatestLocationsBatch, { deviceType: 'sticker', filename: 'stickers.csv' })
+    } catch (err) {
+      console.error('CSV export failed', err)
+    } finally {
+      setExporting(false)
+    }
+  }, [exporting, getDevices, getLatestLocationsBatch])
+
   // Dark modal input style
   const inputStyle = {
     width: '100%', padding: '10px 12px',
@@ -314,7 +334,12 @@ export default function Stickers() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '4px 0' }}>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+      {/* When embedded, the row is lifted to the top-right so the action buttons
+          sit alongside the parent Devices page heading instead of in a row of their own. */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: embedded ? 'flex-end' : 'space-between', flexWrap: 'wrap', gap: 12,
+        ...(embedded ? { position: 'absolute', top: 0, right: 0, zIndex: 5, margin: 0 } : {}) }}>
+        {/* Title hidden when embedded in the unified Devices page (avoids a duplicate heading) */}
+        {embedded ? null : (
         <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
           {isLight ? (
             <div style={{ width: 44, height: 44, borderRadius: 12, background: '#A72C32', border: '1px solid #8B2328', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -329,6 +354,7 @@ export default function Stickers() {
             <h1 style={{ fontSize: 22, fontWeight: 800, color: T.txt1, margin: 0, letterSpacing: isLight ? '-0.02em' : '-0.03em' }}>Smart Stickers</h1>
           </div>
         </div>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {isLight ? (
@@ -367,6 +393,26 @@ export default function Stickers() {
               Bind Sticker
             </button>
           )}
+          {/* Export CSV button — full fleet from DB */}
+          <button
+            onClick={exportCSV}
+            disabled={exporting}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '10px 16px', borderRadius: 10, cursor: exporting ? 'wait' : 'pointer',
+              background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)',
+              border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)',
+              color: isLight ? '#333333' : 'rgba(255,255,255,0.70)',
+              fontSize: 13, fontWeight: 600,
+              opacity: exporting ? 0.6 : 1,
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = isLight ? '#000' : '#FFFFFF' }}}
+            onMouseLeave={e => { e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = isLight ? '#333333' : 'rgba(255,255,255,0.70)' }}
+          >
+            <Download style={{ width: 13, height: 13 }} />
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
         </div>
       </div>
 
@@ -767,10 +813,10 @@ export default function Stickers() {
           >
             <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginBottom: 8 }}>Unbind Sticker</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.52)', marginBottom: 20 }}>
-              Remove binding for{' '}
+              You are about to permanently remove the binding for device{' '}
               <span style={{ color: '#FFFFFF', fontFamily: 'monospace' }}>{deleteTarget.sn}</span>
-              {deleteTarget.assigned_user_name ? ` from ${deleteTarget.assigned_user_name}` : ''}?{' '}
-              This cannot be undone.
+              {deleteTarget.assigned_user_name ? ` from ${deleteTarget.assigned_user_name}` : ''}.{' '}
+              This will disconnect the device from its owner and cannot be undone.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button

@@ -1,225 +1,78 @@
-﻿import React, { useEffect, useState, useRef } from "react";
-import { Link } from "react-router-dom";
-import DeviceList from "../components/DeviceList.jsx";
-import Trajectory from "../components/Trajectory.jsx";
-import Playback from "../components/Playback.jsx";
-import MapView from "../components/MapView.jsx";
-import { useCityTag } from "../hooks/useCityTag.js";
-import { useAuth } from "../context/AuthContext.jsx";
-import { displayContact } from "../utils/userContact.js";
-import AOS from "aos";
-import "aos/dist/aos.css";
-import "../pages/Devices.css";
-import tplLogo from "../assets/tpl.png";
+import React, { useContext } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Layers, Radio, Tag } from 'lucide-react'
+import Locators from './Locators.jsx'
+import Stickers from './Stickers.jsx'
+import { ThemeContext } from '../components/layout/Layout.jsx'
+
+const TABS = [
+  { key: 'locator', label: 'Locators',       icon: Radio },
+  { key: 'sticker', label: 'Smart Stickers', icon: Tag   },
+]
 
 export default function Devices() {
-  const { logout, user } = useAuth();
-  const contact = displayContact(user);
-  const { getDevices } = useCityTag();
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Fall back to 'locator' for any unknown tab (e.g. legacy ?tab=offline links)
+  const rawTab = searchParams.get('tab')
+  const activeTab = (rawTab === 'sticker' || rawTab === 'locator') ? rawTab : 'locator'
+  const pageTheme = useContext(ThemeContext)
+  const isLight   = pageTheme === 'light'
 
-  const [devices, setDevices] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [activeView, setActiveView] = useState("home");
+  const setTab = (key) => setSearchParams({ tab: key }, { replace: true })
 
-  const fileInputRef = useRef(null);
-
-  const [profileData, setProfileData] = useState({
-    realName: "TPL Trakker",
-    introduction: "163.61.154.14@Sindh-Karachi@Android-15/CityTag-1.9.9"
-  });
-
-  async function refresh() {
-    setError("");
-    setLoading(true);
-    try {
-      const list = await getDevices();
-      setDevices(Array.isArray(list) ? list : []);
-    } catch (err) {
-      setError(err.message || "Failed to load devices");
-    } finally {
-      setLoading(false);
-    }
+  const T = {
+    tabBg:     isLight ? '#DCDCDC' : 'rgba(255,255,255,0.05)',
+    tabBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
+    txt1:      isLight ? '#000000' : '#f4f4f5',
+    txt2:      isLight ? '#333333' : 'rgba(255,255,255,0.50)',
   }
 
-  useEffect(() => {
-    refresh();
-    AOS.init({ duration: 1000, once: true });
-  }, []);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setShowProfileModal(false);
-    alert("Profile updated successfully!");
-  };
-
-  const handleAvatarClick = () => {
-    fileInputRef.current.click();
-  };
-
   return (
-    <div className="relative min-h-screen bg-slate-50">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '4px 0', position: 'relative' }}>
 
-      {/* Watermark */}
-      <div className="fixed inset-0 pointer-events-none flex items-center justify-center -z-10 overflow-hidden">
-        <img
-          src={tplLogo}
-          alt="Watermark"
-          className="w-[80%] md:w-[50%] opacity-50 rotate-12 select-none"
-          style={{ mixBlendMode: "multiply" }}
-        />
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
+        {isLight ? (
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: '#A72C32', border: '1px solid #8B2328', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Layers style={{ width: 20, height: 20, color: '#FFFFFF' }} />
+          </div>
+        ) : (
+          <div style={{ padding: 9, background: 'rgba(167,44,50,0.14)', borderRadius: 12, border: '1px solid rgba(167,44,50,0.24)', display: 'flex' }}>
+            <Layers style={{ width: 18, height: 18, color: '#C86068' }} />
+          </div>
+        )}
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: T.txt1, margin: 0, letterSpacing: isLight ? '-0.02em' : '-0.03em' }}>
+          Devices
+        </h1>
       </div>
 
-      {/* HEADER */}
-      <header className="sticky top-0 z-50 bg-[#800000] shadow-md border-b border-red-900">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-
-          {/* Left Side */}
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2">
-              <img
-                src={tplLogo}
-                alt="TPL Logo"
-                className="h-10 w-auto brightness-0 invert"
-              />
-              <span className="text-white font-bold tracking-wider hidden sm:inline uppercase">
-                TPL TRAKKER
-              </span>
-            </div>
-
-            {/* Navigation Tabs */}
-            <div className="hidden md:flex items-center gap-6 text-sm font-semibold text-red-100">
-              {["home", "trajectory", "playback", "mapview"].map((view) => (
-                <button
-                  key={view}
-                  onClick={() => setActiveView(view)}
-                  className={`pb-1 capitalize transition-all ${
-                    activeView === view
-                      ? "text-white border-b-2 border-white"
-                      : "hover:text-white"
-                  }`}
-                >
-                  {view}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Right Side */}
-          <div className="flex items-center gap-4">
-
-            {/* Refresh */}
+      {/* ── Filter tab bar ───────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 4, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 12, width: 'fit-content', flexWrap: 'wrap' }}>
+        {TABS.map(({ key, label, icon: Icon }) => {
+          const active = activeTab === key
+          return (
             <button
-              onClick={refresh}
-              className="text-red-100 hover:text-white transition-colors p-2"
+              key={key}
+              onClick={() => setTab(key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                padding: '8px 18px', borderRadius: 9, border: 'none',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+                background: active ? '#A72C32' : 'transparent',
+                color:      active ? '#FFFFFF'  : T.txt2,
+                boxShadow:  active ? '0 2px 8px rgba(167,44,50,0.30)' : 'none',
+              }}
             >
-              <span className={loading ? "animate-spin inline-block" : ""}>
-                â†»
-              </span>
+              <Icon style={{ width: 14, height: 14 }} />
+              {label}
             </button>
+          )
+        })}
+      </div>
 
-            {/* User Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setShowDropdown(!showDropdown)}
-                className="flex items-center gap-3 bg-red-900/40 hover:bg-red-900/60 px-3 py-1.5 rounded-lg transition-all border border-red-800/50"
-              >
-                <div className="text-right hidden md:block">
-                  <p className="text-[11px] font-bold text-red-200 uppercase leading-none mb-1">
-                    TPL Trakker
-                  </p>
-                  <p className="text-sm font-semibold text-white leading-none">
-                    {user?.name || contact?.split("@")[0] || contact}
-                  </p>
-                </div>
-                <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center text-[#800000] font-bold">
-                  {(user?.name || contact)?.charAt(0).toUpperCase()}
-                </div>
-              </button>
-
-              {showDropdown && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden py-1 z-[60]">
-                  <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                    <p className="text-sm font-semibold text-white truncate">
-                      {contact}
-                    </p>
-                    <p className="text-[10px] text-slate-400 font-mono mt-1">
-                      UID: {user?.uid}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setShowProfileModal(true);
-                      setShowDropdown(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-gray-400 hover:bg-slate-50 flex items-center gap-2"
-                  >
-                    ðŸ‘¤ Personal Profile
-                  </button>
-
-                  <hr className="my-1 border-slate-100" />
-
-                  <button
-                    onClick={logout}
-                    className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-semibold flex items-center gap-2"
-                  >
-                    ðŸšª Logout
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* MAIN CONTENT */}
-      <main className="relative z-10 max-w-6xl mx-auto px-6 py-12">
-
-        {/* Title */}
-        <div className="mb-8">
-          <h2 className="text-4xl font-black text-white uppercase">
-            {activeView}
-          </h2>
-          <div className="h-1.5 w-12 bg-[#800000] rounded-full mt-2"></div>
-        </div>
-
-        <div className="rounded-[2rem] bg-white shadow-lg border border-slate-100 p-8">
-
-          {error && (
-            <div className="text-red-500 mb-4">{error}</div>
-          )}
-
-          {activeView === "home" && (
-            <DeviceList devices={devices} loading={loading} />
-          )}
-
-          {activeView === "trajectory" && (
-            <Trajectory devices={devices} />
-          )}
-
-          {activeView === "playback" && (
-            <Playback devices={devices} />
-          )}
-
-          {activeView === "mapview" && (
-            <MapView devices={devices} />
-          )}
-
-        </div>
-
-        <div className="mt-6">
-          <Link
-            to="/login"
-            className="text-sm font-bold text-[#800000] hover:underline"
-          >
-            Switch account â†’
-          </Link>
-        </div>
-      </main>
+      {/* ── Active tab content — reuses the existing page components ──────── */}
+      {activeTab === 'locator' && <Locators embedded />}
+      {activeTab === 'sticker' && <Stickers embedded />}
     </div>
-  );
+  )
 }
-

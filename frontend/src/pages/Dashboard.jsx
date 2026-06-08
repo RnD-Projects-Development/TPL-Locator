@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Tag, WifiOff, Battery, Zap, Clock, Activity, AlertOctagon } from 'lucide-react'
+import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
 import { useBindCache } from '../context/BindCacheContext.jsx'
 import { useAlerts } from '../context/AlertsContext.jsx'
+import { useUserCache } from '../context/Usercachecontext.jsx'
+import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import KPICard from '../components/common/KPICard.jsx'
 
 
@@ -83,6 +85,16 @@ function fmtRelTime(ts) {
     if (diff < 604_800_000)         return `${Math.floor(diff / 86_400_000)}d ago`
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   } catch { return '—' }
+}
+
+/* Short absolute date — used for bind-time labels (e.g. "12 Mar 25") */
+function fmtBindDate(ms) {
+  if (ms == null) return null
+  try {
+    const d = new Date(ms)
+    if (isNaN(d.getTime())) return null
+    return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' })
+  } catch { return null }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -184,30 +196,74 @@ function TopDevicesCard({ devices, activityData }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   USER DEVICE PANEL — pie chart + scrollable device list
+   USER DEVICE PANEL — pie chart + per-user device counts (assigned only)
+   Filters: Most Active · Oldest Bound · Recent Bound — top 5 each
    ══════════════════════════════════════════════════════════════════ */
-function UserDevicePanelCard({ devices }) {
-  const [hovered, setHovered] = useState(null)
-  const [search, setSearch]   = useState('')
+const UDP_FILTERS = [
+  { key: 'active', label: 'Most Active' },
+  { key: 'oldest', label: 'Oldest Bound' },
+  { key: 'recent', label: 'Recent Bound' },
+]
+
+function UserDevicePanelCard({ devices, activityData = {} }) {
+  const [hovered,    setHovered]    = useState(null)
+  const [filterMode, setFilterMode] = useState('active')   // 'active' | 'oldest' | 'recent'
   const ini = n => n.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || '??'
 
-  const { userDevices, slices } = useMemo(() => {
+  // Aggregate every ASSIGNED device under its user: device count, datapoints, bind times.
+  // Datapoints use the SAME source as "Top 5 by Packets" (today's activity points,
+  // falling back to the stored datapoint_count) so the two cards never disagree.
+  const allUsers = useMemo(() => {
     const map = {}
-    devices.forEach(d => {
-      const u = d.assignedUser ?? d.assigned_user_name ?? d.client ?? d.name ?? 'Unassigned'
-      if (!map[u]) map[u] = []
-      map[u].push({ sn: d.sn ?? '', name: d.name ?? d.assignedUser ?? d.sn ?? '' })
+    devices.filter(d => d.assigned_user_name || d.user_id).forEach(d => {
+      const u = d.assigned_user_name ?? d.assignedUser ?? d.client ?? d.name ?? '—'
+      if (!map[u]) map[u] = { user: u, count: 0, datapoints: 0, oldest: null, recent: null }
+      map[u].count++
+      const points = activityData?.[d.sn]?.length || Number(d.datapoint_count ?? d.packetCount ?? d.packet_count ?? 0) || 0
+      map[u].datapoints += points
+      const bt = d.bindTime ? new Date(d.bindTime).getTime() : null
+      if (bt != null && !isNaN(bt)) {
+        map[u].oldest = map[u].oldest == null ? bt : Math.min(map[u].oldest, bt)
+        map[u].recent = map[u].recent == null ? bt : Math.max(map[u].recent, bt)
+      }
     })
-    const userDevices = Object.entries(map).sort((a, b) => b[1].length - a[1].length)
-    const total = userDevices.reduce((s, [, devs]) => s + devs.length, 0)
-    if (total === 0) return { userDevices, slices: [] }
+    return Object.values(map)
+  }, [devices, activityData])
+
+  // Sort by active filter, then take the top 5 matching that criteria
+  const displayedUsers = useMemo(() => {
+    const arr = [...allUsers]
+    if (filterMode === 'active') {
+      arr.sort((a, b) => (b.datapoints - a.datapoints) || (b.count - a.count))
+    } else if (filterMode === 'oldest') {
+      arr.sort((a, b) => {
+        if (a.oldest == null) return 1
+        if (b.oldest == null) return -1
+        return a.oldest - b.oldest
+      })
+    } else { // recent
+      arr.sort((a, b) => {
+        if (a.recent == null) return 1
+        if (b.recent == null) return -1
+        return b.recent - a.recent
+      })
+    }
+    return arr.slice(0, 5)
+  }, [allUsers, filterMode])
+
+  // Pie = the displayed (top 5) users, sized by device count
+  const slices = useMemo(() => {
+    const pieData = displayedUsers.map((u, i) => ({
+      user: u.user, count: u.count, color: BAR_COLORS[i % BAR_COLORS.length],
+    }))
+    const total = pieData.reduce((s, e) => s + e.count, 0)
+    if (total === 0) return []
 
     const CX = 90, CY = 90, R = 80, GAP = 1.2
     const toRad = deg => (deg * Math.PI) / 180
     let cursor = -90
-    const slices = userDevices.slice(0, 5).map(([user, devs], i) => {
-      const count = devs.length
-      const deg   = (count / total) * (360 - Math.min(userDevices.length, 5) * GAP)
+    return pieData.map(entry => {
+      const deg   = (entry.count / total) * (360 - Math.min(pieData.length, 5) * GAP)
       const start = cursor
       const end   = start + deg
       cursor      = end + GAP
@@ -218,49 +274,44 @@ function UserDevicePanelCard({ devices }) {
       const y2 = CY + R * Math.sin(toRad(end))
       const mid = toRad(start + deg / 2)
       return {
-        user, count, color: BAR_COLORS[i % BAR_COLORS.length],
+        ...entry,
         path: `M ${CX} ${CY} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`,
-        lx: CX + R * 0.62 * Math.cos(mid),
-        ly: CY + R * 0.62 * Math.sin(mid),
-        pct: Math.round((count / total) * 100),
+        lx:  CX + R * 0.62 * Math.cos(mid),
+        ly:  CY + R * 0.62 * Math.sin(mid),
+        pct: Math.round((entry.count / total) * 100),
       }
     })
-    return { userDevices, slices }
-  }, [devices])
+  }, [displayedUsers])
 
   const hovSlice = hovered !== null ? slices[hovered] : null
   const CX = 90, CY = 90
-
-  const filteredUsers = useMemo(() => {
-    const q = search.toLowerCase()
-    return userDevices.filter(([user]) => !q || user.toLowerCase().includes(q)).slice(0, 15)
-  }, [userDevices, search])
-
   const { bind: hoverBind, style: hoverStyle } = usePanelHover()
+
   return (
     <div {...hoverBind} style={{ ...INSIGHT_CARD, minHeight: '260px', ...hoverStyle }}>
       <div style={CARD_HDR}>
         <div>
-          <div style={CARD_TTL}>Users &amp; Locators</div>
-          <div style={CARD_SUB}>{devices.length} total</div>
+          <div style={CARD_TTL}>Users &amp; Devices</div>
+          <div style={CARD_SUB}>{allUsers.length} user{allUsers.length !== 1 ? 's' : ''} · top 5 shown</div>
         </div>
-        <input
-          placeholder="Search users…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            height: '24px', padding: '0 10px', fontSize: '11px',
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
-            borderRadius: '999px', color: '#F5F5F5', outline: 'none',
-            width: '110px', transition: 'border-color 0.15s, width 0.2s',
-          }}
-          onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = '140px' }}
-          onBlur={e  => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = '110px' }}
-        />
+        {/* Filter tabs */}
+        <div style={{ display: 'flex', gap: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid rgba(255,255,255,0.08)' }}>
+          {UDP_FILTERS.map(({ key, label }) => (
+            <button key={key} onClick={() => setFilterMode(key)}
+              style={{ padding: '3px 9px', borderRadius: 6, border: 'none', fontSize: 10, fontWeight: 700,
+                cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap',
+                background: filterMode === key ? '#A72C32' : 'transparent',
+                color:      filterMode === key ? '#FFFFFF'  : 'rgba(255,255,255,0.50)',
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: '8px', flex: 1, minHeight: 0, padding: '6px 10px 10px', overflow: 'hidden' }}>
-        {/* Pie + legend */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', flexShrink: 0 }}>
+
+      <div style={{ display: 'flex', gap: '10px', flex: 1, minHeight: 0, padding: '6px 12px 12px' }}>
+        {/* Pie chart */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <svg width={180} height={180}>
             {slices.length === 0
               ? <circle cx={CX} cy={CY} r={80} fill="rgba(255,255,255,0.03)" strokeDasharray="5 4" stroke="rgba(255,255,255,0.08)" />
@@ -268,8 +319,7 @@ function UserDevicePanelCard({ devices }) {
                 <path key={s.user} d={s.path}
                   fill={s.color}
                   opacity={hovered === null ? 0.88 : hovered === i ? 1 : 0.22}
-                  style={{
-                    cursor: 'pointer', transition: 'opacity 0.15s, transform 0.15s',
+                  style={{ cursor: 'pointer', transition: 'opacity 0.15s, transform 0.15s',
                     transformOrigin: `${CX}px ${CY}px`,
                     transform: hovered === i ? 'scale(1.04)' : 'scale(1)',
                   }}
@@ -284,48 +334,38 @@ function UserDevicePanelCard({ devices }) {
               </text>
             )}
           </svg>
-          {/* 3.2 — legend removed; the device list beside the pie already maps
-             each user (color avatar + count), so the under-pie legend was redundant. */}
         </div>
-        {/* Scrollable device list */}
-        <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', maxHeight: '300px',
-          display: 'flex', flexDirection: 'column', gap: '10px', padding: '2px 4px 0 4px' }}>
-          {filteredUsers.length === 0
-            ? <p style={EMPTY_MSG}>{search ? `No results for "${search}"` : 'No locators'}</p>
-            : filteredUsers.map(([user, devs], i) => {
+
+        {/* Top-5 user list — name + device count, with a metric subtitle per filter */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '9px', padding: '2px 0 0' }}>
+          {displayedUsers.length === 0
+            ? <p style={EMPTY_MSG}>No assigned devices</p>
+            : displayedUsers.map((u, i) => {
               const color = BAR_COLORS[i % BAR_COLORS.length]
+              let subtitle = null
+              if (filterMode === 'active')      subtitle = `${u.datapoints.toLocaleString()} datapoints`
+              else if (filterMode === 'oldest') subtitle = u.oldest != null ? `First bound ${fmtBindDate(u.oldest)}` : null
+              else if (filterMode === 'recent') subtitle = u.recent != null ? `Last bound ${fmtBindDate(u.recent)}`  : null
               return (
-                <div key={user} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <div style={{
-                      width: '20px', height: '20px', borderRadius: '50%', flexShrink: 0,
-                      fontSize: '7px', fontWeight: 800,
-                      background: `${color}18`, color, border: `1px solid ${color}30`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>{ini(user)}</div>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#FFFFFF',
-                      flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {user}
-                    </span>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color, flexShrink: 0 }}>{devs.length}</span>
+                <div key={u.user} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', flexShrink: 0,
+                    fontSize: '8px', fontWeight: 800,
+                    background: `${color}18`, color, border: `1px solid ${color}30`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {ini(u.user)}
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', paddingLeft: '27px' }}>
-                    {devs.map(dev => {
-                      const displayName = (dev.name && dev.name !== dev.sn) ? dev.name : dev.sn.replace('CARD-', '')
-                      return (
-                        <span key={dev.sn} style={{
-                          fontSize: '10px', padding: '1px 6px', borderRadius: '4px',
-                          border: `1px solid ${color}30`, background: 'rgba(255,255,255,0.03)',
-                          whiteSpace: 'nowrap', color: '#D8D8D8',
-                        }}>
-                          {displayName}
-                        </span>
-                      )
-                    })}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#FFFFFF',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.user}</div>
+                    {subtitle && (
+                      <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.40)', marginTop: 1 }}>{subtitle}</div>
+                    )}
                   </div>
+                  <span style={{ fontSize: '13px', fontWeight: 800, color, flexShrink: 0 }}>{u.count}</span>
                 </div>
               )
-            })}
+            })
+          }
         </div>
       </div>
     </div>
@@ -444,79 +484,112 @@ function BoundDevicesCard({ devices, selectedDate }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   RECENT ACTIVITY PANEL — table with hover shadow
+   RECENT ACTIVITY PANEL — filtered table, max 8 rows, no scroll
    ══════════════════════════════════════════════════════════════════ */
-function RecentActivityPanel({ activityRows, filteredActivity, activitySearch, setActivitySearch }) {
+function RecentActivityPanel({ activityRows }) {
   const { bind, style: hoverStyle } = usePanelHover()
+  const [activitySearch, setActivitySearch] = useState('')
+  const [statusFilter,   setStatusFilter]   = useState('Active') // default: show only online
+
+  const visibleRows = useMemo(() => {
+    const q = activitySearch.toLowerCase()
+    return activityRows.filter(r => {
+      const matchStatus =
+        statusFilter === 'All'    ? true :
+        statusFilter === 'Active' ? r.status === 'online' :
+                                    r.status === 'offline'
+      const matchSearch = !q || r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q)
+      return matchStatus && matchSearch
+    })
+  }, [activityRows, activitySearch, statusFilter])
+
+  const capped   = visibleRows.slice(0, 8)
+  const overflow = visibleRows.length - 8
+
   return (
-    <div {...bind} style={{ ...panel, overflow:'hidden', ...hoverStyle }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+    <div {...bind} style={{ ...panel, overflow: 'hidden', ...hoverStyle }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div>
-          <div style={{ fontSize:'15px', fontWeight:700, color:'#FFFFFF', letterSpacing:'-0.01em' }}>Recent Activity</div>
-          <div style={{ fontSize:'11px', color:'#E0E0E0', marginTop:'2px' }}>
+          <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>Recent Activity</div>
+          <div style={{ fontSize: '11px', color: '#E0E0E0', marginTop: '2px' }}>
             {activitySearch
-              ? `${filteredActivity.length} of ${activityRows.length} locator${activityRows.length !== 1 ? 's' : ''}`
-              : `${activityRows.length} locator${activityRows.length !== 1 ? 's' : ''} · sorted by last seen`}
+              ? `${visibleRows.length} matching · sorted by last reported`
+              : `${capped.length}${overflow > 0 ? ` of ${visibleRows.length}` : ''} device${capped.length !== 1 ? 's' : ''} · sorted by last reported`}
           </div>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Status filter tabs */}
+          <div style={{ display: 'flex', gap: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid rgba(255,255,255,0.08)' }}>
+            {['All', 'Active', 'Offline'].map(tab => (
+              <button key={tab} onClick={() => setStatusFilter(tab)}
+                style={{ padding: '3px 10px', borderRadius: 6, border: 'none', fontSize: 10, fontWeight: 700,
+                  cursor: 'pointer', transition: 'all 0.15s',
+                  background: statusFilter === tab ? '#A72C32' : 'transparent',
+                  color:      statusFilter === tab ? '#FFFFFF'  : 'rgba(255,255,255,0.50)',
+                }}>
+                {tab}
+              </button>
+            ))}
+          </div>
           <input
             placeholder="Search devices…"
             value={activitySearch}
             onChange={e => setActivitySearch(e.target.value)}
-            style={{
-              height:'28px', padding:'0 12px', fontSize:'11px',
-              background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)',
-              borderRadius:'999px', color:'#F5F5F5', outline:'none',
-              width:'130px', transition:'border-color 0.15s, width 0.2s',
+            style={{ height: '28px', padding: '0 12px', fontSize: '11px',
+              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: '999px', color: '#F5F5F5', outline: 'none',
+              width: '130px', transition: 'border-color 0.15s, width 0.2s',
             }}
-            onFocus={e => { e.target.style.borderColor='rgba(167,44,50,0.55)'; e.target.style.width='170px' }}
-            onBlur={e  => { e.target.style.borderColor='rgba(255,255,255,0.10)'; e.target.style.width='130px' }}
+            onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = '170px' }}
+            onBlur={e  => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = '130px' }}
           />
         </div>
       </div>
-      <div style={{ display:'grid', gridTemplateColumns:'1.2fr 1.4fr 130px 1fr', padding:'8px 20px', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-        {['Device ID','User / Label','Status','Last Seen'].map(h => (
-          <span key={h} style={{ fontSize:'9px', fontWeight:700, color:'#B8B8B8', textTransform:'uppercase', letterSpacing:'0.08em' }}>{h}</span>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr', padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+        {['Device ID', 'User / Label', 'Status', 'Last Reported'].map(h => (
+          <span key={h} style={{ fontSize: '9px', fontWeight: 700, color: '#B8B8B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</span>
         ))}
       </div>
-      <div style={{ maxHeight:'260px', overflowY:'auto' }}>
-        {filteredActivity.length === 0 ? (
-          <div style={{ padding:'32px', textAlign:'center', color:'#B8B8B8', fontSize:'13px' }}>
-            {activitySearch ? `No results for "${activitySearch}"` : 'No devices loaded'}
+      <div>
+        {capped.length === 0 ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#B8B8B8', fontSize: '13px' }}>
+            {activitySearch ? `No results for "${activitySearch}"` : `No ${statusFilter === 'All' ? '' : statusFilter.toLowerCase() + ' '}devices`}
           </div>
-        ) : filteredActivity.map((row, idx) => (
+        ) : capped.map((row, idx) => (
           <div key={row.id}
-            style={{
-              display:'grid', gridTemplateColumns:'1.2fr 1.4fr 130px 1fr',
-              padding:'10px 20px', borderBottom:'1px solid rgba(255,255,255,0.03)',
+            style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr',
+              padding: '10px 20px', borderBottom: '1px solid rgba(255,255,255,0.03)',
               background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)',
-              transition:'background 0.12s', cursor:'default',
+              transition: 'background 0.12s', cursor: 'default',
             }}
-            onMouseEnter={e => e.currentTarget.style.background='rgba(167,44,50,0.06)'}
-            onMouseLeave={e => e.currentTarget.style.background = idx%2===0?'transparent':'rgba(255,255,255,0.015)'}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(167,44,50,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
           >
-            <span style={{ display:'inline-flex', alignItems:'center', gap:'6px', overflow:'hidden' }}>
-              <span style={{ fontFamily:'monospace', fontSize:'12px', fontWeight:600, color:'#FFFFFF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.id}</span>
-              <span style={{
-                flexShrink:0, fontSize:'9px', fontWeight:700, letterSpacing:'0.04em', textTransform:'uppercase',
-                padding:'1px 6px', borderRadius:'4px', whiteSpace:'nowrap',
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.id}</span>
+              <span style={{ flexShrink: 0, fontSize: '9px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+                padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
                 ...(row.type === 'Sticker'
-                  ? { background:'rgba(255,183,3,0.12)', color:'#FFB703', border:'1px solid rgba(255,183,3,0.24)' }
-                  : { background:'rgba(0,180,216,0.12)', color:'#00B4D8', border:'1px solid rgba(0,180,216,0.24)' }) }}>
+                  ? { background: 'rgba(255,183,3,0.12)', color: '#FFB703', border: '1px solid rgba(255,183,3,0.24)' }
+                  : { background: 'rgba(0,180,216,0.12)', color: '#00B4D8', border: '1px solid rgba(0,180,216,0.24)' }) }}>
                 {row.type}
               </span>
             </span>
-            <span style={{ fontSize:'12px', color:'#F0F0F0', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:'8px' }}>{row.user}</span>
+            <span style={{ fontSize: '12px', color: '#F0F0F0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '8px' }}>{row.user}</span>
             <span>
               {row.status === 'online'
-                ? <span style={{ display:'inline-flex', alignItems:'center', gap:'4px', padding:'2px 10px', borderRadius:'999px', fontSize:'11px', fontWeight:700, background:'rgba(74,222,128,0.10)', color:'#4ade80', border:'1px solid rgba(74,222,128,0.22)' }}>● Active</span>
-                : <span style={{ display:'inline-flex', alignItems:'center', gap:'4px', padding:'2px 10px', borderRadius:'999px', fontSize:'11px', fontWeight:700, background:'rgba(248,113,113,0.10)', color:'#f87171', border:'1px solid rgba(248,113,113,0.22)' }}>● Offline</span>
+                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: 'rgba(74,222,128,0.10)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.22)' }}>● Active</span>
+                : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: 'rgba(248,113,113,0.10)', color: '#f87171', border: '1px solid rgba(248,113,113,0.22)' }}>● Offline</span>
               }
             </span>
-            <span style={{ fontSize:'12px', color:'#D4D4D4', fontFamily:'monospace', whiteSpace:'nowrap' }}>{fmtRelTime(row.lastSeen)}</span>
+            <span style={{ fontSize: '12px', color: '#D4D4D4', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{fmtRelTime(row.lastSeen)}</span>
           </div>
         ))}
+        {overflow > 0 && (
+          <div style={{ padding: '10px 20px', fontSize: '11px', color: 'rgba(255,255,255,0.35)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.04)', fontStyle: 'italic' }}>
+            Showing 8 of {visibleRows.length} — use filters to narrow
+          </div>
+        )}
       </div>
     </div>
   )
@@ -528,13 +601,32 @@ function RecentActivityPanel({ activityRows, filteredActivity, activitySearch, s
 function CriticalAlertStrip({ alerts, onView }) {
   const { bind, style: hoverStyle } = usePanelHover()
   const critical = alerts.filter(a => !a.isRead && a.severity === 'critical')
+  const PREVIEW = 3
+  const names   = critical.map(a => a.deviceName || a.deviceId)
+  const preview = names.slice(0, PREVIEW).join(', ')
+  const more    = names.length - PREVIEW
   return (
     <div {...bind} style={{ ...panel, padding:'14px 20px', display:'flex', alignItems:'center', gap:'12px', borderColor:'rgba(239,68,68,0.25)', background:'rgba(239,68,68,0.06)', ...hoverStyle }}>
       <AlertOctagon style={{ width:'18px', height:'18px', color:'#f87171', flexShrink:0 }} />
-      <div style={{ flex:1, fontSize:'13px' }}>
-        <span style={{ color:'#fca5a5', fontWeight:600 }}>Critical Alerts: </span>
-        <span style={{ color:'#CFCFCF' }}>{critical.map(a => a.deviceName || a.deviceId).join(', ')} require immediate attention</span>
+      {/* Single fixed-height line — truncates with ellipsis no matter how many alerts */}
+      <div style={{ flex:1, minWidth:0, fontSize:'13px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+        <span style={{ color:'#fca5a5', fontWeight:600 }}>
+          {names.length} Critical Alert{names.length !== 1 ? 's' : ''}:{' '}
+        </span>
+        <span style={{ color:'#CFCFCF' }}>
+          {preview}{more > 0 ? `, +${more} more` : ''} require immediate attention
+        </span>
       </div>
+      <button
+        onClick={onView}
+        style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'6px 14px', borderRadius:8,
+          background:'#A72C32', border:'1px solid #8B2328', color:'#FFFFFF',
+          fontSize:12, fontWeight:700, cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}
+        onMouseEnter={e => { e.currentTarget.style.background='#8B2328' }}
+        onMouseLeave={e => { e.currentTarget.style.background='#A72C32' }}
+      >
+        View all →
+      </button>
     </div>
   )
 }
@@ -671,6 +763,8 @@ export default function Dashboard() {
   const { locations, activityData, devices: rawDevices, summary } = useHomePageCache()
   const navigate = useNavigate()
   const { alerts } = useAlerts()
+  const { users } = useUserCache()
+  const { zones } = useZoneCache()
 
   // Hourly activity bins from real playback data (replaces mock detectionsByHour)
   const generalBins = useMemo(() => {
@@ -728,8 +822,6 @@ export default function Dashboard() {
   }, [locations])
 
   // Recent Activity table — real devices sorted by latest location timestamp
-  const [activitySearch, setActivitySearch] = useState('')
-
   const activityRows = useMemo(() => {
     return [...rawDevices]
       .map(d => {
@@ -756,45 +848,15 @@ export default function Dashboard() {
       .sort((a, b) => b.ts - a.ts)
   }, [rawDevices, locations])
 
-  const filteredActivity = useMemo(() => {
-    const q = activitySearch.toLowerCase()
-    return activityRows
-      .filter(r => !q || r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q))
-      .slice(0, 15)
-  }, [activityRows, activitySearch])
-
-  // Low-battery count from live rawDevices battery field (GET /api/devices)
-  // Battery comes from POST /api/location/latest-batch → loc.batteryStatus stored by vendor sync.
-  // GET /api/devices has no battery field, so batteryTiers is the only real source.
-  const lowBatteryCount = batteryTiers.noData ? null : batteryTiers.low
-
-  // Detections today — count of activityData points whose timestamp is today
-  const detectionsToday = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10)
-    let count = 0
-    for (const pts of Object.values(activityData)) {
-      if (!Array.isArray(pts)) continue
-      for (const pt of pts) {
-        const ts = pt?.timestamp ?? pt?.time ?? pt?.locTime ?? pt?.t
-        if (ts && String(ts).slice(0, 10) === today) count++
-      }
-    }
-    return count
-  }, [activityData])
-
-  // Last detection — most recent location update across all devices
-  const lastDetect = useMemo(() => {
-    let best = null
-    for (const [sn, loc] of Object.entries(locations)) {
-      const ts = loc?.timestamp ?? loc?.time ?? loc?.locTime
-      if (!ts) continue
-      const t = new Date(ts).getTime()
-      if (!best || t > best.t) best = { t, sn, ts, loc }
-    }
-    return best
-  }, [locations])
-
-  const lastDetectTime = lastDetect ? fmtRelTime(lastDetect.ts) : '—'
+  // Unassigned device count — devices with no owner.
+  // rawDevices is capped (HomePageCache limit), so counting unassigned there
+  // would miss devices beyond the cap. Derive from the authoritative server
+  // total instead: total − (devices we can see are assigned to a user).
+  const unboundCount = useMemo(() => {
+    const assigned = rawDevices.filter(d => d.assigned_user_name || d.user_id).length
+    const total = Number(summary?.total) || rawDevices.length
+    return Math.max(0, total - assigned)
+  }, [rawDevices, summary])
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'18px' }}>
@@ -809,15 +871,15 @@ export default function Dashboard() {
       {/* ── Row 1: 4 large glossy KPI cards ───────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'16px' }}>
 
-        {/* Card 1 — BLE Locators */}
+        {/* Card 1 — Assigned Devices */}
         <KPICard
-          title="BLE Locators"
+          title="Assigned Devices"
+          onClick={() => navigate('/devices')}
           value={summary.locators}
           sub={`${summary.online > 0 ? Math.round(summary.online * summary.locators / Math.max(summary.total, 1)) : 0} online · server-side counts`}
           icon={Radio}
           trend="up"
           trendVal={weeklyLocators > 0 ? `+${weeklyLocators} this week` : 'No new this week'}
-          onClick={() => navigate('/locators')}
           colors={{
             gradient:    'linear-gradient(145deg, #1E2B3D 0%, #1A2333 40%, #141B28 70%, #0F1420 100%)',
             border:      'rgba(0,180,216,0.25)',
@@ -886,6 +948,7 @@ export default function Dashboard() {
           icon={Activity}
           trend="up"
           trendVal="Online now"
+          onClick={() => navigate('/devices?tab=locator&status=active')}
           colors={{
             gradient:    'linear-gradient(145deg, #1A3328 0%, #142820 40%, #0F2018 70%, #0A1810 100%)',
             border:      'rgba(46,196,182,0.25)',
@@ -905,9 +968,9 @@ export default function Dashboard() {
       {/* ── Row 2: 3 muted grey metric cards ──────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'16px' }}>
         {[
-          { label:'Low Battery',      value: lowBatteryCount ?? '—',  icon: Battery, color:'#F59E0B', sub:'devices < 20%' },
-          { label:'Detections Today', value: detectionsToday,          icon: Zap,     color:'#C44E54', sub:'location points today' },
-          { label:'Last Detection',   value: lastDetectTime,           icon: Clock,   color:'#94a3b8', sub: lastDetect ? lastDetect.sn.slice(0, 24) : 'No data' },
+          { label:'Geo-fences',         value: zones.length,  icon: Shield, color:'#F59E0B', sub:'active fence zones' },
+          { label:'Users',              value: users.length,  icon: Users,  color:'#22D3EE', sub:'under your account' },
+          { label:'Unassigned Devices', value: unboundCount,  icon: Tag,    color:'#3B82F6', sub:'locators & stickers without an owner' },
         ].map(m => <MetricCard key={m.label} m={m} />)}
       </div>
 
@@ -929,6 +992,7 @@ export default function Dashboard() {
         />
         <UserDevicePanelCard
           devices={rawDevices}
+          activityData={activityData}
         />
         <BoundDevicesCard
           devices={rawDevices}
@@ -937,16 +1001,11 @@ export default function Dashboard() {
       </div>
 
       {/* ── Row 5 (was Row 4): Recent Activity ───────────────── */}
-      <RecentActivityPanel
-        activityRows={activityRows}
-        filteredActivity={filteredActivity}
-        activitySearch={activitySearch}
-        setActivitySearch={setActivitySearch}
-      />
+      <RecentActivityPanel activityRows={activityRows} />
 
       {/* ── Critical alert strip ──────────────────────────────── */}
       {alerts.filter(a => !a.isRead && a.severity === 'critical').length > 0 && (
-        <CriticalAlertStrip alerts={alerts} onView={() => navigate('/missing')} />
+        <CriticalAlertStrip alerts={alerts} onView={() => navigate('/alerts')} />
       )}
     </div>
   )

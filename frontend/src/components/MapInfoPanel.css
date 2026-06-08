@@ -190,29 +190,19 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 12px;
-  padding: 32px 20px;
+  gap: 5px;
+  padding: 28px 20px;
 }
-.mip-empty-icon {
-  width: 60px;
-  height: 60px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--surface-3);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-tertiary);
-}
-.mip-empty-icon svg { width: 28px; height: 28px; }
 .mip-empty-title {
   font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--text-secondary);
 }
 .mip-empty-text {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-tertiary);
-  line-height: 1.5;
-  max-width: 220px;
+  line-height: 1.45;
+  max-width: 200px;
 }

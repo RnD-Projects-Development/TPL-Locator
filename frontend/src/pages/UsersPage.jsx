@@ -816,11 +816,11 @@ export default function UsersPage() {
       {deleteTarget && (
         <div
           onClick={() => !deleteLoading && setDeleteTarget(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.74)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24 }}
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: '#18181b', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 16, width: '100%', maxWidth: 380, padding: 22, boxShadow: '0 24px 64px rgba(0,0,0,0.72)' }}
+            style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, width: '100%', maxWidth: 380, padding: 22, boxShadow: '0 24px 64px rgba(0,0,0,0.72)' }}
           >
             <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginBottom: 8 }}>Delete User</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.52)', marginBottom: 20 }}>
@@ -854,11 +854,11 @@ export default function UsersPage() {
       {unbindTarget && (
         <div
           onClick={() => !unbindLoading && setUnbindTarget(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.74)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24 }}
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ background: '#18181b', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 16, width: '100%', maxWidth: 380, padding: 22, boxShadow: '0 24px 64px rgba(0,0,0,0.72)' }}
+            style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, width: '100%', maxWidth: 380, padding: 22, boxShadow: '0 24px 64px rgba(0,0,0,0.72)' }}
           >
             <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginBottom: 8 }}>Unbind Device</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.52)', marginBottom: 20 }}>

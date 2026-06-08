@@ -109,9 +109,21 @@ export function HomePageCacheProvider({ children }) {
 
     setDevLoading(true);
     try {
-      // Cap at 500 — sufficient for field staff map; avoids loading 10 000+ docs
-      const res = await getDevices({ page: 1, limit: 500 });
-      const list = Array.isArray(res) ? res : (res?.devices ?? []);
+      // Backend hard-caps `limit` at 500 per request, so page through the rest
+      // to load the whole fleet — dashboard counts (unassigned, per-user, top
+      // devices) must reflect ALL devices, not just the first page.
+      const PAGE = 500;
+      const MAX_PAGES = 6; // safety bound: up to 3000 devices
+      const first = await getDevices({ page: 1, limit: PAGE });
+      let list = Array.isArray(first) ? first : (first?.devices ?? []);
+      const total = Number(first?.total) || list.length;
+      const pages = Math.min(MAX_PAGES, Math.ceil(total / PAGE));
+      for (let p = 2; p <= pages; p += 1) {
+        const res = await getDevices({ page: p, limit: PAGE });
+        const more = Array.isArray(res) ? res : (res?.devices ?? []);
+        if (!more.length) break;
+        list = list.concat(more);
+      }
       setDevices(list);
       updateFromDevices(list);
       deviceCacheRef.current = { key: cacheKey, fetchedAt: Date.now(), data: list };

@@ -15,6 +15,7 @@ import Dashboard        from './pages/Dashboard.jsx'
 import Search           from './pages/Search.jsx'
 import Locators         from './pages/Locators.jsx'
 import Stickers         from './pages/Stickers.jsx'
+import Devices          from './pages/Devices.jsx'
 import LocatorDetail    from './pages/LocatorDetail.jsx'
 import StickerDetail    from './pages/StickerDetail.jsx'
 import MissingDevices   from './pages/MissingDevices.jsx'
@@ -82,9 +83,10 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
           <Route path="/field-staff"  element={<FieldStaffDashboard />} />
           <Route path="/alerts"       element={<Alerts />} />
           <Route path="/reports"      element={<Reports />} />
+          {/* Unified devices view (Locators / Stickers / Offline tabs) */}
+          <Route path="/devices"      element={<Devices />} />
           {/* Legacy redirects */}
           <Route path="/Homepage"     element={<Navigate to="/dashboard" replace />} />
-          <Route path="/devices"      element={<Navigate to="/locators" replace />} />
           <Route path="/geofence"     element={<Navigate to="/fence" replace />} />
           <Route path="*"             element={<Navigate to="/dashboard" replace />} />
         </Routes>

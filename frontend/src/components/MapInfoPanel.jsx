@@ -79,7 +79,6 @@ export default function MapInfoPanel({
     return (
       <aside className="mip-panel">
         <div className="mip-empty">
-          <div className="mip-empty-icon"><IconPin /></div>
           <div className="mip-empty-title">No device focused</div>
           <div className="mip-empty-text">{emptyHint}</div>
         </div>

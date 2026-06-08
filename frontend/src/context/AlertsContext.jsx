@@ -133,6 +133,14 @@ export function AlertsProvider({ children }) {
 
   const readIdsRef  = useRef(loadReadIds())
   const intervalRef = useRef(null)
+  const seenAlertIdsRef = useRef(null) // null until first fetch — avoids a notification burst on load
+
+  // Ask for web-notification permission once the user is authenticated
+  useEffect(() => {
+    if (accessToken && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+  }, [accessToken])
 
   // ── Core fetch ─────────────────────────────────────────────────────────────
 
@@ -208,7 +216,27 @@ export function AlertsProvider({ children }) {
       readIdsRef.current = cleanedIds
       persistReadIds(cleanedIds)
 
-      // ── 5. Apply current read state ───────────────────────────────────────
+      // ── 5. Fire web notifications for newly-appeared unread alerts ────────
+      try {
+        const canNotify = typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
+        if (seenAlertIdsRef.current === null) {
+          // First successful fetch — seed the seen-set without notifying (no burst on load)
+          seenAlertIdsRef.current = new Set(all.map(a => a.id))
+        } else {
+          const fresh = all.filter(a => !seenAlertIdsRef.current.has(a.id) && !cleanedIds.has(a.id))
+          if (canNotify) {
+            fresh.slice(0, 4).forEach(a => {
+              try { new Notification('TPL Trakker — New Alert', { body: a.message, tag: a.id }) } catch {}
+            })
+            if (fresh.length > 4) {
+              try { new Notification('TPL Trakker', { body: `${fresh.length} new alerts need attention` }) } catch {}
+            }
+          }
+          all.forEach(a => seenAlertIdsRef.current.add(a.id))
+        }
+      } catch { /* notifications are best-effort */ }
+
+      // ── 6. Apply current read state ───────────────────────────────────────
       setAlerts(all.map(a => ({ ...a, isRead: cleanedIds.has(a.id) })))
       setLastFetched(Date.now())
     } catch (err) {
@@ -226,6 +254,7 @@ export function AlertsProvider({ children }) {
       setLastFetched(null)
       setError('')
       readIdsRef.current = new Set()
+      seenAlertIdsRef.current = null
       clearInterval(intervalRef.current)
       return
     }

@@ -60,6 +60,24 @@ export function BindCacheProvider({ children }) {
   }, []);
 
   /**
+   * Record a bind the moment it happens (from the bind modal), so the bind
+   * history is captured reliably — independent of when the dashboard's device
+   * list next refetches, and even for devices beyond the list's fetch cap.
+   * Overwrites any prior entry so a re-bind reflects the latest bind date.
+   * The history never shrinks, so the bind survives a later unbind.
+   */
+  const recordBind = useCallback((sn, isoTime) => {
+    if (!sn) return;
+    const t = isoTime || new Date().toISOString();
+    setHistory(prev => {
+      if (prev[sn] === t) return prev;
+      const next = { ...prev, [sn]: t };
+      writeStorage(next);
+      return next;
+    });
+  }, []);
+
+  /**
    * Returns a Map<sn, isoBindTime> that merges:
    *   1. All historically cached entries
    *   2. Current live device data (overwrites stale cache if both present)
@@ -105,7 +123,7 @@ export function BindCacheProvider({ children }) {
 
   return (
     <BindCacheContext.Provider
-      value={{ history, updateFromDevices, getMergedBindings, countBindsInWindow, getDevicesBoundBy }}
+      value={{ history, updateFromDevices, recordBind, getMergedBindings, countBindsInWindow, getDevicesBoundBy }}
     >
       {children}
     </BindCacheContext.Provider>

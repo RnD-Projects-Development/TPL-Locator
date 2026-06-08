@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Radio, Search, User, Key, PawPrint, Wallet,
-  ChevronRight, Plus, X, Link2, Trash2,
+  ChevronRight, Plus, X, Link2, Trash2, Download,
 } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
+import { useBindCache } from '../context/BindCacheContext.jsx'
+import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
 import { loadLocatorPageState, readPersistedPage, saveLocatorPageState } from '../utils/locatorPageState.js'
@@ -14,12 +16,6 @@ import { deviceDisplayName } from '../utils/deviceDisplayName.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
-
-function mapStoredStatusToTab(status) {
-  if (status === 'online') return 'Active'
-  if (status === 'offline') return 'Offline'
-  return 'All'
-}
 
 // ── Modal keeps dark styling always (overlay UI) ──────────────────────────────
 const modalPanel = {
@@ -102,12 +98,13 @@ function StatusBadge({ status, isLight }) {
   )
 }
 
-export default function Locators() {
+export default function Locators({ embedded = false }) {
   const { isAdmin } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { bindDevice, adminAssignDeviceToUser, unbindDevice, getAvailableDevices } = useCityTag()
+  const { bindDevice, adminAssignDeviceToUser, unbindDevice, getAvailableDevices, getDevices, getLatestLocationsBatch } = useCityTag()
   const { devices: cacheDevices, refresh: refreshDeviceCache } = useDeviceCache()
+  const { recordBind } = useBindCache()
   const { users } = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)
@@ -137,12 +134,17 @@ export default function Locators() {
   }
 
   const restoredState = loadLocatorPageState('locator')
-  const restoredSearch = restoredState.searchTerm.trim()
-  const restoredStatus = restoredState.filterStatus
 
   const [rawQuery, setRawQuery] = useState(() => restoredState.searchTerm)
   const [debouncedQuery, setDebouncedQuery] = useState(() => restoredState.searchTerm.trim())
-  const [statusF, setStatusF] = useState(() => mapStoredStatusToTab(restoredState.filterStatus))
+  const [statusF, setStatusF] = useState(() => {
+    // Only a `?status=` URL param (set by the dashboard cards) applies a filter.
+    // Plain navigation (sidebar / direct / back) always resets to "All".
+    const urlStatus = searchParams.get('status')
+    if (urlStatus === 'active')  return 'Active'
+    if (urlStatus === 'offline') return 'Offline'
+    return 'All'
+  })
   const debounceRef = useRef(null)
 
   useEffect(() => {
@@ -298,6 +300,7 @@ export default function Locators() {
       setBindError(''); setBindLoading(true)
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory })
+        recordBind(bindSn)            // persist bind history immediately
         refreshDevices(); closeBindModal()
       } catch (err) { setBindError(err.message || 'Failed to bind locator') }
       finally { setBindLoading(false) }
@@ -308,6 +311,7 @@ export default function Locators() {
       setBindError(''); setBindLoading(true)
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory })
+        recordBind(bindSn.trim())     // persist bind history immediately
         refreshDevices()
         getAvailableDevices().then(setAvailableDevices).catch(() => {})
         closeBindModal()
@@ -355,6 +359,21 @@ export default function Locators() {
     }
   }), [locators])
 
+  // CSV export — pulls the FULL locator fleet from the DB (all pages) with
+  // owner, bound-at, last location, detections, battery, etc.
+  const [exporting, setExporting] = useState(false)
+  const exportCSV = useCallback(async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await exportDevicesCsv(getDevices, getLatestLocationsBatch, { deviceType: 'locator', filename: 'locators.csv' })
+    } catch (err) {
+      console.error('CSV export failed', err)
+    } finally {
+      setExporting(false)
+    }
+  }, [exporting, getDevices, getLatestLocationsBatch])
+
   // Dark modal input style
   const inputStyle = {
     width: '100%', padding: '10px 12px',
@@ -368,7 +387,12 @@ export default function Locators() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '4px 0' }}>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+      {/* When embedded, the row is lifted to the top-right so the action buttons
+          sit alongside the parent Devices page heading instead of in a row of their own. */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: embedded ? 'flex-end' : 'space-between', flexWrap: 'wrap', gap: 12,
+        ...(embedded ? { position: 'absolute', top: 0, right: 0, zIndex: 5, margin: 0 } : {}) }}>
+        {/* Title hidden when embedded in the unified Devices page (avoids a duplicate heading) */}
+        {embedded ? null : (
         <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
           {isLight ? (
             <div style={{ width: 44, height: 44, borderRadius: 12, background: '#A72C32', border: '1px solid #8B2328', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -383,6 +407,7 @@ export default function Locators() {
             <h1 style={{ fontSize: 22, fontWeight: 800, color: T.txt1, margin: 0, letterSpacing: isLight ? '-0.02em' : '-0.03em' }}>Locators</h1>
           </div>
         </div>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {isLight ? (
@@ -421,6 +446,26 @@ export default function Locators() {
               Bind Device
             </button>
           )}
+          {/* Export CSV button — full fleet from DB */}
+          <button
+            onClick={exportCSV}
+            disabled={exporting}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '10px 16px', borderRadius: 10, cursor: exporting ? 'wait' : 'pointer',
+              background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)',
+              border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)',
+              color: isLight ? '#333333' : 'rgba(255,255,255,0.70)',
+              fontSize: 13, fontWeight: 600,
+              opacity: exporting ? 0.6 : 1,
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = isLight ? '#000' : '#FFFFFF' }}}
+            onMouseLeave={e => { e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = isLight ? '#333333' : 'rgba(255,255,255,0.70)' }}
+          >
+            <Download style={{ width: 13, height: 13 }} />
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
         </div>
       </div>
 
@@ -878,10 +923,10 @@ export default function Locators() {
           >
             <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', marginBottom: 8 }}>Unbind Locator</div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.52)', marginBottom: 20 }}>
-              Remove binding for{' '}
+              You are about to permanently remove the binding for device{' '}
               <span style={{ color: '#FFFFFF', fontFamily: 'monospace' }}>{deleteTarget.sn}</span>
-              {deleteTarget.assigned_user_name ? ` from ${deleteTarget.assigned_user_name}` : ''}?{' '}
-              This cannot be undone.
+              {deleteTarget.assigned_user_name ? ` from ${deleteTarget.assigned_user_name}` : ''}.{' '}
+              This will disconnect the device from its owner and cannot be undone.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button

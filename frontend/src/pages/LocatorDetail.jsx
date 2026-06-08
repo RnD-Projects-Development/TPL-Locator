@@ -6,6 +6,7 @@ import { useCityTag } from '../hooks/useCityTag.js'
 import { tplGeocode } from '../utils/tplGeocode.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
+import MapView from '../components/MapView.jsx'
 
 const statusStyle = (s, isLight) => {
   if (isLight) {
@@ -178,6 +179,12 @@ export default function LocatorDetail() {
   const battColor     = isLight
     ? ((liveBattery ?? 0) <= 20 ? '#DC2626' : (liveBattery ?? 0) <= 40 ? '#D97706' : '#059669')
     : ((liveBattery ?? 0) <= 20 ? '#F87171' : (liveBattery ?? 0) <= 40 ? '#FBBF24' : '#34D399')
+  // Header glyph colour reflects battery: <50 red · 50–60 yellow · >60 green
+  const headGlyphColor = liveBattery == null
+    ? T.headIconColor
+    : liveBattery < 50  ? (isLight ? '#DC2626' : '#F87171')
+    : liveBattery <= 60 ? (isLight ? '#D97706' : '#FBBF24')
+    :                     (isLight ? '#059669' : '#34D399')
   const timeColor     = isLight
     ? (liveHoursAgo > 24 ? '#DC2626' : liveHoursAgo > 12 ? '#D97706' : '#059669')
     : (liveHoursAgo > 24 ? '#F87171' : liveHoursAgo > 12 ? '#FBBF24' : '#34D399')
@@ -192,6 +199,11 @@ export default function LocatorDetail() {
     ? new Date(loc.bindTime).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     : '—'
 
+  // Coordinates for the side map (last reported location)
+  const mapLat = livePoint?.lat ?? livePoint?.latitude ?? livePoint?.gpsLat ?? livePoint?.wgLat
+  const mapLng = livePoint?.lng ?? livePoint?.lon ?? livePoint?.longitude ?? livePoint?.gpsLng ?? livePoint?.wgLng
+  const hasMapCoords = mapLat != null && mapLng != null && !isNaN(Number(mapLat)) && !isNaN(Number(mapLng))
+
   const infoFields = [
     { l: 'Device ID',   v: loc.id },
     { l: 'Bind Date',   v: bindDateStr },
@@ -202,7 +214,7 @@ export default function LocatorDetail() {
   ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 760, padding: '4px 0' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '4px 0' }}>
 
       {/* Back */}
       <button onClick={() => navigate('/locators')}
@@ -213,11 +225,15 @@ export default function LocatorDetail() {
         <ArrowLeft style={{ width: 15, height: 15 }} /> Back to Locators
       </button>
 
+      {/* Two-column: details (left) + last-location map (right) */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: '1 1 560px', minWidth: 0, maxWidth: 760 }}>
+
       {/* Header card */}
       <div style={{ ...panel, ...(cardAccent || {}), padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
           <div style={{ padding: 12, borderRadius: 14, background: T.headIconBg, border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>
-            <Radio style={{ width: 26, height: 26, color: T.headIconColor }} />
+            <Radio style={{ width: 26, height: 26, color: headGlyphColor }} />
           </div>
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 700, color: T.txt1, margin: 0 }}>{loc.userName || loc.name}</h1>
@@ -339,6 +355,49 @@ export default function LocatorDetail() {
           </button>
         </div>
       </div>
+
+      </div>{/* end left column */}
+
+      {/* Right column — last-location map (TPL Maps) */}
+      <div style={{ flex: '1 1 420px', minWidth: 300, alignSelf: 'stretch' }}>
+        <div style={{ ...panel, ...(cardAccent || {}), overflow: 'hidden', position: 'sticky', top: 12,
+          display: 'flex', flexDirection: 'column', height: 'calc(100vh - 130px)', minHeight: 480 }}>
+          {/* Map header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 18px', borderBottom: `1px solid ${T.fieldBdr}`, flexShrink: 0 }}>
+            <MapPin style={{ width: 15, height: 15, color: T.locColor }} />
+            <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Current Location</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: T.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+              {hasMapCoords ? (geoLabel || `${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`) : ''}
+            </span>
+          </div>
+          {/* Map body */}
+          <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+            {locLoading ? (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.txt2, fontSize: 13 }}>
+                Locating…
+              </div>
+            ) : hasMapCoords ? (
+              <MapView
+                sn={loc.id}
+                label={loc.userName || loc.name}
+                latest={livePoint}
+                trajectory={[]}
+                playbackPoint={null}
+                showFences={false}
+                zones={zones}
+              />
+            ) : (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
+                <MapPin style={{ width: 30, height: 30, color: T.txt3 }} />
+                <div style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>No GPS data</div>
+                <div style={{ color: T.txt2, fontSize: 12 }}>This device has no reported location yet.</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      </div>{/* end two-column row */}
 
     </div>
   )

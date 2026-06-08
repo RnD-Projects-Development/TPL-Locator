@@ -57,6 +57,12 @@ async function _doFetch(url, method, headers, body, onUnauthorized) {
     } else {
       message = payload?.detail || payload?.error || "Request failed";
     }
+    // Sanitize noisy server/database connectivity errors → friendly, user-safe text.
+    // (The raw pymongo topology dump should never reach the UI.) Raw detail is kept on err.payload.
+    if (res.status >= 500 &&
+        /ServerSelectionTimeoutError|ReplicaSetNoPrimary|No replica set members|SSL handshake|pymongo|Topology/i.test(String(message))) {
+      message = "The server is temporarily unable to reach the database. Please try again in a moment.";
+    }
     const err = new Error(message);
     err.status = res.status;
     err.payload = payload;
