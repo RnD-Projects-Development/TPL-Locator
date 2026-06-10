@@ -714,12 +714,18 @@ async def get_devices_summary(
     if isinstance(account, UserInDB):
         ids = list(account.devices or [])
         if not ids:
-            return {"total": 0, "locators": 0, "stickers": 0, "online": 0, "offline": 0,
-                    "weekly_new_locators": 0, "weekly_new_stickers": 0}
-        docs = await mongo.devices.find({"_id": {"$in": ids}}, {"sn": 1, "bound_at": 1}).to_list(len(ids))
+            return {
+                "total": 0, "assigned": 0, "locators": 0, "stickers": 0,
+                "online": 0, "offline": 0, "weekly_new_locators": 0, "weekly_new_stickers": 0,
+            }
+        docs = await mongo.devices.find(
+            {"_id": {"$in": ids}}, {"sn": 1, "bound_at": 1, "user_id": 1},
+        ).to_list(len(ids))
     else:
         admin_oid = _to_oid(account.id)
-        docs = await mongo.devices.find({"admin_id": admin_oid}, {"sn": 1, "bound_at": 1}).to_list(None)
+        docs = await mongo.devices.find(
+            {"admin_id": admin_oid}, {"sn": 1, "bound_at": 1, "user_id": 1},
+        ).to_list(None)
 
     sns = [str(d.get("sn")) for d in docs if d.get("sn")]
     sticker_re = re.compile(r"^\d+$")
@@ -759,8 +765,14 @@ async def get_devices_summary(
     )
 
     total = len(sns)
+    if isinstance(account, UserInDB):
+        assigned = total
+    else:
+        assigned = sum(1 for d in docs if d.get("user_id") is not None)
+
     return {
         "total": total,
+        "assigned": assigned,
         "locators": len(locator_sns),
         "stickers": len(sticker_sns),
         "online": online,

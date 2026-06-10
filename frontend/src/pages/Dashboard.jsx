@@ -848,15 +848,9 @@ export default function Dashboard() {
       .sort((a, b) => b.ts - a.ts)
   }, [rawDevices, locations])
 
-  // Unassigned device count — devices with no owner.
-  // rawDevices is capped (HomePageCache limit), so counting unassigned there
-  // would miss devices beyond the cap. Derive from the authoritative server
-  // total instead: total − (devices we can see are assigned to a user).
-  const unboundCount = useMemo(() => {
-    const assigned = rawDevices.filter(d => d.assigned_user_name || d.user_id).length
-    const total = Number(summary?.total) || rawDevices.length
-    return Math.max(0, total - assigned)
-  }, [rawDevices, summary])
+  const totalDevices    = Number(summary?.total) || 0
+  const assignedDevices = Number(summary?.assigned) ?? 0
+  const unboundCount    = Math.max(0, totalDevices - assignedDevices)
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'18px' }}>
@@ -871,15 +865,15 @@ export default function Dashboard() {
       {/* ── Row 1: 4 large glossy KPI cards ───────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'16px' }}>
 
-        {/* Card 1 — Assigned Devices */}
+        {/* Card 1 — Total / Assigned Devices */}
         <KPICard
-          title="Assigned Devices"
+          title="Total Devices / Assigned Devices"
           onClick={() => navigate('/devices')}
-          value={summary.locators}
-          sub={`${summary.online > 0 ? Math.round(summary.online * summary.locators / Math.max(summary.total, 1)) : 0} online · server-side counts`}
+          value={`${totalDevices} / ${assignedDevices}`}
+          sub={`${unboundCount} unassigned · ${summary.locators} locators · ${summary.stickers} stickers`}
           icon={Radio}
           trend="up"
-          trendVal={weeklyLocators > 0 ? `+${weeklyLocators} this week` : 'No new this week'}
+          trendVal={weeklyLocators > 0 ? `+${weeklyLocators} locators this week` : 'No new locators this week'}
           colors={{
             gradient:    'linear-gradient(145deg, #1E2B3D 0%, #1A2333 40%, #141B28 70%, #0F1420 100%)',
             border:      'rgba(0,180,216,0.25)',

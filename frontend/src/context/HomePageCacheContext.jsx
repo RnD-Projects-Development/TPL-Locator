@@ -9,6 +9,7 @@ const SUMMARY_CACHE_MS = 5 * 60 * 1000; // 5 minutes — matches device list cac
 
 const EMPTY_SUMMARY = {
   total: 0,
+  assigned: 0,
   locators: 0,
   stickers: 0,
   online: 0,
