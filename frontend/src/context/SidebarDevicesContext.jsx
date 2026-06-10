@@ -2,16 +2,31 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
 import { registerCacheResetListener } from "../utils/clearAppCaches.js";
+import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
 
 const DEFAULT_LIMIT  = 20;
 const SEARCH_LIMIT   = 50;
 const RECENT_MAX = 8;
 const STORAGE_KEY = "tpl_sidebar_recent_devices";
+const LIST_CACHE_TTL_MS = 60_000;
+const SEARCH_CACHE_TTL_MS = 60_000;
 
 const SidebarDevicesContext = createContext(null);
 
 function normalizeList(payload) {
   return Array.isArray(payload) ? payload : payload?.devices ?? [];
+}
+
+function filterKey(deviceTypeFilter) {
+  return deviceTypeFilter ?? "all";
+}
+
+function listCacheKey(deviceTypeFilter, targetPage) {
+  return `${filterKey(deviceTypeFilter)}:${targetPage}`;
+}
+
+function searchCacheKey(deviceTypeFilter, term) {
+  return `${filterKey(deviceTypeFilter)}:${term}`;
 }
 
 function loadRecentSns() {
@@ -58,15 +73,246 @@ export function SidebarDevicesProvider({ children }) {
   const [searchLoading, setSearchLoading]     = useState(false);
   const [error, setError]                     = useState("");
   const [registryTick, setRegistryTick]       = useState(0);
-  // 'locator' | 'sticker' | null (= All)
-  const [deviceTypeFilter, setDeviceTypeFilter] = useState(null);
+  const [deviceTypeFilter, setDeviceTypeFilterState] = useState(null);
+  const [activeScope, setActiveScope]         = useState(null);
 
   const registryRef = useRef(new Map());
   const getDevicesRef = useRef(getDevices);
+  const activeScopeRef = useRef(null);
+  const listCacheRef = useRef(new Map());
+  const searchCacheRef = useRef(new Map());
+  const deviceTypeFilterRef = useRef(null);
+  const pageRef = useRef(1);
+  const searchTermRef = useRef("");
 
   useEffect(() => {
     getDevicesRef.current = getDevices;
   }, [getDevices]);
+
+  useEffect(() => {
+    deviceTypeFilterRef.current = deviceTypeFilter;
+  }, [deviceTypeFilter]);
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
+    searchTermRef.current = searchTerm;
+  }, [searchTerm]);
+
+  const persistActiveScopeMeta = useCallback(() => {
+    const scope = activeScopeRef.current;
+    if (!scope) return;
+    saveSidebarScopeState(scope, {
+      deviceTypeFilter: deviceTypeFilterRef.current,
+      page: pageRef.current,
+      searchTerm: searchTermRef.current,
+    });
+  }, []);
+
+  const getValidListCache = useCallback((typeFilter, targetPage) => {
+    const key = listCacheKey(typeFilter, targetPage);
+    const entry = listCacheRef.current.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.fetchedAt > LIST_CACHE_TTL_MS) {
+      listCacheRef.current.delete(key);
+      return null;
+    }
+    return entry;
+  }, []);
+
+  const setListCache = useCallback((typeFilter, targetPage, snapshot) => {
+    listCacheRef.current.set(listCacheKey(typeFilter, targetPage), {
+      ...snapshot,
+      fetchedAt: Date.now(),
+    });
+  }, []);
+
+  const getValidSearchCache = useCallback((typeFilter, term) => {
+    const key = searchCacheKey(typeFilter, term);
+    const entry = searchCacheRef.current.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.fetchedAt > SEARCH_CACHE_TTL_MS) {
+      searchCacheRef.current.delete(key);
+      return null;
+    }
+    return entry;
+  }, []);
+
+  const setSearchCache = useCallback((typeFilter, term, list) => {
+    searchCacheRef.current.set(searchCacheKey(typeFilter, term), {
+      list,
+      fetchedAt: Date.now(),
+    });
+  }, []);
+
+  const registerDevices = useCallback((list) => {
+    let changed = false;
+    for (const device of list) {
+      if (!device?.sn) continue;
+      registryRef.current.set(device.sn, device);
+      changed = true;
+    }
+    if (changed) setRegistryTick((n) => n + 1);
+  }, []);
+
+  const applyListSnapshot = useCallback((snapshot, targetPage) => {
+    registerDevices(snapshot.list);
+    setDefaultDevices(snapshot.list);
+    setTotal(snapshot.total);
+    setTotalPages(snapshot.totalPages);
+    setPage(targetPage);
+    setError("");
+  }, [registerDevices]);
+
+  const loadDefault = useCallback(async (targetPage = 1, options = {}) => {
+    if (!user) return;
+
+    const typeFilter = options.deviceTypeFilter ?? deviceTypeFilterRef.current;
+    const force = Boolean(options.force);
+
+    if (!force) {
+      const cached = getValidListCache(typeFilter, targetPage);
+      if (cached) {
+        applyListSnapshot(cached, targetPage);
+        return;
+      }
+    }
+
+    setLoading(true);
+    setError("");
+    try {
+      const params = { page: targetPage, limit: DEFAULT_LIMIT };
+      if (typeFilter) params.device_type = typeFilter;
+      const payload = await getDevicesRef.current(params);
+      const list    = normalizeList(payload);
+      const t  = Number(payload?.total ?? list.length) || list.length;
+      const tp = Number(payload?.total_pages ?? payload?.totalPages ?? Math.max(1, Math.ceil(t / DEFAULT_LIMIT)));
+      const snapshot = { list, total: t, totalPages: tp };
+      setListCache(typeFilter, targetPage, snapshot);
+      applyListSnapshot(snapshot, targetPage);
+      if (activeScopeRef.current) {
+        saveSidebarScopeState(activeScopeRef.current, { page: targetPage });
+      }
+    } catch (err) {
+      setError(err.message || "Failed to load devices");
+      setDefaultDevices([]);
+      setTotal(0);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, getValidListCache, applyListSnapshot, setListCache, registerDevices]);
+
+  const runSearch = useCallback(async (term, options = {}) => {
+    if (!user || !term) {
+      setSearchResults([]);
+      return;
+    }
+
+    const typeFilter = options.deviceTypeFilter ?? deviceTypeFilterRef.current;
+    const force = Boolean(options.force);
+
+    if (!force) {
+      const cached = getValidSearchCache(typeFilter, term);
+      if (cached) {
+        registerDevices(cached.list);
+        setSearchResults(cached.list);
+        setError("");
+        return;
+      }
+    }
+
+    setSearchLoading(true);
+    setError("");
+    try {
+      const searchParams = { page: 1, limit: SEARCH_LIMIT, search: term };
+      if (typeFilter) searchParams.device_type = typeFilter;
+      const payload = await getDevicesRef.current(searchParams);
+      const list = normalizeList(payload);
+      setSearchCache(typeFilter, term, list);
+      registerDevices(list);
+      setSearchResults(list);
+    } catch (err) {
+      setError(err.message || "Search failed");
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [user, getValidSearchCache, setSearchCache, registerDevices]);
+
+  const activateScope = useCallback((scope) => {
+    if (!scope || !user) return;
+
+    if (activeScopeRef.current && activeScopeRef.current !== scope) {
+      persistActiveScopeMeta();
+    }
+
+    activeScopeRef.current = scope;
+    setActiveScope(scope);
+
+    const saved = loadSidebarScopeState(scope);
+    const filter = saved.deviceTypeFilter ?? null;
+    const targetPage = saved.page ?? 1;
+    const term = saved.searchTerm ?? "";
+
+    setDeviceTypeFilterState(filter);
+    setSearchTerm(term);
+    setDebouncedSearch(term.trim());
+    setSearchResults([]);
+
+    const cached = getValidListCache(filter, targetPage);
+    if (cached && !term.trim()) {
+      applyListSnapshot(cached, targetPage);
+      return;
+    }
+
+    void loadDefault(targetPage, { deviceTypeFilter: filter });
+    if (term.trim()) {
+      void runSearch(term.trim(), { deviceTypeFilter: filter });
+    }
+  }, [user, persistActiveScopeMeta, getValidListCache, applyListSnapshot, loadDefault, runSearch]);
+
+  const setDeviceTypeFilter = useCallback((filter) => {
+    setDeviceTypeFilterState(filter);
+    setPage(1);
+    setSearchResults([]);
+
+    if (activeScopeRef.current) {
+      saveSidebarScopeState(activeScopeRef.current, {
+        deviceTypeFilter: filter,
+        page: 1,
+      });
+    }
+
+    const term = searchTermRef.current.trim();
+    if (term) {
+      const cached = getValidSearchCache(filter, term);
+      if (cached) {
+        registerDevices(cached.list);
+        setSearchResults(cached.list);
+      } else {
+        void runSearch(term, { deviceTypeFilter: filter });
+      }
+      return;
+    }
+
+    const cached = getValidListCache(filter, 1);
+    if (cached) {
+      applyListSnapshot(cached, 1);
+      return;
+    }
+
+    void loadDefault(1, { deviceTypeFilter: filter });
+  }, [getValidListCache, getValidSearchCache, applyListSnapshot, loadDefault, runSearch, registerDevices]);
+
+  const setSearchTermScoped = useCallback((term) => {
+    setSearchTerm(term);
+    if (activeScopeRef.current) {
+      saveSidebarScopeState(activeScopeRef.current, { searchTerm: term });
+    }
+  }, []);
 
   const resetSidebarCache = useCallback(() => {
     setDefaultDevices([]);
@@ -80,7 +326,12 @@ export function SidebarDevicesProvider({ children }) {
     setLoading(false);
     setSearchLoading(false);
     setError("");
+    setDeviceTypeFilterState(null);
+    setActiveScope(null);
+    activeScopeRef.current = null;
     registryRef.current.clear();
+    listCacheRef.current.clear();
+    searchCacheRef.current.clear();
   }, []);
 
   useEffect(() => registerCacheResetListener(resetSidebarCache), [resetSidebarCache]);
@@ -90,64 +341,6 @@ export function SidebarDevicesProvider({ children }) {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const registerDevices = useCallback((list) => {
-    let changed = false;
-    for (const device of list) {
-      if (!device?.sn) continue;
-      registryRef.current.set(device.sn, device);
-      changed = true;
-    }
-    if (changed) setRegistryTick((n) => n + 1);
-  }, []);
-
-  const loadDefault = useCallback(async (targetPage = 1) => {
-    if (!user) return;
-    setLoading(true);
-    setError("");
-    try {
-      const params = { page: targetPage, limit: DEFAULT_LIMIT };
-      if (deviceTypeFilter) params.device_type = deviceTypeFilter;
-      const payload = await getDevicesRef.current(params);
-      const list    = normalizeList(payload);
-      registerDevices(list);
-      setDefaultDevices(list);
-      const t  = Number(payload?.total ?? list.length) || list.length;
-      const tp = Number(payload?.total_pages ?? payload?.totalPages ?? Math.max(1, Math.ceil(t / DEFAULT_LIMIT)));
-      setTotal(t);
-      setTotalPages(tp);
-      setPage(targetPage);
-    } catch (err) {
-      setError(err.message || "Failed to load locators");
-      setDefaultDevices([]);
-      setTotal(0);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [registerDevices, user, deviceTypeFilter]);
-
-  const runSearch = useCallback(async (term) => {
-    if (!user || !term) {
-      setSearchResults([]);
-      return;
-    }
-    setSearchLoading(true);
-    setError("");
-    try {
-      const searchParams = { page: 1, limit: SEARCH_LIMIT, search: term };
-      if (deviceTypeFilter) searchParams.device_type = deviceTypeFilter;
-      const payload = await getDevicesRef.current(searchParams);
-      const list = normalizeList(payload);
-      registerDevices(list);
-      setSearchResults(list);
-    } catch (err) {
-      setError(err.message || "Search failed");
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  }, [registerDevices, user, deviceTypeFilter]);
-
   useEffect(() => {
     if (!user) {
       setDefaultDevices([]);
@@ -155,10 +348,12 @@ export function SidebarDevicesProvider({ children }) {
       setTotal(0);
       setError("");
       registryRef.current.clear();
-      return;
+      listCacheRef.current.clear();
+      searchCacheRef.current.clear();
+      activeScopeRef.current = null;
+      setActiveScope(null);
     }
-    void loadDefault();
-  }, [user, loadDefault]);
+  }, [user]);
 
   useEffect(() => {
     if (!debouncedSearch) {
@@ -232,12 +427,15 @@ export function SidebarDevicesProvider({ children }) {
 
   const goToPage = useCallback((targetPage) => {
     const p = Math.max(1, Number(targetPage) || 1);
+    if (activeScopeRef.current) {
+      saveSidebarScopeState(activeScopeRef.current, { page: p });
+    }
     void loadDefault(p);
   }, [loadDefault]);
 
   const refresh = useCallback(async () => {
-    await loadDefault(page);
-    if (debouncedSearch) await runSearch(debouncedSearch);
+    await loadDefault(page, { force: true });
+    if (debouncedSearch) await runSearch(debouncedSearch, { force: true });
   }, [loadDefault, runSearch, debouncedSearch, page]);
 
   const online = displayDevices.filter((d) => d.status === "online").length;
@@ -248,7 +446,7 @@ export function SidebarDevicesProvider({ children }) {
     recentDevices,
     defaultDevices,
     searchTerm,
-    setSearchTerm,
+    setSearchTerm: setSearchTermScoped,
     debouncedSearch,
     isSearching: Boolean(debouncedSearch),
     loading: loading || searchLoading,
@@ -267,11 +465,14 @@ export function SidebarDevicesProvider({ children }) {
     ensureDevice,
     deviceTypeFilter,
     setDeviceTypeFilter,
+    activateScope,
+    activeScope,
   }), [
     displayDevices,
     recentDevices,
     defaultDevices,
     searchTerm,
+    setSearchTermScoped,
     debouncedSearch,
     loading,
     searchLoading,
@@ -287,6 +488,9 @@ export function SidebarDevicesProvider({ children }) {
     getDevice,
     ensureDevice,
     deviceTypeFilter,
+    setDeviceTypeFilter,
+    activateScope,
+    activeScope,
   ]);
 
   return (
@@ -296,10 +500,18 @@ export function SidebarDevicesProvider({ children }) {
   );
 }
 
-export function useSidebarDevices() {
+export function useSidebarDevices(scope = null) {
   const ctx = useContext(SidebarDevicesContext);
   if (!ctx) {
     throw new Error("useSidebarDevices must be used inside SidebarDevicesProvider");
   }
+
+  const activateScopeRef = useRef(ctx.activateScope);
+  activateScopeRef.current = ctx.activateScope;
+
+  useEffect(() => {
+    if (scope) activateScopeRef.current(scope);
+  }, [scope]);
+
   return ctx;
 }

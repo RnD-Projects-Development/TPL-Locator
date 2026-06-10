@@ -8,7 +8,10 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { tplGeocode } from "../utils/tplGeocode.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
+import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
 import "./TrajectoryPage.css";
+
+const TRAJECTORY_SCOPE = "trajectory";
 
 function isDuplicate(p1, p2) {
   if (!p1 || !p2) return false;
@@ -87,12 +90,16 @@ const TIME_SHORTCUTS = [
 export default function TrajectoryPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation, getTrajectory } = useCityTag();
-  const { ensureDevice } = useSidebarDevices();
+  const { ensureDevice } = useSidebarDevices(TRAJECTORY_SCOPE);
   const [label, setLabel] = useState("");
   const { zones } = useZoneCache();
   const [showFences, setShowFences] = useState(false);
 
-  const [sn, setSn]                         = useState(searchParams.get("device") || "");
+  const [sn, setSn] = useState(() => {
+    const param = searchParams.get("device");
+    if (param) return param;
+    return loadSidebarScopeState(TRAJECTORY_SCOPE).selectedSn || "";
+  });
   const [sessionTraj, setSessionTraj]       = useState([]);
   const [historicalTraj, setHistoricalTraj] = useState([]);
   const [latest, setLatest]                 = useState(null);
@@ -128,6 +135,10 @@ export default function TrajectoryPage() {
       }
     } catch { /* silent */ }
   }, [sn, getLatestLocation]);
+
+  useEffect(() => {
+    if (sn) saveSidebarScopeState(TRAJECTORY_SCOPE, { selectedSn: sn });
+  }, [sn]);
 
   useEffect(() => {
     const param = searchParams.get("device");
@@ -317,7 +328,7 @@ export default function TrajectoryPage() {
 
       {/* ── Body ─────────────────────────────────── */}
       <div className="tr-body">
-        <DeviceSidebar selectedSn={sn} onSelect={handleSelectDevice} />
+        <DeviceSidebar scope={TRAJECTORY_SCOPE} selectedSn={sn} onSelect={handleSelectDevice} />
 
         <div className="tr-map-area">
           <div className="tr-map-wrap">

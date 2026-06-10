@@ -52,6 +52,7 @@ export default function MultiDeviceSidebar({
   onSelectionChange,
   deviceLocations = {},
   fetchingAll = false,
+  scope = "map",
 }) {
   const {
     displayDevices,
@@ -74,7 +75,7 @@ export default function MultiDeviceSidebar({
     recordRecent,
     deviceTypeFilter,
     setDeviceTypeFilter,
-  } = useSidebarDevices();
+  } = useSidebarDevices(scope);
 
   /* Title is always "Devices"; search/empty hints adapt to the active filter */
   const searchPlaceholder = deviceTypeFilter === "sticker" ? "Search stickers…" : deviceTypeFilter === "locator" ? "Search locators…" : "Search all devices…";

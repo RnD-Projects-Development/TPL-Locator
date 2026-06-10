@@ -7,7 +7,10 @@ import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
+import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
 import "./PlaybackPage.css";
+
+const PLAYBACK_SCOPE = "playback";
 
 
 function isDuplicate(p1, p2) {
@@ -66,12 +69,16 @@ const TIME_SHORTCUTS = [
 export default function PlaybackPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocation, getPlayback } = useCityTag();
-  const { ensureDevice } = useSidebarDevices();
+  const { ensureDevice } = useSidebarDevices(PLAYBACK_SCOPE);
   const [label, setLabel] = useState("");
   const { zones } = useZoneCache();
   const [showFences, setShowFences] = useState(false);
 
-  const [sn, setSn]                         = useState(searchParams.get("device") || "");
+  const [sn, setSn] = useState(() => {
+    const param = searchParams.get("device");
+    if (param) return param;
+    return loadSidebarScopeState(PLAYBACK_SCOPE).selectedSn || "";
+  });
   const [sessionTraj, setSessionTraj]       = useState([]);
   const [historicalTraj, setHistoricalTraj] = useState([]);
   const [latest, setLatest]                 = useState(null);
@@ -117,6 +124,10 @@ export default function PlaybackPage() {
     if (sn && isLiveMode) liveIntervalRef.current = setInterval(() => refreshLive(), 15000);
     return () => clearInterval(liveIntervalRef.current);
   }, [sn, isLiveMode, refreshLive]);
+
+  useEffect(() => {
+    if (sn) saveSidebarScopeState(PLAYBACK_SCOPE, { selectedSn: sn });
+  }, [sn]);
 
   useEffect(() => {
     const param = searchParams.get("device");
@@ -320,7 +331,7 @@ export default function PlaybackPage() {
 
       {/* ── Body ─────────────────────────────────── */}
       <div className="pb-body">
-        <DeviceSidebar selectedSn={sn} onSelect={handleSelectDevice} />
+        <DeviceSidebar scope={PLAYBACK_SCOPE} selectedSn={sn} onSelect={handleSelectDevice} />
 
         <div className="pb-main">
           <div className="pb-map-wrap">

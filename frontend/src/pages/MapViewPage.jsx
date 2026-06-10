@@ -8,20 +8,37 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { deviceColor } from "../utils/zonePolygonManager.js";
+import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
 import "./MapViewPage.css";
+
+const MAP_SCOPE = "map";
+const LOCATIONS_CACHE_MS = 60_000;
 
 export default function MapViewPage() {
   const [searchParams] = useSearchParams();
   const { getLatestLocationsBatch } = useCityTag();
-  const { getDevice, ensureDevice } = useSidebarDevices();
+  const { getDevice, ensureDevice } = useSidebarDevices(MAP_SCOPE);
   const { zones } = useZoneCache();
 
   const [selectedSns, setSelectedSns] = useState(() => {
     const param = searchParams.get("device");
-    return param ? new Set([param]) : new Set();
+    if (param) return new Set([param]);
+    const saved = loadSidebarScopeState(MAP_SCOPE).selectedSns;
+    return saved.length > 0 ? new Set(saved) : new Set();
   });
-  const [deviceLocations, setDeviceLocations] = useState({});
-  const [focusedSn, setFocusedSn]     = useState(() => searchParams.get("device") || null);
+  const [deviceLocations, setDeviceLocations] = useState(() => {
+    const saved = loadSidebarScopeState(MAP_SCOPE);
+    if (saved.locationsFetchedAt && Date.now() - saved.locationsFetchedAt < LOCATIONS_CACHE_MS) {
+      return saved.deviceLocations ?? {};
+    }
+    return {};
+  });
+  const [focusedSn, setFocusedSn] = useState(() => {
+    const param = searchParams.get("device");
+    if (param) return param;
+    const saved = loadSidebarScopeState(MAP_SCOPE);
+    return saved.selectedSns?.[0] || saved.selectedSn || null;
+  });
   const [detectionCounts, setDetectionCounts] = useState({});
   const lastTsRef = useRef({});
   const [loading, setLoading]         = useState(false);
@@ -32,6 +49,21 @@ export default function MapViewPage() {
   const [showFences, setShowFences]   = useState(false);
 
   const intervalRef = useRef(null);
+
+  useEffect(() => {
+    saveSidebarScopeState(MAP_SCOPE, {
+      selectedSns: [...selectedSns],
+      selectedSn: focusedSn || "",
+    });
+  }, [selectedSns, focusedSn]);
+
+  useEffect(() => {
+    if (Object.keys(deviceLocations).length === 0) return;
+    saveSidebarScopeState(MAP_SCOPE, {
+      deviceLocations,
+      locationsFetchedAt: Date.now(),
+    });
+  }, [deviceLocations]);
 
   useEffect(() => {
     const param = searchParams.get("device");
@@ -224,6 +256,7 @@ export default function MapViewPage() {
 
       <div className="mv-body">
         <MultiDeviceSidebar
+          scope={MAP_SCOPE}
           selectedSns={selectedSns}
           onSelectionChange={handleSelectionChange}
           deviceLocations={deviceLocations}
