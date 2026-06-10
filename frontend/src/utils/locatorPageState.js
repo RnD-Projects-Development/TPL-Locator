@@ -26,7 +26,7 @@ function readRawStore() {
 function normalizeScopeEntry(parsed = {}) {
   return {
     searchTerm: typeof parsed.searchTerm === "string" ? parsed.searchTerm : FALLBACK.searchTerm,
-    filterStatus: ["all", "online", "offline"].includes(parsed.filterStatus)
+    filterStatus: ["all", "online", "offline", "assigned", "unassigned"].includes(parsed.filterStatus)
       ? parsed.filterStatus
       : FALLBACK.filterStatus,
     viewMode: parsed.viewMode === "users" ? "users" : "devices",

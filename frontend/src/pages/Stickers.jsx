@@ -54,6 +54,15 @@ const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
 
 const PAGE_SIZE = 20
 
+const DEVICE_FILTER_TABS = ['All', 'Online', 'Offline', 'Assigned', 'Unassigned']
+const FILTER_TO_SERVER = {
+  All: 'all',
+  Online: 'online',
+  Offline: 'offline',
+  Assigned: 'assigned',
+  Unassigned: 'unassigned',
+}
+
 const STATUSES = ['All', 'Active', 'At Risk', 'Missing']
 const CATS     = ['All', 'Pallet', 'Carton', 'Container', 'Asset', 'Other']
 
@@ -145,14 +154,14 @@ export default function Stickers({ embedded = false }) {
     return () => clearTimeout(debounceRef.current)
   }, [rawQuery])
 
-  const serverStatus = statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline'
+  const serverFilter = FILTER_TO_SERVER[statusF] ?? 'all'
 
   const {
     devices: stickers, page, totalPages, total, loading,
     hasNextPage, hasPreviousPage, goToPage, refresh: refreshList,
   } = usePaginatedDevices(20, {
     search: debouncedQuery,
-    status: serverStatus,
+    status: serverFilter,
     device_type: 'sticker',
     search_scope: 'sn_name',
     initialPage: 1,
@@ -435,8 +444,8 @@ export default function Stickers({ embedded = false }) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
-          {['All', 'Active', 'Offline'].map(s => {
+        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap' }}>
+          {DEVICE_FILTER_TABS.map(s => {
             const active = statusF === s
             const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
             const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }

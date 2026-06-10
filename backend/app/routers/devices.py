@@ -254,6 +254,10 @@ async def _build_admin_device_query(
 
 
 async def _apply_status_filter_to_query(mongo: MongoService, query: dict, status_filter: str) -> dict:
+    if status_filter == "assigned":
+        return {"$and": [query, {"user_id": {"$ne": None}}]}
+    if status_filter == "unassigned":
+        return {"$and": [query, {"user_id": None}]}
     if status_filter not in ("online", "offline"):
         return query
 
@@ -341,7 +345,9 @@ async def _list_devices_page(
                 if _sn_matches_type(str(doc.get("sn") or ""), device_type)
             ]
 
-        if status_filter in ("online", "offline"):
+        if status_filter == "unassigned":
+            ordered_docs = []
+        elif status_filter in ("online", "offline"):
             sns = [str(doc.get("sn")) for doc in ordered_docs if doc.get("sn")]
             latest_by_sn = await _load_latest_location_map(mongo, sns)
             if status_filter == "online":
@@ -541,7 +547,7 @@ async def list_user_devices(
     page: Optional[int] = Query(default=None, ge=1),
     limit: Optional[int] = Query(default=None, ge=1, le=500),
     search: Optional[str] = Query(default=None, max_length=200),
-    status: Optional[str] = Query(default="all", pattern="^(all|online|offline)$"),
+    status: Optional[str] = Query(default="all", pattern="^(all|online|offline|assigned|unassigned)$"),
     device_type: Optional[str] = Query(default=None, pattern="^(locator|sticker)$"),
     search_scope: Optional[str] = Query(default=None, pattern="^(sn_name)$"),
 ) -> List[dict] | dict:
