@@ -589,7 +589,7 @@ async def list_user_devices(
 
 class BindDeviceRequest(BaseModel):
     sn: str
-    email: Optional[str] = None      # optional, admin can set user by email
+    identifier: Optional[str] = None  # optional, admin can set user by email or phone
     name: Optional[str] = None       # label shown in table; stamped on device doc at bind time
     client: Optional[str] = None     # optional client/company name
     user_id: Optional[str] = None    # admin-only: assign to a specific user
@@ -630,16 +630,16 @@ async def bind_device(
     """
     try:
         logger.info(
-            "bind_device route started actor=%s sn=%s target_email=%s target_user_id=%s",
+            "bind_device route started actor=%s sn=%s target_identifier=%s target_user_id=%s",
             current_account.email,
             payload.sn,
-            payload.email,
+            payload.identifier,
             payload.user_id,
         )
         response = await bind_device_service(
             current_account=current_account,
             sn=payload.sn,
-            email=payload.email,
+            identifier=payload.identifier,
             user_id=payload.user_id,
             name=payload.name,
             client=payload.client,

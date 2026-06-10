@@ -127,11 +127,11 @@ export function useCityTag() {
     [accessToken, logout]
   );
 
-  const bindDeviceByEmail = useCallback(
-    async ({ sn, email, name = "", client = "", category }) =>
+  const bindDeviceByIdentifier = useCallback(
+    async ({ sn, identifier, name = "", client = "", category }) =>
       apiFetch(
         "/api/devices",
-        { method: "POST", body: { sn, email: email || undefined, user_id: undefined, name, client, category: category || undefined } },
+        { method: "POST", body: { sn, identifier: identifier || undefined, user_id: undefined, name, client, category: category || undefined } },
         accessToken, logout
       ),
     [accessToken, logout]
@@ -305,7 +305,7 @@ export function useCityTag() {
     getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,
-    bindDevice, bindDeviceByEmail, unbindDevice, adminUnbindDevice,
+    bindDevice, bindDeviceByIdentifier, unbindDevice, adminUnbindDevice,
     searchDevice, getLatestLocation, getTrajectory, getPlayback,
     getLatestLocationsBatch, getPlaybackBatch,
     getFieldStaffLiveDevices,
