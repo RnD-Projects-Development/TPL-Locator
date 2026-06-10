@@ -3,9 +3,9 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useApp } from '../../App.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
-  LayoutDashboard, Radio, Tag, Map, AlertOctagon,
+  LayoutDashboard, Map,
   FileText, Layers,
-  LogOut, Search, Navigation, PlayCircle, Shield, UserCog
+  LogOut, Navigation, PlayCircle, Shield, UserCog
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
@@ -13,13 +13,9 @@ import ModalPortal from '../common/ModalPortal.jsx'
 const nav = [
   { section: 'OVERVIEW', links: [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/search',    icon: Search,          label: 'Search' },
   ]},
-    { section: 'DEVICES', links: [
-    { to: '/devices',  icon: Layers,       label: 'Devices' },
-    { to: '/locators', icon: Radio,        label: 'Locators' },
-    { to: '/stickers', icon: Tag,          label: 'Smart Stickers' },
-    { to: '/missing',  icon: AlertOctagon, label: 'Offline Devices' },
+  { section: 'DEVICES', links: [
+    { to: '/devices', icon: Layers, label: 'Devices' },
   ]},
   { section: 'INTELLIGENCE', links: [
     { to: '/map',        icon: Map,        label: 'Map View' },

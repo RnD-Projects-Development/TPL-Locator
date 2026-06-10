@@ -15,6 +15,7 @@ export default function Layout({ children }) {
   const { pathname } = useLocation()
   const isMapPage      = MAP_ROUTES.some(r => pathname.startsWith(r))
   const isDarkOnlyPage = DARK_ONLY_ROUTES.some(r => pathname.startsWith(r))
+  const isDevicesPage  = pathname.startsWith('/devices')
 
   // global theme state (persists across all pages)
   const [pageTheme, setPageTheme] = React.useState(() => {
@@ -44,7 +45,7 @@ export default function Layout({ children }) {
             <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
             <main
               key={pathname}
-              className={`page-anim flex-1 ${isMapPage ? 'overflow-hidden p-0' : 'overflow-y-auto p-5'} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
+              className={`page-anim flex-1 ${isMapPage ? 'overflow-hidden p-0' : isDevicesPage ? 'overflow-hidden p-5' : 'overflow-y-auto p-5'} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
             >
               <ThemeContext.Provider value={pageTheme}>
                 {children}

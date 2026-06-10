@@ -163,6 +163,10 @@ input[type="time"] {
 ::-webkit-scrollbar-thumb { background: #BBBBBB; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #888888; }
 
+/* ── Hide scrollbar (keep scroll behaviour) ─────── */
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+
 /* ── Recharts tooltip global override ─────────── */
 .recharts-tooltip-wrapper .recharts-default-tooltip {
   background: var(--surface-2) !important;

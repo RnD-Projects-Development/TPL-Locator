@@ -12,13 +12,9 @@ import Layout from './components/layout/Layout.jsx'
 import { detectionEvents } from './data/mockData.js'
 
 import Dashboard        from './pages/Dashboard.jsx'
-import Search           from './pages/Search.jsx'
-import Locators         from './pages/Locators.jsx'
-import Stickers         from './pages/Stickers.jsx'
 import Devices          from './pages/Devices.jsx'
 import LocatorDetail    from './pages/LocatorDetail.jsx'
 import StickerDetail    from './pages/StickerDetail.jsx'
-import MissingDevices   from './pages/MissingDevices.jsx'
 import MapViewPage      from './pages/MapViewPage.jsx'
 import Alerts           from './pages/Alerts.jsx'
 import Reports          from './pages/Reports.jsx'
@@ -69,12 +65,12 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
       <Layout>
         <Routes>
           <Route path="/dashboard"    element={<Dashboard />} />
-          <Route path="/search"       element={<Search />} />
-          <Route path="/locators"     element={<Locators />} />
+          <Route path="/search"       element={<Navigate to="/dashboard" replace />} />
+          <Route path="/locators"     element={<Navigate to="/devices?tab=locator" replace />} />
           <Route path="/locators/:id" element={<LocatorDetail />} />
-          <Route path="/stickers"     element={<Stickers />} />
+          <Route path="/stickers"     element={<Navigate to="/devices?tab=sticker" replace />} />
           <Route path="/stickers/:id" element={<StickerDetail />} />
-          <Route path="/missing"      element={<MissingDevices />} />
+          <Route path="/missing"      element={<Navigate to="/devices" replace />} />
           <Route path="/map"          element={<MapViewPage />} />
           <Route path="/trajectory"   element={<TrajectoryPage />} />
           <Route path="/playback"     element={<PlaybackPage />} />

@@ -98,7 +98,7 @@ function StatusBadge({ status, isLight }) {
   )
 }
 
-export default function Locators({ embedded = false }) {
+export default function Locators({ embedded = false, externalStatus = undefined }) {
   const { isAdmin } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -153,7 +153,9 @@ export default function Locators({ embedded = false }) {
     return () => clearTimeout(debounceRef.current)
   }, [rawQuery])
 
-  const serverStatus = statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline'
+  const serverStatus = externalStatus !== undefined
+    ? externalStatus
+    : (statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline')
 
   // Always start from page 1 on mount/refresh; search changes also reset to page 1
   useEffect(() => {
@@ -389,8 +391,7 @@ export default function Locators({ embedded = false }) {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       {/* When embedded, the row is lifted to the top-right so the action buttons
           sit alongside the parent Devices page heading instead of in a row of their own. */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: embedded ? 'flex-end' : 'space-between', flexWrap: 'wrap', gap: 12,
-        ...(embedded ? { position: 'absolute', top: 0, right: 0, zIndex: 5, margin: 0 } : {}) }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: embedded ? 'flex-end' : 'space-between', flexWrap: 'wrap', gap: 12 }}>
         {/* Title hidden when embedded in the unified Devices page (avoids a duplicate heading) */}
         {embedded ? null : (
         <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
@@ -409,6 +410,7 @@ export default function Locators({ embedded = false }) {
         </div>
         )}
 
+        {!embedded && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {isLight ? (
             <button
@@ -467,6 +469,7 @@ export default function Locators({ embedded = false }) {
             {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
+        )}
       </div>
 
       {/* ── Filters ────────────────────────────────────────────────────────── */}
@@ -488,20 +491,22 @@ export default function Locators({ embedded = false }) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
-          {['All', 'Active', 'Offline'].map(s => {
-            const active = statusF === s
-            const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
-            const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }
-            return (
-              <button key={s} onClick={() => setStatusF(s)}
-                style={{ padding: isLight ? '5px 12px' : '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
-                  ...(active ? activeStyle : defaultStyle) }}>
-                {s}
-              </button>
-            )
-          })}
-        </div>
+        {externalStatus === undefined && (
+          <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
+            {['All', 'Active', 'Offline'].map(s => {
+              const active = statusF === s
+              const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
+              const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }
+              return (
+                <button key={s} onClick={() => setStatusF(s)}
+                  style={{ padding: isLight ? '5px 12px' : '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                    ...(active ? activeStyle : defaultStyle) }}>
+                  {s}
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <span style={{ marginLeft: 'auto', fontSize: 11, color: isLight ? '#333333' : T.txt3, fontWeight: isLight ? 500 : 400 }}>
           {loading ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}
