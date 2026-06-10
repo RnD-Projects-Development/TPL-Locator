@@ -589,7 +589,7 @@ async def list_user_devices(
 
 class BindDeviceRequest(BaseModel):
     sn: str
-    identifier: Optional[str] = None  # optional, admin can set user by email\phone
+    identifier: Optional[str] = None  # optional; JWT current_account can be used when not targeting another user
     name: Optional[str] = None       # label shown in table; stamped on device doc at bind time
     client: Optional[str] = None     # optional client/company name
     user_id: Optional[str] = None    # admin-only: assign to a specific user
