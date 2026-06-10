@@ -254,6 +254,10 @@ async def _build_admin_device_query(
 
 
 async def _apply_status_filter_to_query(mongo: MongoService, query: dict, status_filter: str) -> dict:
+    if status_filter == "assigned":
+        return {"$and": [query, {"user_id": {"$ne": None}}]}
+    if status_filter == "unassigned":
+        return {"$and": [query, {"user_id": None}]}
     if status_filter not in ("online", "offline"):
         return query
 
@@ -341,7 +345,9 @@ async def _list_devices_page(
                 if _sn_matches_type(str(doc.get("sn") or ""), device_type)
             ]
 
-        if status_filter in ("online", "offline"):
+        if status_filter == "unassigned":
+            ordered_docs = []
+        elif status_filter in ("online", "offline"):
             sns = [str(doc.get("sn")) for doc in ordered_docs if doc.get("sn")]
             latest_by_sn = await _load_latest_location_map(mongo, sns)
             if status_filter == "online":
@@ -541,7 +547,7 @@ async def list_user_devices(
     page: Optional[int] = Query(default=None, ge=1),
     limit: Optional[int] = Query(default=None, ge=1, le=500),
     search: Optional[str] = Query(default=None, max_length=200),
-    status: Optional[str] = Query(default="all", pattern="^(all|online|offline)$"),
+    status: Optional[str] = Query(default="all", pattern="^(all|online|offline|assigned|unassigned)$"),
     device_type: Optional[str] = Query(default=None, pattern="^(locator|sticker)$"),
     search_scope: Optional[str] = Query(default=None, pattern="^(sn_name)$"),
 ) -> List[dict] | dict:
@@ -589,7 +595,7 @@ async def list_user_devices(
 
 class BindDeviceRequest(BaseModel):
     sn: str
-    email: Optional[str] = None      # optional, admin can set user by email
+    identifier: Optional[str] = None  # optional; JWT current_account can be used when not targeting another user
     name: Optional[str] = None       # label shown in table; stamped on device doc at bind time
     client: Optional[str] = None     # optional client/company name
     user_id: Optional[str] = None    # admin-only: assign to a specific user
@@ -630,16 +636,16 @@ async def bind_device(
     """
     try:
         logger.info(
-            "bind_device route started actor=%s sn=%s target_email=%s target_user_id=%s",
+            "bind_device route started actor=%s sn=%s target_identifier=%s target_user_id=%s",
             current_account.email,
             payload.sn,
-            payload.email,
+            payload.identifier,
             payload.user_id,
         )
         response = await bind_device_service(
             current_account=current_account,
             sn=payload.sn,
-            email=payload.email,
+            identifier=payload.identifier,
             user_id=payload.user_id,
             name=payload.name,
             client=payload.client,
@@ -708,12 +714,18 @@ async def get_devices_summary(
     if isinstance(account, UserInDB):
         ids = list(account.devices or [])
         if not ids:
-            return {"total": 0, "locators": 0, "stickers": 0, "online": 0, "offline": 0,
-                    "weekly_new_locators": 0, "weekly_new_stickers": 0}
-        docs = await mongo.devices.find({"_id": {"$in": ids}}, {"sn": 1, "bound_at": 1}).to_list(len(ids))
+            return {
+                "total": 0, "assigned": 0, "locators": 0, "stickers": 0,
+                "online": 0, "offline": 0, "weekly_new_locators": 0, "weekly_new_stickers": 0,
+            }
+        docs = await mongo.devices.find(
+            {"_id": {"$in": ids}}, {"sn": 1, "bound_at": 1, "user_id": 1},
+        ).to_list(len(ids))
     else:
         admin_oid = _to_oid(account.id)
-        docs = await mongo.devices.find({"admin_id": admin_oid}, {"sn": 1, "bound_at": 1}).to_list(None)
+        docs = await mongo.devices.find(
+            {"admin_id": admin_oid}, {"sn": 1, "bound_at": 1, "user_id": 1},
+        ).to_list(None)
 
     sns = [str(d.get("sn")) for d in docs if d.get("sn")]
     sticker_re = re.compile(r"^\d+$")
@@ -753,8 +765,14 @@ async def get_devices_summary(
     )
 
     total = len(sns)
+    if isinstance(account, UserInDB):
+        assigned = total
+    else:
+        assigned = sum(1 for d in docs if d.get("user_id") is not None)
+
     return {
         "total": total,
+        "assigned": assigned,
         "locators": len(locator_sns),
         "stickers": len(sticker_sns),
         "online": online,

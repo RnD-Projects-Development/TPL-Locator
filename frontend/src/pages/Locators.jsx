@@ -56,6 +56,15 @@ const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
 const CATS = ['All', 'Human', 'Wallet', 'Key', 'Pet', 'Bag']
 const catIcon = c => ({ Human: User, Wallet, Key, Pet: PawPrint, Bag: Wallet }[c] || Radio)
 
+const DEVICE_FILTER_TABS = ['All', 'Online', 'Offline', 'Assigned', 'Unassigned']
+const FILTER_TO_SERVER = {
+  All: 'all',
+  Online: 'online',
+  Offline: 'offline',
+  Assigned: 'assigned',
+  Unassigned: 'unassigned',
+}
+
 const BIND_CATS = [
   'wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus',
   'laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other',
@@ -141,8 +150,10 @@ export default function Locators({ embedded = false, externalStatus = undefined 
     // Only a `?status=` URL param (set by the dashboard cards) applies a filter.
     // Plain navigation (sidebar / direct / back) always resets to "All".
     const urlStatus = searchParams.get('status')
-    if (urlStatus === 'active')  return 'Active'
+    if (urlStatus === 'active' || urlStatus === 'online') return 'Online'
     if (urlStatus === 'offline') return 'Offline'
+    if (urlStatus === 'assigned') return 'Assigned'
+    if (urlStatus === 'unassigned') return 'Unassigned'
     return 'All'
   })
   const debounceRef = useRef(null)
@@ -153,9 +164,7 @@ export default function Locators({ embedded = false, externalStatus = undefined 
     return () => clearTimeout(debounceRef.current)
   }, [rawQuery])
 
-  const serverStatus = externalStatus !== undefined
-    ? externalStatus
-    : (statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline')
+  const serverStatus = statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline'
 
   // Always start from page 1 on mount/refresh; search changes also reset to page 1
   useEffect(() => {
@@ -165,14 +174,14 @@ export default function Locators({ embedded = false, externalStatus = undefined 
       return next
     }, { replace: true })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, serverStatus])
+  }, [debouncedQuery, serverFilter])
 
   const {
     devices: locators, page, totalPages, total, loading,
     hasNextPage, hasPreviousPage, goToPage, refresh: refreshList,
   } = usePaginatedDevices(20, {
     search: debouncedQuery,
-    status: serverStatus,
+    status: serverFilter,
     device_type: 'locator',
     search_scope: 'sn_name',
     initialPage: 1,
@@ -220,10 +229,10 @@ export default function Locators({ embedded = false, externalStatus = undefined 
     // rather than whatever page was active before the user started typing.
     pendingPageRef.current = null
     saveLocatorPageState(
-      { searchTerm: rawQuery, filterStatus: serverStatus, viewMode: 'devices', page: 1 },
+      { searchTerm: rawQuery, filterStatus: serverFilter, viewMode: 'devices', page: 1 },
       { merge: true, deviceType: 'locator' },
     )
-  }, [rawQuery, serverStatus])
+  }, [rawQuery, serverFilter])
 
   useEffect(() => {
     setSearchParams((prev) => {
@@ -491,22 +500,20 @@ export default function Locators({ embedded = false, externalStatus = undefined 
           />
         </div>
 
-        {externalStatus === undefined && (
-          <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
-            {['All', 'Active', 'Offline'].map(s => {
-              const active = statusF === s
-              const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
-              const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }
-              return (
-                <button key={s} onClick={() => setStatusF(s)}
-                  style={{ padding: isLight ? '5px 12px' : '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
-                    ...(active ? activeStyle : defaultStyle) }}>
-                  {s}
-                </button>
-              )
-            })}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
+          {['All', 'Active', 'Offline'].map(s => {
+            const active = statusF === s
+            const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
+            const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }
+            return (
+              <button key={s} onClick={() => setStatusF(s)}
+                style={{ padding: isLight ? '5px 12px' : '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                  ...(active ? activeStyle : defaultStyle) }}>
+                {s}
+              </button>
+            )
+          })}
+        </div>
 
         <span style={{ marginLeft: 'auto', fontSize: 11, color: isLight ? '#333333' : T.txt3, fontWeight: isLight ? 500 : 400 }}>
           {loading ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}

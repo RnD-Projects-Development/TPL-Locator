@@ -19,7 +19,7 @@ async def _resolve_target_user(
     current_account: Union[AdminInDB, UserInDB],
     mongo: MongoService,
     *,
-    email: Optional[str] = None,
+    identifier: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> UserInDB:
     if user_id:
@@ -32,8 +32,8 @@ async def _resolve_target_user(
             )
         return target_user
 
-    if email:
-        identifier = (email or "").strip()
+    if identifier:
+        identifier = (identifier or "").strip()
         if "@" in identifier:
             target_user = await mongo.get_user_by_email(identifier.lower())
             if not target_user:
@@ -67,24 +67,24 @@ async def bind_device_service(
     *,
     sn: str,
     mongo: MongoService,
-    email: Optional[str] = None,
+    identifier: Optional[str] = None,
     user_id: Optional[str] = None,
     name: Optional[str] = None,
     client: Optional[str] = None,
     category: Optional[str] = None,
 ) -> dict:
     logger.info(
-        "bind_device_service started account_email=%s sn=%s target_email=%s target_user_id=%s",
+        "bind_device_service started account_email=%s sn=%s target_identifier=%s target_user_id=%s",
         current_account.email,
         sn,
-        email,
+        identifier,
         user_id,
     )
     sn = (sn or "").strip()
     if not sn:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device SN is required")
 
-    target_user = await _resolve_target_user(current_account, mongo, email=email, user_id=user_id)
+    target_user = await _resolve_target_user(current_account, mongo, identifier=identifier, user_id=user_id)
 
     # Non-admin cannot bind on behalf of others
     if not _is_admin(current_account) and str(target_user.id) != str(current_account.id):
@@ -147,14 +147,14 @@ async def unbind_device_service(
     *,
     sn: str,
     mongo: MongoService,
-    email: Optional[str] = None,
+    identifier: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> dict:
     logger.info(
-        "unbind_device_service started account_email=%s sn=%s target_email=%s target_user_id=%s",
+        "unbind_device_service started account_email=%s sn=%s target_identifier=%s target_user_id=%s",
         current_account.email,
         sn,
-        email,
+        identifier,
         user_id,
     )
     sn = (sn or "").strip()
@@ -162,8 +162,8 @@ async def unbind_device_service(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device SN is required")
 
     target_user = None
-    if user_id or email:
-        target_user = await _resolve_target_user(current_account, mongo, email=email, user_id=user_id)
+    if user_id or identifier:
+        target_user = await _resolve_target_user(current_account, mongo, identifier=identifier, user_id=user_id)
 
     device = await mongo.get_device_by_sn(sn)
     if not device:

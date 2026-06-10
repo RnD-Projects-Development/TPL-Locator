@@ -54,6 +54,15 @@ const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
 
 const PAGE_SIZE = 20
 
+const DEVICE_FILTER_TABS = ['All', 'Online', 'Offline', 'Assigned', 'Unassigned']
+const FILTER_TO_SERVER = {
+  All: 'all',
+  Online: 'online',
+  Offline: 'offline',
+  Assigned: 'assigned',
+  Unassigned: 'unassigned',
+}
+
 const STATUSES = ['All', 'Active', 'At Risk', 'Missing']
 const CATS     = ['All', 'Pallet', 'Carton', 'Container', 'Asset', 'Other']
 
@@ -145,16 +154,14 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
     return () => clearTimeout(debounceRef.current)
   }, [rawQuery])
 
-  const serverStatus = externalStatus !== undefined
-    ? externalStatus
-    : (statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline')
+  const serverStatus = statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline'
 
   const {
     devices: stickers, page, totalPages, total, loading,
     hasNextPage, hasPreviousPage, goToPage, refresh: refreshList,
   } = usePaginatedDevices(20, {
     search: debouncedQuery,
-    status: serverStatus,
+    status: serverFilter,
     device_type: 'sticker',
     search_scope: 'sn_name',
     initialPage: 1,
@@ -438,22 +445,20 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
           />
         </div>
 
-        {externalStatus === undefined && (
-          <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
-            {['All', 'Active', 'Offline'].map(s => {
-              const active = statusF === s
-              const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
-              const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }
-              return (
-                <button key={s} onClick={() => setStatusF(s)}
-                  style={{ padding: isLight ? '5px 12px' : '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
-                    ...(active ? activeStyle : defaultStyle) }}>
-                  {s}
-                </button>
-              )
-            })}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
+          {['All', 'Active', 'Offline'].map(s => {
+            const active = statusF === s
+            const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
+            const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }
+            return (
+              <button key={s} onClick={() => setStatusF(s)}
+                style={{ padding: isLight ? '5px 12px' : '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                  ...(active ? activeStyle : defaultStyle) }}>
+                {s}
+              </button>
+            )
+          })}
+        </div>
 
         <span style={{ marginLeft: 'auto', fontSize: 11, color: isLight ? '#333333' : T.txt3, fontWeight: isLight ? 500 : 400 }}>
           {loading ? 'Loading…' : `${total} sticker${total !== 1 ? 's' : ''}`}

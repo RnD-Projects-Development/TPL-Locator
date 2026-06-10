@@ -1,6 +1,7 @@
 import { resetMapCache } from '../components/MapView.jsx';
 import { invalidatePaginatedCache } from '../hooks/usePaginatedDevices.js';
 import { clearLocatorPageState } from './locatorPageState.js';
+import { clearSidebarPageState } from './sidebarPageState.js';
 import { resetTplGeocodeCache } from './tplGeocode.js';
 
 export const APP_CACHE_STORAGE_KEYS = {
@@ -21,6 +22,7 @@ export function registerCacheResetListener(fn) {
 export function clearAppCaches() {
   invalidatePaginatedCache();
   clearLocatorPageState();
+  clearSidebarPageState();
   resetTplGeocodeCache();
   resetMapCache();
 

@@ -95,7 +95,7 @@ const TYPE_TABS = [
   { key: "sticker",  label: "Stickers" },
 ];
 
-export default function DeviceSidebar({ selectedSn, onSelect }) {
+export default function DeviceSidebar({ selectedSn, onSelect, scope = "trajectory" }) {
   const {
     displayDevices,
     recentDevices,
@@ -112,7 +112,7 @@ export default function DeviceSidebar({ selectedSn, onSelect }) {
     recordRecent,
     deviceTypeFilter,
     setDeviceTypeFilter,
-  } = useSidebarDevices();
+  } = useSidebarDevices(scope);
 
   const handleSelect = (device) => {
     recordRecent(device);
