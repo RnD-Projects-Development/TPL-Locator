@@ -19,6 +19,15 @@ const TYPE_TABS = [
   { key: 'sticker', label: 'Smart Stickers', icon: Tag    },
 ]
 
+const STATUS_FILTER_TABS = ['All', 'Online', 'Offline', 'Assigned', 'Unassigned']
+const STATUS_TO_FILTER = {
+  All: 'all',
+  Online: 'online',
+  Offline: 'offline',
+  Assigned: 'assigned',
+  Unassigned: 'unassigned',
+}
+
 const modalPanel = {
   background: '#000000',
   border: '1px solid rgba(255,255,255,0.12)',
@@ -161,7 +170,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if      (deviceType === 'locator') list = list.filter(d => !isStickerSN(d.sn))
     else if (deviceType === 'sticker') list = list.filter(d =>  isStickerSN(d.sn))
 
-    if (externalStatus === 'online') list = list.filter(d => d.status === 'Active')
+    if (externalStatus === 'online') list = list.filter(d => d.status === 'online')
+    else if (externalStatus === 'offline') list = list.filter(d => d.status === 'offline')
+    else if (externalStatus === 'assigned') list = list.filter(d => isBound(d))
+    else if (externalStatus === 'unassigned') list = list.filter(d => !isBound(d))
 
     if (debQ) {
       const q = debQ.toLowerCase()
@@ -252,7 +264,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               if (!d) return <div key={`_ph_${idx}`} aria-hidden="true" />
               const isSticker  = isStickerSN(d.sn)
               const DeviceIcon = isSticker ? Tag : Radio
-              const isActive   = d.status === 'Active'
+              const isActive   = d.status === 'online'
               const dotColor   = isActive ? '#059669' : '#DC2626'
               const dotGlow    = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
               const name       = deviceDisplayName(d)
@@ -396,7 +408,14 @@ export default function Devices() {
   const rawTab    = searchParams.get('tab')
   const activeTab = (['all', 'locator', 'sticker'].includes(rawTab)) ? rawTab : 'all'
 
-  const [statusTab,     setStatusTab]     = useState('All')
+  const [statusTab, setStatusTab] = useState(() => {
+    const s = searchParams.get('status')
+    if (s === 'active' || s === 'online') return 'Online'
+    if (s === 'offline') return 'Offline'
+    if (s === 'assigned') return 'Assigned'
+    if (s === 'unassigned') return 'Unassigned'
+    return 'All'
+  })
   const [refreshKey,    setRefreshKey]    = useState(0)
   const [offlineRaw,    setOfflineRaw]    = useState('')
   const [offlineSearch, setOfflineSearch] = useState('')
@@ -511,7 +530,7 @@ export default function Devices() {
     inputBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.10)',
   }
 
-  const externalStatus    = statusTab === 'Active' ? 'online' : 'all'
+  const externalStatus = STATUS_TO_FILTER[statusTab] ?? 'all'
   const offlineDeviceType = activeTab !== 'all' ? activeTab : undefined
   const showActionButtons = activeTab === 'all' && statusTab !== 'Offline'
 
@@ -559,8 +578,8 @@ export default function Devices() {
         )}
       </div>
 
-      {/* ── Type + Status toggles ─────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+      {/* ── Type tabs (row 1) + status filters (row 2) ───────────────────── */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, flexShrink: 0 }}>
         <div style={{ display: 'flex', gap: 4, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 12, width: 'fit-content' }}>
           {TYPE_TABS.map(({ key, label, icon: Icon }) => {
             const active = activeTab === key
@@ -577,8 +596,8 @@ export default function Devices() {
           })}
         </div>
 
-        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
-          {['All', 'Active', 'Offline'].map(s => {
+        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap', width: 'fit-content' }}>
+          {STATUS_FILTER_TABS.map(s => {
             const active = statusTab === s
             return (
               <button key={s} onClick={() => setStatusTab(s)}
