@@ -17,7 +17,7 @@ from bson import ObjectId
 router = APIRouter(prefix="/api", tags=["devices"])
 logger = logging.getLogger(__name__)
 
-# Device is considered online if it has a location update within this many minutes
+# Device is considered online if it has a location update within this many minutes .... 
 ONLINE_THRESHOLD_MINUTES = 30
 
 
