@@ -246,7 +246,7 @@ function DeviceCard({ device, navigate, isLight, T }) {
 /* ════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
-export default function MissingDevices() {
+export default function MissingDevices({ embedded = false, deviceType = undefined, externalSearch = '' }) {
   const navigate      = useNavigate()
   const { locations } = useHomePageCache()
 
@@ -297,9 +297,10 @@ export default function MissingDevices() {
     hasNextPage, hasPreviousPage, goToPage,
   } = usePaginatedDevices(20, {
     status: 'offline',
-    search: debouncedQ,
+    search: embedded ? externalSearch : debouncedQ,
     search_scope: 'sn_name',
     initialPage: 1,
+    ...(deviceType ? { device_type: deviceType } : {}),
   })
 
   // ── Smooth pagination queue ───────────────────────────────────────────────
@@ -309,28 +310,31 @@ export default function MissingDevices() {
 
   // Clear URL page param whenever search term or filter changes → always lands on page 1
   useEffect(() => {
+    if (embedded) return
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       next.delete('page')
       return next
     }, { replace: true })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, filter, sortBy])
+  }, [debouncedQ, filter, sortBy, embedded])
 
   useEffect(() => {
     if (!loading && pendingPageRef.current !== null) {
       const p = pendingPageRef.current
       pendingPageRef.current = null
       const safePage = Math.max(1, p)
-      setSearchParams(prev => {
-        const next = new URLSearchParams(prev)
-        if (safePage <= 1) next.delete('page')
-        else next.set('page', String(safePage))
-        return next
-      }, { replace: true })
+      if (!embedded) {
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev)
+          if (safePage <= 1) next.delete('page')
+          else next.set('page', String(safePage))
+          return next
+        }, { replace: true })
+      }
       goToPage(safePage)
     }
-  }, [loading, goToPage, setSearchParams])
+  }, [loading, goToPage, setSearchParams, embedded])
 
   // Wrap goToPage to also sync ?page= in the URL (same pattern as Locators)
   const goToPagePersisted = useCallback((nextPage) => {
@@ -339,17 +343,20 @@ export default function MissingDevices() {
       pendingPageRef.current = safePage
       return
     }
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev)
-      if (safePage <= 1) next.delete('page')
-      else next.set('page', String(safePage))
-      return next
-    }, { replace: true })
+    if (!embedded) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev)
+        if (safePage <= 1) next.delete('page')
+        else next.set('page', String(safePage))
+        return next
+      }, { replace: true })
+    }
     return goToPage(safePage)
-  }, [goToPage, setSearchParams])
+  }, [embedded, goToPage, setSearchParams])
 
   // Keep URL in sync when the hook changes page internally
   useEffect(() => {
+    if (embedded) return
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
       if (page <= 1) {
@@ -361,7 +368,7 @@ export default function MissingDevices() {
       next.set('page', String(page))
       return next
     }, { replace: true })
-  }, [page, setSearchParams])
+  }, [embedded, page, setSearchParams])
 
   /* Enrich offline devices */
   const allDevices = useMemo(() => {
@@ -402,8 +409,9 @@ export default function MissingDevices() {
 
   const filtered = useMemo(() => {
     let list = filter === 'Missing' ? missing : filter === 'At Risk' ? atRisk : allDevices
-    if (debouncedQ) {
-      const q = debouncedQ.toLowerCase()
+    const activeQ = embedded ? externalSearch : debouncedQ
+    if (activeQ) {
+      const q = activeQ.toLowerCase()
       list = list.filter(d =>
         d.id.toLowerCase().includes(q) ||
         d.displayName.toLowerCase().includes(q) ||
@@ -416,91 +424,97 @@ export default function MissingDevices() {
       if (sortBy === 'battery')  return a.battery  - b.battery
       return 0
     })
-  }, [allDevices, missing, atRisk, filter, debouncedQ, sortBy])
+  }, [allDevices, missing, atRisk, filter, debouncedQ, externalSearch, embedded, sortBy])
 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <style>{`@keyframes mdPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: isLight ? 26 : 22, fontWeight: 800, color: T.txt1, letterSpacing: isLight ? '-0.02em' : '-0.03em', margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 12,
-              background: isLight ? '#A72C32' : 'rgba(167,44,50,0.14)',
-              border: `1px solid ${isLight ? '#8B2328' : 'rgba(167,44,50,0.24)'}`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <AlertOctagon style={{ width: 20, height: 20, color: isLight ? '#FFFFFF' : '#C86068' }} />
-            </div>
-            Offline Device Intelligence
-          </h1>
-          <p style={{ fontSize: 15, color: T.txt2, marginTop: 8, marginBottom: 0, paddingLeft: 52 }}>
-            Devices offline 12–24h are <span style={{ color: isLight ? '#D97706' : '#fbbf24', fontWeight: 600 }}>At Risk</span> · offline 24h+ are <span style={{ color: isLight ? '#DC2626' : '#fca5a5', fontWeight: 600 }}>Missing</span>
-          </p>
-        </div>
-        {missing.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10,
-            background: '#DC2626', border: '1px solid #B91C1C' }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FFFFFF', animation: 'mdPulse 2s ease-in-out infinite' }} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#FFFFFF' }}>
-              {missing.length} device{missing.length !== 1 ? 's' : ''} missing
-            </span>
+      {/* ── Header — hidden when embedded ──────────────────────────────────── */}
+      {!embedded && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h1 style={{ fontSize: isLight ? 26 : 22, fontWeight: 800, color: T.txt1, letterSpacing: isLight ? '-0.02em' : '-0.03em', margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: isLight ? '#A72C32' : 'rgba(167,44,50,0.14)',
+                border: `1px solid ${isLight ? '#8B2328' : 'rgba(167,44,50,0.24)'}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <AlertOctagon style={{ width: 20, height: 20, color: isLight ? '#FFFFFF' : '#C86068' }} />
+              </div>
+              Offline Device Intelligence
+            </h1>
+            <p style={{ fontSize: 15, color: T.txt2, marginTop: 8, marginBottom: 0, paddingLeft: 52 }}>
+              Devices offline 12–24h are <span style={{ color: isLight ? '#D97706' : '#fbbf24', fontWeight: 600 }}>At Risk</span> · offline 24h+ are <span style={{ color: isLight ? '#DC2626' : '#fca5a5', fontWeight: 600 }}>Missing</span>
+            </p>
           </div>
-        )}
-      </div>
+          {missing.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10,
+              background: '#DC2626', border: '1px solid #B91C1C' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FFFFFF', animation: 'mdPulse 2s ease-in-out infinite' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#FFFFFF' }}>
+                {missing.length} device{missing.length !== 1 ? 's' : ''} missing
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Controls ────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
 
-        {/* Search input */}
-        <div style={{ position: 'relative', flex: '0 0 220px' }}>
-          <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
-          <input
-            value={query}
-            onChange={e => handleSearch(e.target.value)}
-            placeholder="Search devices…"
-            style={{
-              width: '100%', boxSizing: 'border-box',
-              paddingLeft: 32, paddingRight: query ? 30 : 12, paddingTop: 8, paddingBottom: 8,
-              background: T.inputBg, border: `1px solid ${T.inputBorder}`,
-              borderRadius: 10, color: T.txt1, fontSize: 12, outline: 'none',
-              fontFamily: 'var(--font-sans)', boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
-            }}
-            onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
-            onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
-          />
-          {query && (
-            <button
-              onClick={() => handleSearch('')}
-              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}
-            >
-              <X style={{ width: 12, height: 12 }} />
-            </button>
-          )}
-        </div>
+        {/* Search input — hidden when embedded (parent page has search) */}
+        {!embedded && (
+          <div style={{ position: 'relative', flex: '0 0 220px' }}>
+            <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
+            <input
+              value={query}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search devices…"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                paddingLeft: 32, paddingRight: query ? 30 : 12, paddingTop: 8, paddingBottom: 8,
+                background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                borderRadius: 10, color: T.txt1, fontSize: 12, outline: 'none',
+                fontFamily: 'var(--font-sans)', boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+              }}
+              onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
+              onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
+            />
+            {query && (
+              <button
+                onClick={() => handleSearch('')}
+                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}
+              >
+                <X style={{ width: 12, height: 12 }} />
+              </button>
+            )}
+          </div>
+        )}
 
-        {/* Status filter */}
-        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, borderRadius: 10, border: `1px solid ${T.tabBorder}` }}>
-          {[
-            { key: 'All',     label: 'All',     count: allDevices.length },
-            { key: 'Missing', label: 'Offline', count: missing.length    },
-            { key: 'At Risk', label: 'At Risk', count: atRisk.length     },
-          ].map(({ key, label, count }) => (
-            <button key={key} onClick={() => setFilter(key)} style={{
-              padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
-              fontSize: 11, fontWeight: 700, transition: 'all 0.15s',
-              background: filter === key ? '#A72C32' : 'transparent',
-              color:      filter === key ? '#FFFFFF' : T.txt2,
-            }}>
-              {label}{count > 0 ? ` (${count})` : ''}
-            </button>
-          ))}
-        </div>
+        {/* Status filter (All / Offline / At Risk) — hidden when embedded */}
+        {!embedded && (
+          <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, borderRadius: 10, border: `1px solid ${T.tabBorder}` }}>
+            {[
+              { key: 'All',     label: 'All',     count: allDevices.length },
+              { key: 'Missing', label: 'Offline', count: missing.length    },
+              { key: 'At Risk', label: 'At Risk', count: atRisk.length     },
+            ].map(({ key, label, count }) => (
+              <button key={key} onClick={() => setFilter(key)} style={{
+                padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                fontSize: 11, fontWeight: 700, transition: 'all 0.15s',
+                background: filter === key ? '#A72C32' : 'transparent',
+                color:      filter === key ? '#FFFFFF' : T.txt2,
+              }}>
+                {label}{count > 0 ? ` (${count})` : ''}
+              </button>
+            ))}
+          </div>
+        )}
 
-        {/* Sort controls */}
+        {/* Sort controls — always shown */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, color: T.txt3, fontWeight: 600 }}>Sort:</span>
           {[
@@ -651,19 +665,21 @@ export default function MissingDevices() {
         </div>
       )}
 
-      {/* ── Info strip ──────────────────────────────────────────────────────── */}
-      <div style={{ ...panel, padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 12,
-        background: isLight ? '#FFFBEB' : 'rgba(245,158,11,0.06)',
-        border: `1px solid ${isLight ? '#FDE68A' : 'rgba(245,158,11,0.18)'}` }}>
-        <AlertTriangle style={{ width: 14, height: 14, color: isLight ? '#D97706' : '#fbbf24', flexShrink: 0, marginTop: 1 }} />
-        <p style={{ fontSize: 12, color: T.txt2, margin: 0, lineHeight: 1.65 }}>
-          <span style={{ color: isLight ? '#D97706' : '#fbbf24', fontWeight: 700 }}>Detection rules: </span>
-          Devices offline 12–24h → <span style={{ color: isLight ? '#D97706' : '#fbbf24', fontWeight: 600 }}>At Risk</span>.{' '}
-          Offline 24h+ → <span style={{ color: isLight ? '#DC2626' : '#fca5a5', fontWeight: 600 }}>Missing</span>.{' '}
-          Battery &lt;25% triggers critical warning.{' '}
-          Recovery probability decreases 1.8%/h from last contact.
-        </p>
-      </div>
+      {/* ── Info strip — hidden when embedded ───────────────────────────────── */}
+      {!embedded && (
+        <div style={{ ...panel, padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 12,
+          background: isLight ? '#FFFBEB' : 'rgba(245,158,11,0.06)',
+          border: `1px solid ${isLight ? '#FDE68A' : 'rgba(245,158,11,0.18)'}` }}>
+          <AlertTriangle style={{ width: 14, height: 14, color: isLight ? '#D97706' : '#fbbf24', flexShrink: 0, marginTop: 1 }} />
+          <p style={{ fontSize: 12, color: T.txt2, margin: 0, lineHeight: 1.65 }}>
+            <span style={{ color: isLight ? '#D97706' : '#fbbf24', fontWeight: 700 }}>Detection rules: </span>
+            Devices offline 12–24h → <span style={{ color: isLight ? '#D97706' : '#fbbf24', fontWeight: 600 }}>At Risk</span>.{' '}
+            Offline 24h+ → <span style={{ color: isLight ? '#DC2626' : '#fca5a5', fontWeight: 600 }}>Missing</span>.{' '}
+            Battery &lt;25% triggers critical warning.{' '}
+            Recovery probability decreases 1.8%/h from last contact.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

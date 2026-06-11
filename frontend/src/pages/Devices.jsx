@@ -1,78 +1,731 @@
-import React, { useContext } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Layers, Radio, Tag } from 'lucide-react'
-import Locators from './Locators.jsx'
-import Stickers from './Stickers.jsx'
+import React, { useState, useRef, useEffect, useContext, useCallback, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Layers, Radio, Tag, Search, X, ChevronRight, Plus, Download, Link2, Trash2 } from 'lucide-react'
+import MissingDevices from './MissingDevices.jsx'
+import { useCityTag } from '../hooks/useCityTag.js'
+import { useAuth } from '../context/AuthContext.jsx'
+import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
+import { useBindCache } from '../context/BindCacheContext.jsx'
+import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
+import { useUserCache } from '../context/Usercachecontext.jsx'
+import { deviceDisplayName } from '../utils/deviceDisplayName.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
+import TPLLoader from '../components/TPLLoader.jsx'
+import ModalPortal from '../components/common/ModalPortal.jsx'
 
-const TABS = [
-  { key: 'locator', label: 'Locators',       icon: Radio },
-  { key: 'sticker', label: 'Smart Stickers', icon: Tag   },
+const TYPE_TABS = [
+  { key: 'all',     label: 'All',           icon: Layers },
+  { key: 'locator', label: 'Locators',       icon: Radio  },
+  { key: 'sticker', label: 'Smart Stickers', icon: Tag    },
 ]
 
+const modalPanel = {
+  background: '#000000',
+  border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 16,
+  boxShadow: '0 24px 64px rgba(0,0,0,0.72)',
+}
+const modalOverlay = {
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+  backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)',
+  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+  zIndex: 9999, padding: 24, overflowY: 'auto',
+}
+const SELECT_STYLE = {
+  width: '100%', background: '#18181b', border: '1px solid #3f3f46',
+  borderRadius: 8, padding: '10px 12px', color: '#f4f4f5', fontSize: 13,
+  outline: 'none', cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none',
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='%2371717a'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
+}
+const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
+const BIND_CATS = [
+  'wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus',
+  'laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack',
+  'pallet','carton','container','parcel','equipment','other',
+]
+
+// ── Module-level fleet cache — survives remounts, invalidated on bind/unbind ──
+let _fleetCache     = null
+let _fleetFetchedAt = null
+const FLEET_TTL     = 5 * 60 * 1000   // 5 min
+
+function isStickerSN(sn) { return /^\d+$/.test(String(sn ?? '')) }
+const isBound = d => !!(d.user_id || d.assigned_user_name)
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   AllDevices: fixed 4×5 grid for All / Locators / Stickers tabs.
+   Fetches the full fleet ONCE; tab + status switches are pure client-side.
+────────────────────────────────────────────────────────────────────────────── */
+function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal }) {
+  const navigate = useNavigate()
+  const { getDevices, unbindDevice } = useCityTag()
+  const { user, isAdmin } = useAuth()
+
+  const cacheValid = () =>
+    Boolean(_fleetCache && _fleetFetchedAt && Date.now() - _fleetFetchedAt < FLEET_TTL)
+
+  const [allDevices,   setAllDevices]   = useState(() => cacheValid() ? _fleetCache : [])
+  const [fetching,     setFetching]     = useState(() => !cacheValid())
+  const [rawQ,         setRawQ]         = useState('')
+  const [debQ,         setDebQ]         = useState('')
+  const [page,         setPage]         = useState(1)
+  const [localRefresh, setLocalRefresh] = useState(0)
+
+  // Unbind state
+  const [unbindTarget,  setUnbindTarget]  = useState(null)
+  const [unbindLoading, setUnbindLoading] = useState(false)
+  const [unbindError,   setUnbindError]   = useState('')
+
+  const PAGE_SIZE  = 20
+  const debRef     = useRef(null)
+  const prevSignal = useRef(refreshSignal)
+
+  // Debounce search
+  useEffect(() => {
+    clearTimeout(debRef.current)
+    debRef.current = setTimeout(() => setDebQ(rawQ.trim()), 350)
+    return () => clearTimeout(debRef.current)
+  }, [rawQ])
+
+  // Reset page on filter/search change
+  useEffect(() => { setPage(1) }, [deviceType, externalStatus, debQ])
+
+  // Fetch all devices — one call; re-fetches on refreshSignal or localRefresh change
+  useEffect(() => {
+    if (!user) return
+
+    const forced = prevSignal.current !== refreshSignal
+    prevSignal.current = refreshSignal
+
+    if (!forced && cacheValid()) {
+      setAllDevices(_fleetCache)
+      setFetching(false)
+      return
+    }
+
+    if (forced) {
+      _fleetCache     = null
+      _fleetFetchedAt = null
+    }
+
+    setFetching(true)
+    ;(async () => {
+      try {
+        const FETCH_LIMIT = 200
+        let all = [], p = 1
+        while (true) {
+          const data  = await getDevices({ page: p, limit: FETCH_LIMIT, status: 'all' })
+          const list  = Array.isArray(data) ? data : data?.devices ?? []
+          const total = Number(data?.total ?? list.length) || 0
+          all = [...all, ...list]
+          if (all.length >= total || list.length < FETCH_LIMIT || p >= 10) break
+          p++
+        }
+        // Deduplicate by SN (API can return duplicates across pages)
+        const seen = new Set()
+        all = all.filter(d => { const k = String(d.sn); if (seen.has(k)) return false; seen.add(k); return true })
+        _fleetCache     = all
+        _fleetFetchedAt = Date.now()
+        setAllDevices(all)
+      } catch (err) {
+        console.error('Fleet fetch failed:', err)
+      } finally {
+        setFetching(false)
+      }
+    })()
+  }, [user, getDevices, refreshSignal, localRefresh]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleUnbind = async () => {
+    if (!unbindTarget || unbindLoading) return
+    setUnbindError('')
+    setUnbindLoading(true)
+    try {
+      await unbindDevice(unbindTarget.sn)
+      _fleetCache     = null
+      _fleetFetchedAt = null
+      setUnbindTarget(null)
+      setPage(1)
+      setLocalRefresh(k => k + 1)
+    } catch (err) {
+      setUnbindError(err?.message || 'Failed to unbind device.')
+    } finally {
+      setUnbindLoading(false)
+    }
+  }
+
+  // Client-side filter: type → status → search → bound-first sort
+  const filtered = useMemo(() => {
+    let list = allDevices
+
+    if      (deviceType === 'locator') list = list.filter(d => !isStickerSN(d.sn))
+    else if (deviceType === 'sticker') list = list.filter(d =>  isStickerSN(d.sn))
+
+    if (externalStatus === 'online') list = list.filter(d => d.status === 'Active')
+
+    if (debQ) {
+      const q = debQ.toLowerCase()
+      list = list.filter(d => {
+        const name = deviceDisplayName(d).toLowerCase()
+        const sn   = String(d.sn ?? '').toLowerCase()
+        return name.includes(q) || sn.includes(q)
+      })
+    }
+
+    // Bound devices float to the top
+    list = list.slice().sort((a, b) => {
+      const ab = isBound(a), bb = isBound(b)
+      if (bb && !ab) return 1
+      if (ab && !bb) return -1
+      return 0
+    })
+
+    return list
+  }, [allDevices, deviceType, externalStatus, debQ])
+
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(Math.max(1, page), totalPages)
+  const pageDevices = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const hasPrev     = safePage > 1
+  const hasNext     = safePage < totalPages
+
+  const panel = isLight
+    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
+    : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '18px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+      {/* Search + count */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
+        <div style={{ position: 'relative' }}>
+          <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
+          <input
+            value={rawQ}
+            onChange={e => setRawQ(e.target.value)}
+            placeholder="Search devices…"
+            style={{
+              background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+              borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12,
+              color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220,
+              boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+            }}
+            onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
+            onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
+          />
+          {rawQ && (
+            <button onClick={() => setRawQ('')}
+              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}>
+              <X style={{ width: 12, height: 12 }} />
+            </button>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400 }}>
+          {fetching ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}
+        </span>
+      </div>
+
+      {/* Device grid — fills remaining height, fixed 4 col × 5 row.
+          Always render exactly PAGE_SIZE slots so gridTemplateRows distributes space correctly. */}
+      {fetching ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <TPLLoader label="Loading devices…" />
+        </div>
+      ) : (
+        <div style={{
+          flex: 1, minHeight: 0, overflow: 'hidden',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateRows: 'repeat(5, minmax(0, 1fr))',
+          gap: 10,
+        }}>
+          {pageDevices.length === 0 ? (
+            /* No results — single cell spanning full grid */
+            <div style={{ gridColumn: '1 / -1', gridRow: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
+              No devices match your filters
+            </div>
+          ) : (
+            /* Always render exactly PAGE_SIZE slots so row heights stay consistent */
+            Array.from({ length: PAGE_SIZE }, (_, idx) => {
+              const d = pageDevices[idx] ?? null
+              if (!d) return <div key={`_ph_${idx}`} aria-hidden="true" />
+              const isSticker  = isStickerSN(d.sn)
+              const DeviceIcon = isSticker ? Tag : Radio
+              const isActive   = d.status === 'Active'
+              const dotColor   = isActive ? '#059669' : '#DC2626'
+              const dotGlow    = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
+              const name       = deviceDisplayName(d)
+              return (
+                <div
+                  key={d.sn}
+                  onClick={() => navigate(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`)}
+                  style={{
+                    ...panel, height: '100%', padding: '12px 14px', cursor: 'pointer', boxSizing: 'border-box',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                    transition: 'box-shadow 0.22s ease, transform 0.22s ease',
+                    ...(isLight ? { borderLeft: '3px solid #A72C32' } : {}),
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.boxShadow = isLight
+                      ? '0 4px 16px rgba(167,44,50,0.14), 0 12px 32px rgba(0,0,0,0.08)'
+                      : '0 0 44px rgba(167,44,50,0.52), 0 12px 40px rgba(0,0,0,0.55)'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.boxShadow = panel.boxShadow
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                      <DeviceIcon style={{ width: 11, height: 11, color: T.txt3, flexShrink: 0 }} />
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 4px ${dotGlow}` }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: T.txt3, marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 19 }}>
+                      {d.sn}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {deviceType === 'all' && isAdmin && isBound(d) && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setUnbindError(''); setUnbindTarget(d) }}
+                        style={{ background: 'rgba(220,38,38,0.14)', border: '1px solid rgba(220,38,38,0.30)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: '#DC2626', fontSize: 11, fontWeight: 600, transition: 'background 0.15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.28)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.14)' }}
+                      >
+                        <Trash2 style={{ width: 11, height: 11 }} />
+                        Unbind
+                      </button>
+                    )}
+                    <ChevronRight style={{ width: 14, height: 14, color: T.txt3 }} />
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {total > 0 && !fetching && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, padding: '4px 2px', flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: T.txt3, marginRight: 4, fontWeight: isLight ? 500 : 400 }}>
+            {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+          </span>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={!hasPrev}
+            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+              cursor: !hasPrev ? 'not-allowed' : 'pointer',
+              background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)',
+              border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.08)',
+              color: !hasPrev ? (isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)') : (isLight ? '#333333' : 'rgba(255,255,255,0.68)'),
+            }}>← Prev</button>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              const p = totalPages <= 7 ? i + 1 : (safePage < 4 ? i + 1 : safePage - 3 + i)
+              if (p < 1 || p > totalPages) return null
+              return (
+                <button key={p} onClick={() => setPage(p)}
+                  style={{ width: 28, height: 28, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+                    background: p === safePage ? (isLight ? '#000000' : '#B7B2A8') : (isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)'),
+                    border: p === safePage ? (isLight ? '1px solid #000000' : '1px solid #B7B2A8') : (isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.08)'),
+                    color: p === safePage ? (isLight ? '#FFFFFF' : '#000000') : (isLight ? '#333333' : 'rgba(255,255,255,0.45)'),
+                  }}>
+                  {p}
+                </button>
+              )
+            })}
+          </div>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={!hasNext}
+            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+              cursor: !hasNext ? 'not-allowed' : 'pointer',
+              background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)',
+              border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.08)',
+              color: !hasNext ? (isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)') : (isLight ? '#333333' : 'rgba(255,255,255,0.68)'),
+            }}>Next →</button>
+        </div>
+      )}
+
+      {/* Unbind confirmation modal */}
+      {unbindTarget && (
+        <ModalPortal>
+          <div onClick={() => { setUnbindTarget(null); setUnbindError('') }} style={modalOverlay}>
+            <div onClick={e => e.stopPropagation()} style={{ ...modalPanel, width: '100%', maxWidth: 380, padding: 24, marginTop: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(220,38,38,0.14)', border: '1px solid rgba(220,38,38,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Trash2 style={{ width: 16, height: 16, color: '#DC2626' }} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Unbind Device</div>
+                </div>
+                <button onClick={() => { setUnbindTarget(null); setUnbindError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4, display: 'flex' }}>
+                  <X style={{ width: 18, height: 18 }} />
+                </button>
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 20, lineHeight: 1.6 }}>
+                Remove binding for <strong style={{ color: '#FFFFFF' }}>{deviceDisplayName(unbindTarget)}</strong>?
+                This will unassign the device from its user.
+              </div>
+              {unbindError && (
+                <div style={{ fontSize: 12, color: '#fca5a5', background: 'rgba(220,38,38,0.10)', border: '1px solid rgba(220,38,38,0.22)', borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
+                  {unbindError}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button onClick={() => { setUnbindTarget(null); setUnbindError('') }}
+                  style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                  Cancel
+                </button>
+                <button onClick={handleUnbind} disabled={unbindLoading}
+                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: unbindLoading ? 'wait' : 'pointer', background: 'linear-gradient(135deg, #DC2626 0%, #B91C1C 100%)', border: '1px solid rgba(220,38,38,0.40)', color: '#fff', opacity: unbindLoading ? 0.7 : 1 }}>
+                  {unbindLoading ? 'Unbinding…' : 'Unbind'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+    </div>
+  )
+}
+
+/* ── Main Devices page ──────────────────────────────────────────────────────── */
 export default function Devices() {
   const [searchParams, setSearchParams] = useSearchParams()
-  // Fall back to 'locator' for any unknown tab (e.g. legacy ?tab=offline links)
-  const rawTab = searchParams.get('tab')
-  const activeTab = (rawTab === 'sticker' || rawTab === 'locator') ? rawTab : 'locator'
+  const rawTab    = searchParams.get('tab')
+  const activeTab = (['all', 'locator', 'sticker'].includes(rawTab)) ? rawTab : 'all'
+
+  const [statusTab,     setStatusTab]     = useState('All')
+  const [refreshKey,    setRefreshKey]    = useState(0)
+  const [offlineRaw,    setOfflineRaw]    = useState('')
+  const [offlineSearch, setOfflineSearch] = useState('')
+  const offlineDebRef = useRef(null)
+
+  useEffect(() => {
+    clearTimeout(offlineDebRef.current)
+    offlineDebRef.current = setTimeout(() => setOfflineSearch(offlineRaw.trim()), 350)
+    return () => clearTimeout(offlineDebRef.current)
+  }, [offlineRaw])
+
   const pageTheme = useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
+
+  const { isAdmin } = useAuth()
+  const { bindDevice, adminAssignDeviceToUser, getAvailableDevices, getDevices, getLatestLocationsBatch } = useCityTag()
+  const { devices: cacheDevices } = useDeviceCache()
+  const { recordBind } = useBindCache()
+  const { users } = useUserCache()
+
+  // ── Bind modal state ───────────────────────────────────────────────────────
+  const [availableDevices, setAvailableDevices] = useState([])
+  const [showBindModal,    setShowBindModal]     = useState(false)
+  const [bindSn,           setBindSn]            = useState('')
+  const [bindName,         setBindName]          = useState('')
+  const [bindClient,       setBindClient]        = useState('')
+  const [bindCategory,     setBindCategory]      = useState('')
+  const [bindUserId,       setBindUserId]        = useState('')
+  const [bindLoading,      setBindLoading]       = useState(false)
+  const [bindError,        setBindError]         = useState('')
+  const [exporting,        setExporting]         = useState(false)
+
+  useEffect(() => {
+    if (!isAdmin) {
+      getAvailableDevices().then(setAvailableDevices).catch(() => setAvailableDevices([]))
+    }
+  }, [isAdmin, getAvailableDevices])
+
+  const unboundDevices = (cacheDevices || []).filter(d => !d.assigned_user_name && !d.user_id)
+
+  const openBindModal = () => {
+    setBindError('')
+    setBindClient('')
+    setBindName('')
+    setBindCategory('')
+    if (isAdmin) {
+      setBindSn(unboundDevices.length > 0 ? unboundDevices[0].sn : '')
+      setBindUserId(users?.length > 0 ? users[0].id : '')
+    } else {
+      setBindSn('')
+    }
+    setShowBindModal(true)
+  }
+
+  const closeBindModal = () => {
+    setShowBindModal(false)
+    setBindSn('')
+    setBindName('')
+    setBindClient('')
+    setBindCategory('')
+    setBindUserId('')
+    setBindError('')
+  }
+
+  const handleBind = async () => {
+    if (isAdmin) {
+      if (!bindSn || !bindUserId || !bindCategory) { setBindError('Please select a device, a user, and a category.'); return }
+      setBindError('')
+      setBindLoading(true)
+      try {
+        await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory })
+        recordBind(bindSn)
+        _fleetCache = null; _fleetFetchedAt = null
+        setRefreshKey(k => k + 1)
+        closeBindModal()
+      } catch (err) { setBindError(err.message || 'Failed to bind device.') }
+      finally { setBindLoading(false) }
+    } else {
+      if (!bindSn.trim() || !bindCategory) { setBindError('Please select a device and a category.'); return }
+      setBindError('')
+      setBindLoading(true)
+      try {
+        await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory })
+        recordBind(bindSn.trim())
+        getAvailableDevices().then(setAvailableDevices).catch(() => {})
+        _fleetCache = null; _fleetFetchedAt = null
+        setRefreshKey(k => k + 1)
+        closeBindModal()
+      } catch (err) { setBindError(err.message || 'Failed to bind device.') }
+      finally { setBindLoading(false) }
+    }
+  }
+
+  const handleExportCSV = useCallback(async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await exportDevicesCsv(getDevices, getLatestLocationsBatch, { filename: 'all-devices.csv' })
+    } catch (err) { console.error('CSV export failed', err) }
+    finally { setExporting(false) }
+  }, [exporting, getDevices, getLatestLocationsBatch])
 
   const setTab = (key) => setSearchParams({ tab: key }, { replace: true })
 
   const T = {
-    tabBg:     isLight ? '#DCDCDC' : 'rgba(255,255,255,0.05)',
-    tabBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
-    txt1:      isLight ? '#000000' : '#f4f4f5',
-    txt2:      isLight ? '#333333' : 'rgba(255,255,255,0.50)',
+    tabBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.05)',
+    tabBorder:   isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
+    txt1:        isLight ? '#000000' : '#f4f4f5',
+    txt2:        isLight ? '#333333' : 'rgba(255,255,255,0.50)',
+    txt3:        isLight ? '#555555' : 'rgba(255,255,255,0.32)',
+    inputBg:     isLight ? '#FFFFFF' : 'rgba(255,255,255,0.05)',
+    inputBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.10)',
   }
 
+  const externalStatus    = statusTab === 'Active' ? 'online' : 'all'
+  const offlineDeviceType = activeTab !== 'all' ? activeTab : undefined
+  const showActionButtons = activeTab === 'all' && statusTab !== 'Offline'
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '4px 0', position: 'relative' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 0' }}>
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
-        {isLight ? (
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: '#A72C32', border: '1px solid #8B2328', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Layers style={{ width: 20, height: 20, color: '#FFFFFF' }} />
-          </div>
-        ) : (
-          <div style={{ padding: 9, background: 'rgba(167,44,50,0.14)', borderRadius: 12, border: '1px solid rgba(167,44,50,0.24)', display: 'flex' }}>
-            <Layers style={{ width: 18, height: 18, color: '#C86068' }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
+          {isLight ? (
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: '#A72C32', border: '1px solid #8B2328', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Layers style={{ width: 20, height: 20, color: '#FFFFFF' }} />
+            </div>
+          ) : (
+            <div style={{ padding: 9, background: 'rgba(167,44,50,0.14)', borderRadius: 12, border: '1px solid rgba(167,44,50,0.24)', display: 'flex' }}>
+              <Layers style={{ width: 18, height: 18, color: '#C86068' }} />
+            </div>
+          )}
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: T.txt1, margin: 0, letterSpacing: isLight ? '-0.02em' : '-0.03em' }}>
+            Devices
+          </h1>
+        </div>
+
+        {showActionButtons && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {isLight ? (
+              <button onClick={openBindModal}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: '#A72C32', border: '1px solid #8B2328', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(167,44,50,0.25)', transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#8B2328'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(167,44,50,0.35)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = '#A72C32'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(167,44,50,0.25)' }}
+              ><Plus style={{ width: 15, height: 15 }} /> Bind Device</button>
+            ) : (
+              <button onClick={openBindModal}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: 'linear-gradient(135deg, #BF3840 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.45)', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 14px rgba(167,44,50,0.28)', transition: 'box-shadow 0.2s, transform 0.2s' }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(167,44,50,0.28)'; e.currentTarget.style.transform = 'translateY(0)' }}
+              ><Plus style={{ width: 14, height: 14 }} /> Bind Device</button>
+            )}
+            <button onClick={handleExportCSV} disabled={exporting}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 10, cursor: exporting ? 'wait' : 'pointer', background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)', border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)', color: isLight ? '#333333' : 'rgba(255,255,255,0.70)', fontSize: 13, fontWeight: 600, opacity: exporting ? 0.6 : 1, transition: 'all 0.15s' }}
+              onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = isLight ? '#000' : '#FFFFFF' }}}
+              onMouseLeave={e => { e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = isLight ? '#333333' : 'rgba(255,255,255,0.70)' }}
+            ><Download style={{ width: 13, height: 13 }} /> {exporting ? 'Exporting…' : 'Export CSV'}</button>
           </div>
         )}
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: T.txt1, margin: 0, letterSpacing: isLight ? '-0.02em' : '-0.03em' }}>
-          Devices
-        </h1>
       </div>
 
-      {/* ── Filter tab bar ───────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 4, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 12, width: 'fit-content', flexWrap: 'wrap' }}>
-        {TABS.map(({ key, label, icon: Icon }) => {
-          const active = activeTab === key
-          return (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 7,
-                padding: '8px 18px', borderRadius: 9, border: 'none',
-                fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
-                background: active ? '#A72C32' : 'transparent',
-                color:      active ? '#FFFFFF'  : T.txt2,
-                boxShadow:  active ? '0 2px 8px rgba(167,44,50,0.30)' : 'none',
-              }}
-            >
-              <Icon style={{ width: 14, height: 14 }} />
-              {label}
-            </button>
-          )
-        })}
+      {/* ── Type + Status toggles ─────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 4, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 12, width: 'fit-content' }}>
+          {TYPE_TABS.map(({ key, label, icon: Icon }) => {
+            const active = activeTab === key
+            return (
+              <button key={key} onClick={() => setTab(key)}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 18px', borderRadius: 9, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+                  background: active ? '#A72C32' : 'transparent',
+                  color:      active ? '#FFFFFF' : T.txt2,
+                  boxShadow:  active ? '0 2px 8px rgba(167,44,50,0.30)' : 'none',
+                }}>
+                <Icon style={{ width: 14, height: 14 }} />{label}
+              </button>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
+          {['All', 'Active', 'Offline'].map(s => {
+            const active = statusTab === s
+            return (
+              <button key={s} onClick={() => setStatusTab(s)}
+                style={{ padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                  background: active ? '#A72C32' : 'transparent',
+                  color:      active ? '#FFFFFF' : T.txt2,
+                }}>
+                {s}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* ── Active tab content — reuses the existing page components ──────── */}
-      {activeTab === 'locator' && <Locators embedded />}
-      {activeTab === 'sticker' && <Stickers embedded />}
+      {/* ── Content — fills remaining height ─────────────────────────────────── */}
+      <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        {statusTab === 'Offline' ? (
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ position: 'relative' }}>
+                <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
+                <input
+                  value={offlineRaw}
+                  onChange={e => setOfflineRaw(e.target.value)}
+                  placeholder="Search offline devices…"
+                  style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220, boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
+                  onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
+                  onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
+                />
+                {offlineRaw && (
+                  <button onClick={() => setOfflineRaw('')}
+                    style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}>
+                    <X style={{ width: 12, height: 12 }} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <MissingDevices embedded deviceType={offlineDeviceType} externalSearch={offlineSearch} />
+            </div>
+          </div>
+        ) : (
+          <AllDevices
+            deviceType={activeTab}
+            externalStatus={externalStatus}
+            isLight={isLight}
+            T={T}
+            refreshSignal={refreshKey}
+          />
+        )}
+      </div>
+
+      {/* ── Bind Device modal ────────────────────────────────────────────── */}
+      {showBindModal && (
+        <ModalPortal>
+          <div onClick={closeBindModal} style={modalOverlay}>
+            <div onClick={e => e.stopPropagation()} style={{ ...modalPanel, width: '100%', maxWidth: 420, padding: 24, marginTop: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Link2 style={{ width: 16, height: 16, color: '#C86068' }} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Bind Device</div>
+                </div>
+                <button onClick={closeBindModal} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4, display: 'flex' }}>
+                  <X style={{ width: 18, height: 18 }} />
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Device SN</label>
+                  {isAdmin ? (
+                    <select value={bindSn} onChange={e => setBindSn(e.target.value)} style={SELECT_STYLE}>
+                      {unboundDevices.length === 0
+                        ? <option value="" style={SELECT_OPT}>No unbound devices</option>
+                        : unboundDevices.map(d => <option key={d.sn} value={d.sn} style={SELECT_OPT}>{d.sn}</option>)
+                      }
+                    </select>
+                  ) : (
+                    <>
+                      <input value={bindSn} onChange={e => setBindSn(e.target.value)} list="available-sns"
+                        placeholder="Enter or select device SN…"
+                        style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: 'text' }} />
+                      <datalist id="available-sns">
+                        {availableDevices.map(d => <option key={d.sn} value={d.sn} />)}
+                      </datalist>
+                    </>
+                  )}
+                </div>
+
+                {isAdmin && (
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Assign to User</label>
+                    <select value={bindUserId} onChange={e => setBindUserId(e.target.value)} style={SELECT_STYLE}>
+                      {(users || []).map(u => <option key={u.id} value={u.id} style={SELECT_OPT}>{u.name || u.email}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                    Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span>
+                  </label>
+                  <input value={bindName} onChange={e => setBindName(e.target.value)} placeholder="e.g. Office Locator"
+                    style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: 'text' }} />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Category</label>
+                  <select value={bindCategory} onChange={e => setBindCategory(e.target.value)} style={SELECT_STYLE}>
+                    <option value="" disabled style={SELECT_OPT}>Select a category…</option>
+                    {BIND_CATS.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                  </select>
+                </div>
+
+                {isAdmin && (
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                      Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <input value={bindClient} onChange={e => setBindClient(e.target.value)} placeholder="e.g. Acme Corp"
+                      style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: 'text' }} />
+                  </div>
+                )}
+
+                {bindError && (
+                  <div style={{ fontSize: 12, color: '#fca5a5', background: 'rgba(220,38,38,0.10)', border: '1px solid rgba(220,38,38,0.22)', borderRadius: 8, padding: '8px 12px' }}>
+                    {bindError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                  <button onClick={closeBindModal}
+                    style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleBind} disabled={bindLoading}
+                    style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: bindLoading ? 'wait' : 'pointer', background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: bindLoading ? 0.7 : 1 }}>
+                    {bindLoading ? 'Binding…' : 'Bind'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
     </div>
   )
 }
