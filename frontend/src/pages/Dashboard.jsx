@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield } from 'lucide-react'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
-import { useBindCache } from '../context/BindCacheContext.jsx'
 import { useAlerts } from '../context/AlertsContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
@@ -72,8 +71,6 @@ const EMPTY_MSG = {
 }
 const BAR_COLORS = ['#3A86FF', '#4CAF50', '#F4A261', '#8E7DBE', '#2A9D8F']
 
-function todayStr() { return new Date().toISOString().slice(0, 10) }
-
 function fmtRelTime(ts) {
   if (!ts) return '—'
   try {
@@ -95,104 +92,6 @@ function fmtBindDate(ms) {
     if (isNaN(d.getTime())) return null
     return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' })
   } catch { return null }
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   TOP DEVICES — horizontal bar chart (packet count)
-   ══════════════════════════════════════════════════════════════════ */
-function TopDevicesCard({ devices, activityData }) {
-  const [hovered, setHovered] = useState(null)
-  const [dims, setDims]       = useState({ w: 300, h: 180 })
-  const wrapRef               = useRef(null)
-
-  useEffect(() => {
-    if (!wrapRef.current) return
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect
-      setDims({ w: Math.max(width, 100), h: Math.max(height, 60) })
-    })
-    ro.observe(wrapRef.current)
-    return () => ro.disconnect()
-  }, [])
-
-  const ranked = useMemo(() => [...devices]
-    .map(d => {
-      const sn      = d.sn ?? ''
-      const packets = activityData[sn]?.length || (d.datapoint_count ?? d.packetCount ?? d.packet_count ?? 0)
-      return { sn, name: d.name ?? d.assignedUser ?? sn, packets }
-    })
-    .filter(d => d.sn)
-    .sort((a, b) => b.packets - a.packets)
-    .slice(0, 5),
-  [devices, activityData])
-
-  const maxP  = ranked[0]?.packets || 1
-  const PAD_L = 88, PAD_R = 48, PAD_T = 8, PAD_B = 8
-  const { w: W, h: H } = dims
-  const chartW = W - PAD_L - PAD_R
-  const chartH = H - PAD_T - PAD_B
-  const rowH   = ranked.length > 0 ? chartH / ranked.length : 0
-  const barH   = Math.min(14, rowH * 0.45)
-  const xTicks = [0.25, 0.5, 0.75, 1]
-
-  const { bind: hoverBind, style: hoverStyle } = usePanelHover()
-  return (
-    <div {...hoverBind} style={{ ...INSIGHT_CARD, minHeight: '260px', ...hoverStyle }}>
-      <div style={CARD_HDR}>
-        <div>
-          <div style={CARD_TTL}>Top 5 by Packets</div>
-          <div style={CARD_SUB}>{ranked.length} devices reporting</div>
-        </div>
-      </div>
-      <div ref={wrapRef} style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {ranked.length === 0 ? (
-          <p style={EMPTY_MSG}>No activity data</p>
-        ) : (
-          <svg width={W} height={H} style={{ display: 'block', position: 'absolute', inset: 0 }}>
-            <defs>
-              {ranked.map((_, i) => (
-                <linearGradient key={`hbg${i}`} id={`dbhbg${i}`} x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%"   stopColor={BAR_COLORS[i]} stopOpacity="0.55" />
-                  <stop offset="100%" stopColor={BAR_COLORS[i]} stopOpacity="1" />
-                </linearGradient>
-              ))}
-            </defs>
-            {xTicks.map((f, ti) => {
-              const x = PAD_L + f * chartW
-              return <line key={ti} x1={x} x2={x} y1={PAD_T} y2={PAD_T + chartH} stroke="rgba(255,255,255,0.06)" strokeWidth={1} strokeDasharray="3 4" />
-            })}
-            <line x1={PAD_L} x2={PAD_L} y1={PAD_T} y2={PAD_T + chartH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
-            {ranked.map((r, i) => {
-              const barW  = Math.max((r.packets / maxP) * chartW, 2)
-              const cy    = PAD_T + i * rowH + rowH / 2
-              const isHov = hovered === i
-              const label = (r.name !== r.sn ? r.name : r.sn).replace('CARD-', '')
-              const displayLabel = label.length > 13 ? label.slice(0, 12) + '…' : label
-              return (
-                <g key={r.sn} style={{ cursor: 'default' }}
-                  onMouseEnter={() => setHovered(i)}
-                  onMouseLeave={() => setHovered(null)}>
-                  {isHov && <rect x={PAD_L} y={PAD_T + i * rowH} width={chartW} height={rowH} fill="rgba(167,44,50,0.07)" rx={2} />}
-                  <rect x={PAD_L} y={cy - barH / 2} width={barW} height={barH} rx={4}
-                    fill={`url(#dbhbg${i})`} opacity={isHov ? 1 : 0.82}
-                    style={{ transition: 'opacity 0.15s' }} />
-                  <text x={PAD_L - 6} y={cy + 3.5} textAnchor="end" fontSize={10} fontWeight="600"
-                    fill={isHov ? '#fca5a5' : '#D4D4D4'}
-                    style={{ transition: 'fill 0.15s' }}>
-                    {displayLabel}
-                  </text>
-                  <text x={PAD_L + barW + 5} y={cy + 3.5} textAnchor="start" fontSize={9}
-                    fill={BAR_COLORS[i]} fontWeight="700">
-                    {r.packets.toLocaleString()}
-                  </text>
-                </g>
-              )
-            })}
-          </svg>
-        )}
-      </div>
-    </div>
-  )
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -367,117 +266,6 @@ function UserDevicePanelCard({ devices, activityData = {} }) {
             })
           }
         </div>
-      </div>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   BOUND DEVICES CHART — monthly locator bind vertical bar chart
-   ══════════════════════════════════════════════════════════════════ */
-function BoundDevicesCard({ devices, selectedDate }) {
-  const { getMergedBindings } = useBindCache()
-
-  const { months, total } = useMemo(() => {
-    const PKT_OFFSET_MS = 5 * 60 * 60 * 1000
-    const nowUtc = selectedDate ? new Date(selectedDate + 'T23:59:59.999Z') : new Date()
-    const now = new Date(nowUtc.getTime() - PKT_OFFSET_MS)
-    const months = []
-    for (let i = 7; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      months.push({
-        key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-        label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        count: 0,
-      })
-    }
-    const map = Object.fromEntries(months.map(m => [m.key, m]))
-    const mergedMap = getMergedBindings(devices)
-    const seen = new Set()
-    devices.forEach(d => {
-      if (!d.sn || seen.has(d.sn)) return
-      seen.add(d.sn)
-      const bindTime = mergedMap.get(d.sn)
-      if (!bindTime) return
-      const dt = new Date(bindTime)
-      if (isNaN(dt) || dt > now) return
-      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
-      if (map[key]) map[key].count++
-    })
-    const total = months.reduce((s, m) => s + m.count, 0)
-    return { months, total }
-  }, [devices, selectedDate, getMergedBindings])
-
-  const selectedKey = selectedDate ? selectedDate.slice(0, 7) : new Date().toISOString().slice(0, 7)
-
-  const BoundTooltip = ({ active, payload, label }) => {
-    if (!active || !payload?.length) return null
-    return (
-      <div style={{
-        background: 'rgba(12,12,12,0.95)', border: '1px solid rgba(167,44,50,0.30)',
-        borderRadius: '8px', padding: '6px 12px', fontSize: '12px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-      }}>
-        <div style={{ color: '#CFCFCF', marginBottom: '3px' }}>{label}</div>
-        <div style={{ color: '#f59e0b', fontWeight: 700 }}>{payload[0].value} bound</div>
-      </div>
-    )
-  }
-
-  const { bind: hoverBind, style: hoverStyle } = usePanelHover()
-  return (
-    <div {...hoverBind} style={{ ...INSIGHT_CARD, minHeight: '260px', ...hoverStyle }}>
-      <div style={CARD_HDR}>
-        <div>
-          <div style={CARD_TTL}>Bound Locators / Month</div>
-          <div style={CARD_SUB}>{total} bound over last 8 months</div>
-        </div>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, padding: '0 10px 14px' }}>
-        {total === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 80 }}>
-            <span style={CARD_SUB}>No bind dates found</span>
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={months} margin={{ top: 8, right: 6, bottom: 0, left: -18 }} barCategoryGap="30%">
-              <defs>
-                <linearGradient id="bar-bound-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor="#C44E54" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#7A1A1F" stopOpacity={0.85} />
-                </linearGradient>
-                <linearGradient id="bar-bound-sel" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor="#fcd34d" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#d97706" stopOpacity={0.9} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis
-                dataKey="label"
-                tick={{ fill: '#B8B8B8', fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                interval={0}
-                tickFormatter={l => l.split(' ')[0]}
-              />
-              <YAxis
-                tick={{ fill: '#B8B8B8', fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                allowDecimals={false}
-              />
-              <Tooltip content={<BoundTooltip />} cursor={{ fill: 'rgba(167,44,50,0.08)', radius: 4 }} />
-              <Bar dataKey="count" name="Bound" radius={[5, 5, 0, 0]} maxBarSize={28}>
-                {months.map((m) => (
-                  <Cell
-                    key={m.key}
-                    fill={m.key === selectedKey ? 'url(#bar-bound-sel)' : 'url(#bar-bound-grad)'}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
       </div>
     </div>
   )
@@ -864,8 +652,6 @@ export default function Dashboard() {
 
       {/* ── Row 1: 4 large glossy KPI cards ───────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'16px' }}>
-
-        {/* Card 1 — Total / Assigned Devices */}
         <KPICard
           title="Total Devices / Assigned Devices"
           onClick={() => navigate('/devices')}
@@ -962,39 +748,25 @@ export default function Dashboard() {
       {/* ── Row 2: 3 muted grey metric cards ──────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'16px' }}>
         {[
-          { label:'Geo-fences',         value: zones.length,  icon: Shield, color:'#F59E0B', sub:'active fence zones' },
-          { label:'Users',              value: users.length,  icon: Users,  color:'#22D3EE', sub:'under your account' },
           { label:'Unassigned Devices', value: unboundCount,  icon: Tag,    color:'#3B82F6', sub:'locators & stickers without an owner' },
+          { label:'Users',              value: users.length,  icon: Users,  color:'#22D3EE', sub:'under your account' },
+          { label:'Geo-fences',         value: zones.length,  icon: Shield, color:'#F59E0B', sub:'active fence zones' },
         ].map(m => <MetricCard key={m.label} m={m} />)}
       </div>
 
-      {/* ── Row 3: Detection chart + Donut ───────────────────── */}
+      {/* ── Row 3: Detection Activity (full width) ───────────── */}
+      <DetectionActivityPanel generalBins={generalBins} peakLabel={peakLabel} />
+
+      {/* ── Row 4: Users & Devices + Battery Status ──────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'16px' }}>
-
-        {/* Detection Activity */}
-        <DetectionActivityPanel generalBins={generalBins} peakLabel={peakLabel} />
-
-        {/* Battery Status Donut */}
-        <BatteryStatusPanel batteryTiers={batteryTiers} />
-      </div>
-
-      {/* ── Row 4 (was Row 5): Advanced Device Insights ──────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'16px' }}>
-        <TopDevicesCard
-          devices={rawDevices}
-          activityData={activityData}
-        />
         <UserDevicePanelCard
           devices={rawDevices}
           activityData={activityData}
         />
-        <BoundDevicesCard
-          devices={rawDevices}
-          selectedDate={todayStr()}
-        />
+        <BatteryStatusPanel batteryTiers={batteryTiers} />
       </div>
 
-      {/* ── Row 5 (was Row 4): Recent Activity ───────────────── */}
+      {/* ── Row 5: Recent Activity ───────────────────────────── */}
       <RecentActivityPanel activityRows={activityRows} />
 
       {/* ── Critical alert strip ──────────────────────────────── */}
