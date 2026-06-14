@@ -146,7 +146,7 @@
 }
 
 /* ─── Body ────────────────────────────────────────────────────────────────── */
-.fp-body { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+.fp-body { display: flex; flex: 1; overflow: hidden; min-height: 0; position: relative; }
 
 /* ─── Sidebar ─────────────────────────────────────────────────────────────── */
 .fp-sidebar {
@@ -407,6 +407,168 @@
 
 /* ─── Date group (kept for forward-compat) ───────────────────────────────── */
 .fp-date-group { display: flex; align-items: center; gap: 5px; }
+
+/* ─── Create Zone button (sidebar header) ─────────────────────────────────── */
+.fp-create-zone-btn {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand, #C1121F);
+  background: rgba(193,18,31,0.10);
+  border: 1px solid rgba(193,18,31,0.25);
+  border-radius: 5px;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.fp-create-zone-btn:hover { background: rgba(193,18,31,0.20); }
+
+/* ─── Flyout panel ─────────────────────────────────────────────────────────── */
+.fp-body { position: relative; }
+
+.fp-create-panel {
+  position: absolute;
+  left: 260px;
+  top: 0;
+  width: 270px;
+  background: var(--surface-2, #1a1a1a);
+  border: 1px solid var(--border-default, #2e2e2e);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 14px 12px;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.4);
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.fp-create-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.fp-create-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #f1f5f9);
+}
+.fp-create-panel-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.fp-create-panel-close:hover { color: var(--text-primary, #f1f5f9); }
+
+.fp-create-panel-field { display: flex; flex-direction: column; gap: 5px; }
+.fp-create-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.fp-create-panel-input {
+  background: var(--surface-3, #262626);
+  border: 1px solid var(--border-default, #2e2e2e);
+  border-radius: 6px;
+  color: var(--text-primary, #f1f5f9);
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.fp-create-panel-input:focus { border-color: var(--brand, #C1121F); }
+
+.fp-create-panel-draw-btn {
+  background: var(--surface-3, #262626);
+  border: 1px dashed var(--border-strong, #444);
+  border-radius: 6px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+.fp-create-panel-draw-btn:hover {
+  border-color: var(--brand, #C1121F);
+  color: var(--text-primary, #f1f5f9);
+}
+.fp-create-panel-draw-btn.active {
+  border-color: var(--brand, #C1121F);
+  color: #C1121F;
+  background: rgba(193,18,31,0.08);
+}
+
+.fp-create-panel-drawn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.25);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #22c55e;
+}
+.fp-create-panel-redo {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.fp-create-panel-hint {
+  font-size: 11px;
+  color: var(--text-tertiary, #6b7280);
+  font-style: italic;
+  margin: 0;
+}
+
+.fp-create-panel-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+.fp-create-panel-cancel {
+  background: none;
+  border: 1px solid var(--border-default, #2e2e2e);
+  border-radius: 6px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.fp-create-panel-cancel:hover { border-color: var(--border-strong, #444); }
+.fp-create-panel-save {
+  background: var(--brand, #C1121F);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.fp-create-panel-save:disabled { opacity: 0.35; cursor: not-allowed; }
+.fp-create-panel-save:not(:disabled):hover { background: #a01019; }
 .fp-date-group label {
   font-size: 10px;
   color: var(--text-tertiary);
@@ -434,16 +596,31 @@
 .fp-date-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
 .fp-date-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 
+/* ─── Zone name tooltip (shown on polygon hover) ─────────────────────────── */
+.fp-zone-tooltip {
+  background: rgba(10,10,10,0.82) !important;
+  border: 1px solid var(--border-strong, #444) !important;
+  border-radius: 5px !important;
+  color: #f1f5f9 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  padding: 4px 10px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+  white-space: nowrap !important;
+  pointer-events: none !important;
+}
+.fp-zone-tooltip::before { display: none !important; }
+
 /* ─── Visit-point dot tooltip ────────────────────────────────────────────── */
 .fp-dot-tip {
-  background: var(--surface-2) !important;
-  border: 1px solid var(--border-strong) !important;
-  border-radius: var(--radius-sm) !important;
-  color: var(--text-primary) !important;
+  background: #6B1015 !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+  border-radius: 6px !important;
+  color: #FFFFFF !important;
   font-size: 11px !important;
   font-family: var(--font-mono) !important;
-  padding: 3px 7px !important;
-  box-shadow: var(--shadow-card) !important;
+  padding: 4px 9px !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.55) !important;
   white-space: nowrap !important;
 }
 .fp-dot-tip::before { display: none !important; }
@@ -468,3 +645,332 @@
   box-shadow: none !important;
 }
 .leaflet-container { -webkit-tap-highlight-color: transparent; }
+
+/* ─── Zone Toolbox — portal into document.body, position:fixed ─────────────── */
+/* top is set via inline style from the measured topbar .bottom edge.           */
+/* height is also inline but capped here so the panel stays compact.            */
+.zt-panel {
+  position: fixed;
+  left: 260px;
+  width: 300px;
+  max-height: 560px;
+  background: var(--surface-1, #111);
+  border-right: 1px solid var(--border-default, #2a2a2a);
+  border-left: 1px solid var(--border-default, #2a2a2a);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 4px 0 24px rgba(0,0,0,0.5);
+  font-family: var(--font-sans, sans-serif);
+}
+
+.zt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--border-default, #2a2a2a);
+  flex-shrink: 0;
+}
+.zt-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #f1f5f9);
+}
+.zt-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 2px 5px;
+  line-height: 1;
+  border-radius: 4px;
+}
+.zt-close:hover { color: var(--text-primary, #f1f5f9); background: rgba(255,255,255,0.06); }
+
+.zt-section {
+  padding: 12px 14px 0;
+  flex-shrink: 0;
+}
+.zt-section-devices {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 8px;
+  overflow: hidden;
+}
+
+.zt-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Zone name popup overlay ── */
+.zt-name-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(3px);
+  z-index: 201;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.zt-name-popup {
+  background: #18181b !important;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 18px 16px 14px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.zt-name-popup-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary, #f1f5f9);
+  margin: 0;
+}
+.zt-name-popup-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.zt-badge {
+  background: rgba(193,18,31,0.18);
+  color: #C1121F;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* ── Device chips (selected devices) ── */
+.zt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.zt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(193,18,31,0.10);
+  border: 1px solid rgba(193,18,31,0.28);
+  border-radius: 999px;
+  padding: 3px 6px 3px 9px;
+  font-size: 11px;
+  color: #f1f5f9;
+  max-width: 140px;
+}
+.zt-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zt-chip-remove {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.zt-chip-remove:hover { color: #f87171; }
+
+/* ── Device search combo + dropdown ── */
+.zt-dev-combo { position: relative; flex-shrink: 0; }
+.zt-dev-search { font-size: 12px; padding: 6px 10px; }
+
+.zt-dev-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface-2, #1a1a1a);
+  border: 1px solid var(--border-default, #2a2a2a);
+  border-radius: 8px;
+  z-index: 10000;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+.zt-dev-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 11px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-subtle, #1e1e1e);
+  transition: background 0.1s;
+}
+.zt-dev-option:last-child { border-bottom: none; }
+.zt-dev-option:hover { background: rgba(193,18,31,0.08); }
+.zt-dev-option-name {
+  color: var(--text-primary, #f1f5f9);
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zt-dev-option-sn {
+  font-size: 10px;
+  color: var(--text-tertiary, #6b7280);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+.zt-dev-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary, #6b7280);
+}
+
+.zt-tool-row {
+  display: flex;
+  gap: 6px;
+}
+.zt-tool-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 0;
+  background: var(--surface-2, #1a1a1a);
+  border: 1px solid var(--border-default, #2a2a2a);
+  border-radius: 6px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s, color 0.15s;
+}
+.zt-tool-btn.active {
+  border-color: var(--brand, #C1121F);
+  color: #C1121F;
+  background: rgba(193,18,31,0.08);
+}
+.zt-tool-btn:not(.active):hover { border-color: var(--border-strong, #444); color: var(--text-primary, #f1f5f9); }
+
+.zt-color-row {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.zt-color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s, border-color 0.12s;
+}
+.zt-color-swatch:hover  { transform: scale(1.18); }
+.zt-color-swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.25); transform: scale(1.12); }
+
+.zt-input {
+  width: 100%;
+  background: var(--surface-2, #1a1a1a);
+  border: 1px solid var(--border-default, #2a2a2a);
+  border-radius: 6px;
+  color: var(--text-primary, #f1f5f9);
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.zt-input:focus { border-color: var(--brand, #C1121F); }
+
+.zt-draw-btn {
+  width: 100%;
+  background: var(--surface-2, #1a1a1a);
+  border: 1px dashed var(--border-strong, #444);
+  border-radius: 6px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.zt-draw-btn:hover { border-color: var(--brand, #C1121F); color: var(--text-primary, #f1f5f9); }
+.zt-draw-btn.active { border-color: #C1121F; color: #C1121F; background: rgba(193,18,31,0.08); border-style: solid; }
+
+.zt-drawn-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.3);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.zt-drawn-ok { font-size: 12px; color: #22c55e; }
+.zt-redo { background: none; border: none; color: #94a3b8; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; }
+
+.zt-hint { font-size: 11px; color: var(--text-tertiary, #6b7280); font-style: italic; margin: 6px 0 0; }
+
+
+.zt-error {
+  margin: 0 14px;
+  padding: 7px 10px;
+  background: rgba(220,38,38,0.12);
+  border: 1px solid rgba(220,38,38,0.3);
+  border-radius: 6px;
+  color: #f87171;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.zt-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--border-default, #2a2a2a);
+  flex-shrink: 0;
+}
+.zt-cancel-btn {
+  background: none;
+  border: 1px solid var(--border-default, #2a2a2a);
+  border-radius: 6px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.zt-cancel-btn:hover { border-color: var(--border-strong, #444); }
+.zt-save-btn {
+  background: var(--brand, #C1121F);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 16px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.zt-save-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.zt-save-btn:not(:disabled):hover { background: #a01019; }

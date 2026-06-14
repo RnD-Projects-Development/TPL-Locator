@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield } from 'lucide-react'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield, Layers, Link2, Unlink, ChevronDown, FileDown, Loader } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { toPng } from 'html-to-image'
+import jsPDF from 'jspdf'
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
-import { useBindCache } from '../context/BindCacheContext.jsx'
 import { useAlerts } from '../context/AlertsContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
@@ -51,7 +52,7 @@ const ChartTip = ({ active, payload, label }) => {
 /* ── Battery donut colors: High / Medium / Low ─────────────────── */
 const BATT_COLORS = ['#4ade80', '#F59E0B', '#f87171']
 
-/* ── Insight row card shell — identical to existing panel cards ─── */
+/* ── Insight card shell — identical to existing panel cards ─────── */
 const INSIGHT_CARD = {
   ...panel,
   display: 'flex',
@@ -60,7 +61,7 @@ const INSIGHT_CARD = {
 }
 const CARD_HDR = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  gap: '10px', padding: '22px 22px 14px', flexShrink: 0,
+  gap: '10px', padding: '18px 20px 12px', flexShrink: 0,
 }
 const CARD_TTL = {
   fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em',
@@ -71,8 +72,6 @@ const EMPTY_MSG = {
   textAlign: 'center', padding: '20px 0', margin: 0,
 }
 const BAR_COLORS = ['#3A86FF', '#4CAF50', '#F4A261', '#8E7DBE', '#2A9D8F']
-
-function todayStr() { return new Date().toISOString().slice(0, 10) }
 
 function fmtRelTime(ts) {
   if (!ts) return '—'
@@ -87,397 +86,186 @@ function fmtRelTime(ts) {
   } catch { return '—' }
 }
 
-/* Short absolute date — used for bind-time labels (e.g. "12 Mar 25") */
-function fmtBindDate(ms) {
-  if (ms == null) return null
-  try {
-    const d = new Date(ms)
-    if (isNaN(d.getTime())) return null
-    return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' })
-  } catch { return null }
-}
-
 /* ══════════════════════════════════════════════════════════════════
-   TOP DEVICES — horizontal bar chart (packet count)
+   FLEET HEALTH SNAPSHOT — 4-column system diagnostics card for admin
+   No filters — always shows live fleet state at a glance
    ══════════════════════════════════════════════════════════════════ */
-function TopDevicesCard({ devices, activityData }) {
-  const [hovered, setHovered] = useState(null)
-  const [dims, setDims]       = useState({ w: 300, h: 180 })
-  const wrapRef               = useRef(null)
+function FleetSnapshotCard({ devices, locations, activityData, zones, summary }) {
+  const { bind, style: hoverStyle } = usePanelHover()
 
-  useEffect(() => {
-    if (!wrapRef.current) return
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect
-      setDims({ w: Math.max(width, 100), h: Math.max(height, 60) })
-    })
-    ro.observe(wrapRef.current)
-    return () => ro.disconnect()
-  }, [])
+  const total     = Number(summary?.total)  || devices.length
+  const onlineNow = Number(summary?.online) || 0
+  const onlineRate = total > 0 ? Math.round((onlineNow / total) * 100) : 0
+  const upColor    = onlineRate >= 70 ? '#4ade80' : onlineRate >= 40 ? '#FBBF24' : '#f87171'
 
-  const ranked = useMemo(() => [...devices]
-    .map(d => {
-      const sn      = d.sn ?? ''
-      const packets = activityData[sn]?.length || (d.datapoint_count ?? d.packetCount ?? d.packet_count ?? 0)
-      return { sn, name: d.name ?? d.assignedUser ?? sn, packets }
-    })
-    .filter(d => d.sn)
-    .sort((a, b) => b.packets - a.packets)
-    .slice(0, 5),
-  [devices, activityData])
+  const batteryWarn = useMemo(() =>
+    Object.values(locations).filter(loc => loc?.batteryStatus != null && loc.batteryStatus < 20).length
+  , [locations])
 
-  const maxP  = ranked[0]?.packets || 1
-  const PAD_L = 88, PAD_R = 48, PAD_T = 8, PAD_B = 8
-  const { w: W, h: H } = dims
-  const chartW = W - PAD_L - PAD_R
-  const chartH = H - PAD_T - PAD_B
-  const rowH   = ranked.length > 0 ? chartH / ranked.length : 0
-  const barH   = Math.min(14, rowH * 0.45)
-  const xTicks = [0.25, 0.5, 0.75, 1]
+  const longOffline = useMemo(() => {
+    const cutoff = 7 * 24 * 60 * 60 * 1000
+    return devices.filter(d => {
+      const loc = locations?.[d.sn]
+      const ts  = loc?.timestamp ?? loc?.time ?? loc?.locTime ?? d.last_seen ?? d.dataRetrievalTime
+      return ts && (Date.now() - new Date(ts).getTime()) > cutoff
+    }).length
+  }, [devices, locations])
 
-  const { bind: hoverBind, style: hoverStyle } = usePanelHover()
-  return (
-    <div {...hoverBind} style={{ ...INSIGHT_CARD, minHeight: '260px', ...hoverStyle }}>
-      <div style={CARD_HDR}>
-        <div>
-          <div style={CARD_TTL}>Top 5 by Packets</div>
-          <div style={CARD_SUB}>{ranked.length} devices reporting</div>
-        </div>
-      </div>
-      <div ref={wrapRef} style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {ranked.length === 0 ? (
-          <p style={EMPTY_MSG}>No activity data</p>
-        ) : (
-          <svg width={W} height={H} style={{ display: 'block', position: 'absolute', inset: 0 }}>
-            <defs>
-              {ranked.map((_, i) => (
-                <linearGradient key={`hbg${i}`} id={`dbhbg${i}`} x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%"   stopColor={BAR_COLORS[i]} stopOpacity="0.55" />
-                  <stop offset="100%" stopColor={BAR_COLORS[i]} stopOpacity="1" />
-                </linearGradient>
-              ))}
-            </defs>
-            {xTicks.map((f, ti) => {
-              const x = PAD_L + f * chartW
-              return <line key={ti} x1={x} x2={x} y1={PAD_T} y2={PAD_T + chartH} stroke="rgba(255,255,255,0.06)" strokeWidth={1} strokeDasharray="3 4" />
-            })}
-            <line x1={PAD_L} x2={PAD_L} y1={PAD_T} y2={PAD_T + chartH} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
-            {ranked.map((r, i) => {
-              const barW  = Math.max((r.packets / maxP) * chartW, 2)
-              const cy    = PAD_T + i * rowH + rowH / 2
-              const isHov = hovered === i
-              const label = (r.name !== r.sn ? r.name : r.sn).replace('CARD-', '')
-              const displayLabel = label.length > 13 ? label.slice(0, 12) + '…' : label
-              return (
-                <g key={r.sn} style={{ cursor: 'default' }}
-                  onMouseEnter={() => setHovered(i)}
-                  onMouseLeave={() => setHovered(null)}>
-                  {isHov && <rect x={PAD_L} y={PAD_T + i * rowH} width={chartW} height={rowH} fill="rgba(167,44,50,0.07)" rx={2} />}
-                  <rect x={PAD_L} y={cy - barH / 2} width={barW} height={barH} rx={4}
-                    fill={`url(#dbhbg${i})`} opacity={isHov ? 1 : 0.82}
-                    style={{ transition: 'opacity 0.15s' }} />
-                  <text x={PAD_L - 6} y={cy + 3.5} textAnchor="end" fontSize={10} fontWeight="600"
-                    fill={isHov ? '#fca5a5' : '#D4D4D4'}
-                    style={{ transition: 'fill 0.15s' }}>
-                    {displayLabel}
-                  </text>
-                  <text x={PAD_L + barW + 5} y={cy + 3.5} textAnchor="start" fontSize={9}
-                    fill={BAR_COLORS[i]} fontWeight="700">
-                    {r.packets.toLocaleString()}
-                  </text>
-                </g>
-              )
-            })}
-          </svg>
-        )}
-      </div>
-    </div>
-  )
-}
+  const inZone = useMemo(() =>
+    devices.filter(d => d.fence_zone_ids?.length > 0).length
+  , [devices])
 
-/* ══════════════════════════════════════════════════════════════════
-   USER DEVICE PANEL — pie chart + per-user device counts (assigned only)
-   Filters: Most Active · Oldest Bound · Recent Bound — top 5 each
-   ══════════════════════════════════════════════════════════════════ */
-const UDP_FILTERS = [
-  { key: 'active', label: 'Most Active' },
-  { key: 'oldest', label: 'Oldest Bound' },
-  { key: 'recent', label: 'Recent Bound' },
-]
+  const locatorCount = Number(summary?.locators) || 0
+  const stickerCount = Number(summary?.stickers) || 0
+  const typeTotal    = locatorCount + stickerCount || 1
+  const locPct       = Math.round((locatorCount / typeTotal) * 100)
 
-function UserDevicePanelCard({ devices, activityData = {} }) {
-  const [hovered,    setHovered]    = useState(null)
-  const [filterMode, setFilterMode] = useState('active')   // 'active' | 'oldest' | 'recent'
-  const ini = n => n.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || '??'
+  const topZones = useMemo(() =>
+    [...zones]
+      .map(z => ({ name: z.name || 'Unnamed', count: z.device_sns?.length || 0 }))
+      .sort((a, b) => b.count - a.count)
+      .filter(z => z.count > 0)
+      .slice(0, 4)
+  , [zones])
 
-  // Aggregate every ASSIGNED device under its user: device count, datapoints, bind times.
-  // Datapoints use the SAME source as "Top 5 by Packets" (today's activity points,
-  // falling back to the stored datapoint_count) so the two cards never disagree.
-  const allUsers = useMemo(() => {
-    const map = {}
-    devices.filter(d => d.assigned_user_name || d.user_id).forEach(d => {
-      const u = d.assigned_user_name ?? d.assignedUser ?? d.client ?? d.name ?? '—'
-      if (!map[u]) map[u] = { user: u, count: 0, datapoints: 0, oldest: null, recent: null }
-      map[u].count++
-      const points = activityData?.[d.sn]?.length || Number(d.datapoint_count ?? d.packetCount ?? d.packet_count ?? 0) || 0
-      map[u].datapoints += points
-      const bt = d.bindTime ? new Date(d.bindTime).getTime() : null
-      if (bt != null && !isNaN(bt)) {
-        map[u].oldest = map[u].oldest == null ? bt : Math.min(map[u].oldest, bt)
-        map[u].recent = map[u].recent == null ? bt : Math.max(map[u].recent, bt)
-      }
-    })
-    return Object.values(map)
-  }, [devices, activityData])
+  const topDevices = useMemo(() =>
+    [...devices]
+      .map(d => ({ sn: d.sn, pts: activityData?.[d.sn]?.length || 0 }))
+      .sort((a, b) => b.pts - a.pts)
+      .slice(0, 4)
+  , [devices, activityData])
 
-  // Sort by active filter, then take the top 5 matching that criteria
-  const displayedUsers = useMemo(() => {
-    const arr = [...allUsers]
-    if (filterMode === 'active') {
-      arr.sort((a, b) => (b.datapoints - a.datapoints) || (b.count - a.count))
-    } else if (filterMode === 'oldest') {
-      arr.sort((a, b) => {
-        if (a.oldest == null) return 1
-        if (b.oldest == null) return -1
-        return a.oldest - b.oldest
-      })
-    } else { // recent
-      arr.sort((a, b) => {
-        if (a.recent == null) return 1
-        if (b.recent == null) return -1
-        return b.recent - a.recent
-      })
-    }
-    return arr.slice(0, 5)
-  }, [allUsers, filterMode])
-
-  // Pie = the displayed (top 5) users, sized by device count
-  const slices = useMemo(() => {
-    const pieData = displayedUsers.map((u, i) => ({
-      user: u.user, count: u.count, color: BAR_COLORS[i % BAR_COLORS.length],
-    }))
-    const total = pieData.reduce((s, e) => s + e.count, 0)
-    if (total === 0) return []
-
-    const CX = 90, CY = 90, R = 80, GAP = 1.2
-    const toRad = deg => (deg * Math.PI) / 180
-    let cursor = -90
-    return pieData.map(entry => {
-      const deg   = (entry.count / total) * (360 - Math.min(pieData.length, 5) * GAP)
-      const start = cursor
-      const end   = start + deg
-      cursor      = end + GAP
-      const large = deg > 180 ? 1 : 0
-      const x1 = CX + R * Math.cos(toRad(start))
-      const y1 = CY + R * Math.sin(toRad(start))
-      const x2 = CX + R * Math.cos(toRad(end))
-      const y2 = CY + R * Math.sin(toRad(end))
-      const mid = toRad(start + deg / 2)
-      return {
-        ...entry,
-        path: `M ${CX} ${CY} L ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} Z`,
-        lx:  CX + R * 0.62 * Math.cos(mid),
-        ly:  CY + R * 0.62 * Math.sin(mid),
-        pct: Math.round((entry.count / total) * 100),
-      }
-    })
-  }, [displayedUsers])
-
-  const hovSlice = hovered !== null ? slices[hovered] : null
-  const CX = 90, CY = 90
-  const { bind: hoverBind, style: hoverStyle } = usePanelHover()
+  const DIVIDER = { borderRight: '1px solid rgba(255,255,255,0.06)' }
+  const SECTION_HDR = { fontSize: 10, fontWeight: 700, color: '#909090', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 14 }
 
   return (
-    <div {...hoverBind} style={{ ...INSIGHT_CARD, minHeight: '260px', ...hoverStyle }}>
+    <div {...bind} style={{ ...INSIGHT_CARD, ...hoverStyle }}>
       <div style={CARD_HDR}>
         <div>
-          <div style={CARD_TTL}>Users &amp; Devices</div>
-          <div style={CARD_SUB}>{allUsers.length} user{allUsers.length !== 1 ? 's' : ''} · top 5 shown</div>
-        </div>
-        {/* Filter tabs */}
-        <div style={{ display: 'flex', gap: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid rgba(255,255,255,0.08)' }}>
-          {UDP_FILTERS.map(({ key, label }) => (
-            <button key={key} onClick={() => setFilterMode(key)}
-              style={{ padding: '3px 9px', borderRadius: 6, border: 'none', fontSize: 10, fontWeight: 700,
-                cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap',
-                background: filterMode === key ? '#A72C32' : 'transparent',
-                color:      filterMode === key ? '#FFFFFF'  : 'rgba(255,255,255,0.50)',
-              }}>
-              {label}
-            </button>
-          ))}
+          <div style={CARD_TTL}>Fleet Health Snapshot</div>
+          <div style={CARD_SUB}>Live system diagnostics — {total} devices total</div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', flex: 1, minHeight: 0, padding: '6px 12px 12px' }}>
-        {/* Pie chart */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <svg width={180} height={180}>
-            {slices.length === 0
-              ? <circle cx={CX} cy={CY} r={80} fill="rgba(255,255,255,0.03)" strokeDasharray="5 4" stroke="rgba(255,255,255,0.08)" />
-              : slices.map((s, i) => (
-                <path key={s.user} d={s.path}
-                  fill={s.color}
-                  opacity={hovered === null ? 0.88 : hovered === i ? 1 : 0.22}
-                  style={{ cursor: 'pointer', transition: 'opacity 0.15s, transform 0.15s',
-                    transformOrigin: `${CX}px ${CY}px`,
-                    transform: hovered === i ? 'scale(1.04)' : 'scale(1)',
-                  }}
-                  onMouseEnter={() => setHovered(i)}
-                  onMouseLeave={() => setHovered(null)}
-                />
-              ))}
-            {hovSlice && (
-              <text x={hovSlice.lx} y={hovSlice.ly + 4} textAnchor="middle"
-                fontSize={12} fontWeight="700" fill="#ffffff" style={{ pointerEvents: 'none' }}>
-                {hovSlice.pct}%
-              </text>
-            )}
-          </svg>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', padding: '2px 0 20px' }}>
 
-        {/* Top-5 user list — name + device count, with a metric subtitle per filter */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '9px', padding: '2px 0 0' }}>
-          {displayedUsers.length === 0
-            ? <p style={EMPTY_MSG}>No assigned devices</p>
-            : displayedUsers.map((u, i) => {
-              const color = BAR_COLORS[i % BAR_COLORS.length]
-              let subtitle = null
-              if (filterMode === 'active')      subtitle = `${u.datapoints.toLocaleString()} datapoints`
-              else if (filterMode === 'oldest') subtitle = u.oldest != null ? `First bound ${fmtBindDate(u.oldest)}` : null
-              else if (filterMode === 'recent') subtitle = u.recent != null ? `Last bound ${fmtBindDate(u.recent)}`  : null
-              return (
-                <div key={u.user} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', flexShrink: 0,
-                    fontSize: '8px', fontWeight: 800,
-                    background: `${color}18`, color, border: `1px solid ${color}30`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {ini(u.user)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#FFFFFF',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.user}</div>
-                    {subtitle && (
-                      <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.40)', marginTop: 1 }}>{subtitle}</div>
-                    )}
-                  </div>
-                  <span style={{ fontSize: '13px', fontWeight: 800, color, flexShrink: 0 }}>{u.count}</span>
-                </div>
-              )
-            })
-          }
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   BOUND DEVICES CHART — monthly locator bind vertical bar chart
-   ══════════════════════════════════════════════════════════════════ */
-function BoundDevicesCard({ devices, selectedDate }) {
-  const { getMergedBindings } = useBindCache()
-
-  const { months, total } = useMemo(() => {
-    const PKT_OFFSET_MS = 5 * 60 * 60 * 1000
-    const nowUtc = selectedDate ? new Date(selectedDate + 'T23:59:59.999Z') : new Date()
-    const now = new Date(nowUtc.getTime() - PKT_OFFSET_MS)
-    const months = []
-    for (let i = 7; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      months.push({
-        key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-        label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        count: 0,
-      })
-    }
-    const map = Object.fromEntries(months.map(m => [m.key, m]))
-    const mergedMap = getMergedBindings(devices)
-    const seen = new Set()
-    devices.forEach(d => {
-      if (!d.sn || seen.has(d.sn)) return
-      seen.add(d.sn)
-      const bindTime = mergedMap.get(d.sn)
-      if (!bindTime) return
-      const dt = new Date(bindTime)
-      if (isNaN(dt) || dt > now) return
-      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
-      if (map[key]) map[key].count++
-    })
-    const total = months.reduce((s, m) => s + m.count, 0)
-    return { months, total }
-  }, [devices, selectedDate, getMergedBindings])
-
-  const selectedKey = selectedDate ? selectedDate.slice(0, 7) : new Date().toISOString().slice(0, 7)
-
-  const BoundTooltip = ({ active, payload, label }) => {
-    if (!active || !payload?.length) return null
-    return (
-      <div style={{
-        background: 'rgba(12,12,12,0.95)', border: '1px solid rgba(167,44,50,0.30)',
-        borderRadius: '8px', padding: '6px 12px', fontSize: '12px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
-      }}>
-        <div style={{ color: '#CFCFCF', marginBottom: '3px' }}>{label}</div>
-        <div style={{ color: '#f59e0b', fontWeight: 700 }}>{payload[0].value} bound</div>
-      </div>
-    )
-  }
-
-  const { bind: hoverBind, style: hoverStyle } = usePanelHover()
-  return (
-    <div {...hoverBind} style={{ ...INSIGHT_CARD, minHeight: '260px', ...hoverStyle }}>
-      <div style={CARD_HDR}>
-        <div>
-          <div style={CARD_TTL}>Bound Locators / Month</div>
-          <div style={CARD_SUB}>{total} bound over last 8 months</div>
-        </div>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, padding: '0 10px 14px' }}>
-        {total === 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 80 }}>
-            <span style={CARD_SUB}>No bind dates found</span>
+        {/* ── Section 1: Uptime ── */}
+        <div style={{ padding: '4px 24px 4px 20px', ...DIVIDER }}>
+          <div style={SECTION_HDR}>Fleet Uptime</div>
+          <div style={{ fontSize: 52, fontWeight: 800, color: upColor, lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
+          <div style={{ fontSize: 12, color: '#C0C0C0', marginTop: 6 }}>{onlineNow} of {total} online</div>
+          <div style={{ marginTop: 14, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${onlineRate}%`, background: upColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
           </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={months} margin={{ top: 8, right: 6, bottom: 0, left: -18 }} barCategoryGap="30%">
-              <defs>
-                <linearGradient id="bar-bound-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor="#C44E54" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#7A1A1F" stopOpacity={0.85} />
-                </linearGradient>
-                <linearGradient id="bar-bound-sel" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor="#fcd34d" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#d97706" stopOpacity={0.9} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis
-                dataKey="label"
-                tick={{ fill: '#B8B8B8', fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                interval={0}
-                tickFormatter={l => l.split(' ')[0]}
-              />
-              <YAxis
-                tick={{ fill: '#B8B8B8', fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                allowDecimals={false}
-              />
-              <Tooltip content={<BoundTooltip />} cursor={{ fill: 'rgba(167,44,50,0.08)', radius: 4 }} />
-              <Bar dataKey="count" name="Bound" radius={[5, 5, 0, 0]} maxBarSize={28}>
-                {months.map((m) => (
-                  <Cell
-                    key={m.key}
-                    fill={m.key === selectedKey ? 'url(#bar-bound-sel)' : 'url(#bar-bound-grad)'}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', marginTop: 6 }}>
+            {onlineRate >= 70 ? 'Fleet healthy' : onlineRate >= 40 ? 'Needs attention' : 'Critical — many offline'}
+          </div>
+        </div>
+
+        {/* ── Section 2: Critical Watches ── */}
+        <div style={{ padding: '4px 24px 4px', ...DIVIDER }}>
+          <div style={SECTION_HDR}>Critical Watches</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[
+              { label: 'Battery < 20%',  value: batteryWarn,  warn: batteryWarn > 0,  color: batteryWarn > 0 ? '#F59E0B' : '#4ade80' },
+              { label: 'Offline > 7 days', value: longOffline, warn: longOffline > 0,  color: longOffline > 0  ? '#f87171' : '#4ade80' },
+              { label: 'In a geofence',  value: inZone,        warn: false,            color: '#22D3EE' },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: item.color, display: 'block', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: '#D0D0D0' }}>{item.label}</span>
+                </div>
+                <span style={{ fontSize: 15, fontWeight: 800, color: item.color, flexShrink: 0 }}>{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Section 3: Device Mix ── */}
+        <div style={{ padding: '4px 24px 4px', ...DIVIDER }}>
+          <div style={SECTION_HDR}>Device Mix</div>
+          {/* Segmented bar */}
+          <div style={{ display: 'flex', height: 7, borderRadius: 4, overflow: 'hidden', marginBottom: 16 }}>
+            <div style={{ width: `${locPct}%`, background: '#00B4D8', transition: 'width 0.5s ease' }} />
+            <div style={{ flex: 1, background: '#FFB703' }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { label: 'Locators',       value: locatorCount, color: '#00B4D8', pct: locPct },
+              { label: 'Smart Stickers', value: stickerCount, color: '#FFB703', pct: 100 - locPct },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, display: 'block', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: '#D0D0D0' }}>{item.label}</span>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', fontFamily: 'monospace' }}>{item.pct}%</span>
+                </div>
+                <span style={{ fontSize: 15, fontWeight: 800, color: item.color }}>{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Section 4: Zone Pizza Chart or Top Devices ── */}
+        <div style={{ padding: '4px 20px 4px 24px' }}>
+          <div style={SECTION_HDR}>{topZones.length > 0 ? 'Most Loaded Zones' : 'Most Active Devices'}</div>
+          {topZones.length > 0 ? (
+            <ResponsiveContainer width="100%" height={90}>
+              <PieChart>
+                <Pie
+                  data={topZones}
+                  dataKey="count"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={42}
+                  paddingAngle={topZones.length > 1 ? 3 : 0}
+                  startAngle={90}
+                  endAngle={-270}
+                  stroke="none"
+                  isAnimationActive={false}
+                >
+                  {topZones.map((z, i) => (
+                    <Cell key={z.name} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  cursor={false}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null
+                    const z = payload[0].payload
+                    const color = BAR_COLORS[topZones.indexOf(z) % BAR_COLORS.length]
+                    const pct = Math.round((z.count / topZones.reduce((s, x) => s + x.count, 0)) * 100)
+                    return (
+                      <div style={{ background: '#161616', border: `1px solid ${color}40`, borderRadius: 8, padding: '8px 12px', pointerEvents: 'none', boxShadow: `0 4px 16px rgba(0,0,0,0.5)` }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{z.name}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
+                          <span style={{ fontSize: 11, color: color, fontWeight: 700 }}>{z.count} device{z.count !== 1 ? 's' : ''}</span>
+                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginLeft: 2 }}>{pct}%</span>
+                        </div>
+                      </div>
+                    )
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {topDevices.map((d, i) => (
+                <div key={d.sn} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: BAR_COLORS[i % BAR_COLORS.length], display: 'block', flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#D0D0D0', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.sn}</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: BAR_COLORS[i % BAR_COLORS.length], flexShrink: 0 }}>{d.pts} pts</span>
+                </div>
+              ))}
+              {topDevices.every(d => d.pts === 0) && (
+                <p style={EMPTY_MSG}>No activity data yet</p>
+              )}
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   )
@@ -486,64 +274,53 @@ function BoundDevicesCard({ devices, selectedDate }) {
 /* ══════════════════════════════════════════════════════════════════
    RECENT ACTIVITY PANEL — filtered table, max 8 rows, no scroll
    ══════════════════════════════════════════════════════════════════ */
-function RecentActivityPanel({ activityRows }) {
+function RecentActivityPanel({ activityRows, totalActive }) {
   const { bind, style: hoverStyle } = usePanelHover()
-  const [activitySearch, setActivitySearch] = useState('')
-  const [statusFilter,   setStatusFilter]   = useState('Active') // default: show only online
+  const [search, setSearch] = useState('')
+
+  const activeRows = useMemo(() =>
+    activityRows.filter(r => r.status === 'online')
+  , [activityRows])
+
+  const isSearching = search.trim().length > 0
 
   const visibleRows = useMemo(() => {
-    const q = activitySearch.toLowerCase()
-    return activityRows.filter(r => {
-      const matchStatus =
-        statusFilter === 'All'    ? true :
-        statusFilter === 'Active' ? r.status === 'online' :
-                                    r.status === 'offline'
-      const matchSearch = !q || r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q)
-      return matchStatus && matchSearch
-    })
-  }, [activityRows, activitySearch, statusFilter])
+    if (!isSearching) return activeRows.slice(0, 6)
+    const q = search.toLowerCase()
+    return activityRows
+      .filter(r => r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q))
+      .slice(0, 6)
+  }, [activityRows, activeRows, search, isSearching])
 
-  const capped   = visibleRows.slice(0, 8)
-  const overflow = visibleRows.length - 8
+  const trueTotal = totalActive ?? activeRows.length
+  const overflow  = !isSearching ? Math.max(0, trueTotal - 6) : 0
 
   return (
     <div {...bind} style={{ ...panel, overflow: 'hidden', ...hoverStyle }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>Recent Activity</div>
           <div style={{ fontSize: '11px', color: '#E0E0E0', marginTop: '2px' }}>
-            {activitySearch
-              ? `${visibleRows.length} matching · sorted by last reported`
-              : `${capped.length}${overflow > 0 ? ` of ${visibleRows.length}` : ''} device${capped.length !== 1 ? 's' : ''} · sorted by last reported`}
+            {isSearching
+              ? `${visibleRows.length} result${visibleRows.length !== 1 ? 's' : ''} for "${search.trim()}"`
+              : trueTotal === 0
+                ? 'No active devices right now'
+                : `Showing ${visibleRows.length} of ${trueTotal} active device${trueTotal !== 1 ? 's' : ''}`}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Status filter tabs */}
-          <div style={{ display: 'flex', gap: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, border: '1px solid rgba(255,255,255,0.08)' }}>
-            {['All', 'Active', 'Offline'].map(tab => (
-              <button key={tab} onClick={() => setStatusFilter(tab)}
-                style={{ padding: '3px 10px', borderRadius: 6, border: 'none', fontSize: 10, fontWeight: 700,
-                  cursor: 'pointer', transition: 'all 0.15s',
-                  background: statusFilter === tab ? '#A72C32' : 'transparent',
-                  color:      statusFilter === tab ? '#FFFFFF'  : 'rgba(255,255,255,0.50)',
-                }}>
-                {tab}
-              </button>
-            ))}
-          </div>
-          <input
-            placeholder="Search devices…"
-            value={activitySearch}
-            onChange={e => setActivitySearch(e.target.value)}
-            style={{ height: '28px', padding: '0 12px', fontSize: '11px',
-              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
-              borderRadius: '999px', color: '#F5F5F5', outline: 'none',
-              width: '130px', transition: 'border-color 0.15s, width 0.2s',
-            }}
-            onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = '170px' }}
-            onBlur={e  => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = '130px' }}
-          />
-        </div>
+        <input
+          placeholder="Search devices…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{
+            flexShrink: 0, height: '28px', padding: '0 12px', fontSize: '11px',
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
+            borderRadius: '999px', color: '#F5F5F5', outline: 'none',
+            width: '140px', transition: 'border-color 0.15s, width 0.2s',
+          }}
+          onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = '180px' }}
+          onBlur={e  => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = '140px' }}
+        />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr', padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
         {['Device ID', 'User / Label', 'Status', 'Last Reported'].map(h => (
@@ -551,11 +328,11 @@ function RecentActivityPanel({ activityRows }) {
         ))}
       </div>
       <div>
-        {capped.length === 0 ? (
+        {visibleRows.length === 0 ? (
           <div style={{ padding: '32px', textAlign: 'center', color: '#B8B8B8', fontSize: '13px' }}>
-            {activitySearch ? `No results for "${activitySearch}"` : `No ${statusFilter === 'All' ? '' : statusFilter.toLowerCase() + ' '}devices`}
+            {isSearching ? `No results for "${search.trim()}"` : 'No active devices'}
           </div>
-        ) : capped.map((row, idx) => (
+        ) : visibleRows.map((row, idx) => (
           <div key={row.id}
             style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr',
               padding: '10px 20px', borderBottom: '1px solid rgba(255,255,255,0.03)',
@@ -564,7 +341,7 @@ function RecentActivityPanel({ activityRows }) {
             }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(167,44,50,0.06)'}
             onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
-          >
+        >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
               <span style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.id}</span>
               <span style={{ flexShrink: 0, fontSize: '9px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
@@ -577,17 +354,14 @@ function RecentActivityPanel({ activityRows }) {
             </span>
             <span style={{ fontSize: '12px', color: '#F0F0F0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '8px' }}>{row.user}</span>
             <span>
-              {row.status === 'online'
-                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: 'rgba(74,222,128,0.10)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.22)' }}>● Active</span>
-                : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: 'rgba(248,113,113,0.10)', color: '#f87171', border: '1px solid rgba(248,113,113,0.22)' }}>● Offline</span>
-              }
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: 'rgba(74,222,128,0.10)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.22)' }}>● Active</span>
             </span>
             <span style={{ fontSize: '12px', color: '#D4D4D4', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{fmtRelTime(row.lastSeen)}</span>
           </div>
         ))}
         {overflow > 0 && (
           <div style={{ padding: '10px 20px', fontSize: '11px', color: 'rgba(255,255,255,0.35)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.04)', fontStyle: 'italic' }}>
-            Showing 8 of {visibleRows.length} — use filters to narrow
+            +{overflow} more active · search by device ID or user name to find them
           </div>
         )}
       </div>
@@ -606,7 +380,7 @@ function CriticalAlertStrip({ alerts, onView }) {
   const preview = names.slice(0, PREVIEW).join(', ')
   const more    = names.length - PREVIEW
   return (
-    <div {...bind} style={{ ...panel, padding:'14px 20px', display:'flex', alignItems:'center', gap:'12px', borderColor:'rgba(239,68,68,0.25)', background:'rgba(239,68,68,0.06)', ...hoverStyle }}>
+    <div {...bind} style={{ ...panel, padding:'12px 20px', display:'flex', alignItems:'center', gap:'12px', borderColor:'rgba(239,68,68,0.25)', background:'rgba(239,68,68,0.06)', ...hoverStyle }}>
       <AlertOctagon style={{ width:'18px', height:'18px', color:'#f87171', flexShrink:0 }} />
       {/* Single fixed-height line — truncates with ellipsis no matter how many alerts */}
       <div style={{ flex:1, minWidth:0, fontSize:'13px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
@@ -632,51 +406,50 @@ function CriticalAlertStrip({ alerts, onView }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   DETECTION ACTIVITY PANEL — area chart with hover shadow
+   RECENT TREND PANEL — hourly activity area chart
    ══════════════════════════════════════════════════════════════════ */
-function DetectionActivityPanel({ generalBins, peakLabel }) {
+function RecentTrendPanel({ generalBins, peakLabel }) {
   const { bind, style: hoverStyle } = usePanelHover()
   return (
-    <div {...bind} style={{ ...panel, padding:'22px 24px', ...hoverStyle }}>
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:'18px' }}>
-        <div>
-          <div style={{ fontSize:'15px', fontWeight:700, color:'#FFFFFF', letterSpacing:'-0.01em' }}>Detection Activity</div>
-          <div style={{ fontSize:'11px', color:'#E0E0E0', marginTop:'3px' }}>BLE scan events by hour — today</div>
-        </div>
+    <div {...bind} style={{ ...panel, padding:'18px 20px', display:'flex', flexDirection:'column', ...hoverStyle }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }}>
+        <div style={{ fontSize:'15px', fontWeight:700, color:'#FFFFFF', letterSpacing:'-0.01em' }}>Recent Trend</div>
         <span style={{ fontSize:'11px', fontWeight:700, color:'#C44E54', background:'rgba(164,44,50,0.12)', border:'1px solid rgba(164,44,50,0.22)', borderRadius:'6px', padding:'3px 10px' }}>
           {peakLabel}
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={190}>
-        <AreaChart data={generalBins} margin={{ top:4, right:4, bottom:0, left:-20 }}>
-          <defs>
-            <linearGradient id="redGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#A72C32" stopOpacity={0.35} />
-              <stop offset="95%" stopColor="#A72C32" stopOpacity={0} />
-            </linearGradient>
-            <filter id="glow">
-              <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
-              <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
-            </filter>
-          </defs>
-          <CartesianGrid strokeDasharray="1 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
-          <XAxis dataKey="hour" ticks={[0,4,8,12,16,20]} tickFormatter={h => `${String(h).padStart(2,'0')}h`}
-            tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
-          <Tooltip content={<ChartTip />} />
-          <Area
-            type="monotone"
-            dataKey="count"
-            name="Detections"
-            stroke="#C44E54"
-            strokeWidth={2.5}
-            fill="url(#redGrad)"
-            dot={false}
-            activeDot={{ r:5, fill:'#E05555', stroke:'rgba(200,50,50,0.4)', strokeWidth:4 }}
-            style={{ filter:'drop-shadow(0 0 6px rgba(196,78,84,0.6))' }}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+      <div style={{ flex: 1, minHeight: 170 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={generalBins} margin={{ top:4, right:4, bottom:0, left:-20 }}>
+            <defs>
+              <linearGradient id="redGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor="#A72C32" stopOpacity={0.35} />
+                <stop offset="95%" stopColor="#A72C32" stopOpacity={0} />
+              </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
+                <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+            </defs>
+            <CartesianGrid strokeDasharray="1 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <XAxis dataKey="hour" ticks={[0,4,8,12,16,20]} tickFormatter={h => `${String(h).padStart(2,'0')}h`}
+              tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
+            <Tooltip content={<ChartTip />} />
+            <Area
+              type="monotone"
+              dataKey="count"
+              name="Detections"
+              stroke="#C44E54"
+              strokeWidth={2.5}
+              fill="url(#redGrad)"
+              dot={false}
+              activeDot={{ r:5, fill:'#E05555', stroke:'rgba(200,50,50,0.4)', strokeWidth:4 }}
+              style={{ filter:'drop-shadow(0 0 6px rgba(196,78,84,0.6))' }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   )
 }
@@ -687,20 +460,20 @@ function DetectionActivityPanel({ generalBins, peakLabel }) {
 function BatteryStatusPanel({ batteryTiers }) {
   const { bind, style: hoverStyle } = usePanelHover()
   return (
-    <div {...bind} style={{ ...panel, padding:'22px 20px', display:'flex', flexDirection:'column', ...hoverStyle }}>
+    <div {...bind} style={{ ...panel, padding:'18px 20px', display:'flex', flexDirection:'column', ...hoverStyle }}>
       <div style={{ fontSize:'15px', fontWeight:700, color:'#FFFFFF', letterSpacing:'-0.01em', marginBottom:'3px' }}>Battery Status</div>
-      <div style={{ fontSize:'11px', color:'#E0E0E0', marginBottom:'16px' }}>
+      <div style={{ fontSize:'11px', color:'#E0E0E0', marginBottom:'10px' }}>
         {batteryTiers.noData ? 'No location data yet' : `${batteryTiers.total} devices reporting`}
       </div>
       {batteryTiers.noData ? (
-        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', height:'150px' }}>
+        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', height:'130px' }}>
           <div style={{ textAlign:'center' }}>
             <Battery style={{ width:'28px', height:'28px', color:'#A0A0A0', margin:'0 auto 8px' }} />
             <div style={{ fontSize:'12px', color:'#B8B8B8' }}>Awaiting location data</div>
           </div>
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={150}>
+        <ResponsiveContainer width="100%" height={130}>
           <PieChart>
             <Pie
               data={[
@@ -709,7 +482,7 @@ function BatteryStatusPanel({ batteryTiers }) {
                 { name: 'Low (<20%)',      value: batteryTiers.low },
               ]}
               cx="50%" cy="50%"
-              innerRadius={42} outerRadius={66}
+              innerRadius={38} outerRadius={60}
               paddingAngle={3} dataKey="value" strokeWidth={0}
             >
               {BATT_COLORS.map((color, i) => <Cell key={i} fill={color} />)}
@@ -718,7 +491,7 @@ function BatteryStatusPanel({ batteryTiers }) {
           </PieChart>
         </ResponsiveContainer>
       )}
-      <div style={{ display:'flex', flexDirection:'column', gap:'8px', marginTop:'10px' }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:'7px', marginTop:'10px' }}>
         {[
           { name: 'High',   range: '≥ 60%',  value: batteryTiers.high,   color: BATT_COLORS[0] },
           { name: 'Medium', range: '20–59%', value: batteryTiers.medium, color: BATT_COLORS[1] },
@@ -741,19 +514,131 @@ function BatteryStatusPanel({ batteryTiers }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   METRIC CARD — small stat card with hover shadow
+   ALERTS SUMMARY — executive aggregate of unread alerts by severity
+   and category (offline / battery / geofence), from AlertsContext
+   ══════════════════════════════════════════════════════════════════ */
+function AlertSummaryCard({ stats, alerts = [], onView }) {
+  const { bind, style: hoverStyle } = usePanelHover()
+
+  const severities = [
+    { label: 'Critical', value: stats.critical, color: '#f87171', bg: 'rgba(248,113,113,0.10)', border: 'rgba(248,113,113,0.25)' },
+    { label: 'Warning',  value: stats.warning,  color: '#FBBF24', bg: 'rgba(251,191,36,0.10)',  border: 'rgba(251,191,36,0.25)' },
+    { label: 'Info',     value: stats.info,     color: '#60A5FA', bg: 'rgba(96,165,250,0.10)',  border: 'rgba(96,165,250,0.25)' },
+  ]
+  const categories = [
+    { icon: WifiOff, label: 'Offline alerts', value: stats.offline, color: '#f87171' },
+    { icon: Battery, label: 'Low battery',    value: stats.battery, color: '#F59E0B' },
+    { icon: Shield,  label: 'Fence activity', value: stats.fence,   color: '#22D3EE' },
+  ]
+
+  // Device names/IDs from unread critical alerts
+  const criticalDevices = useMemo(() => {
+    const unreadCritical = alerts.filter(a => !a.isRead && a.severity === 'critical')
+    // deduplicate by device
+    const seen = new Set()
+    return unreadCritical
+      .map(a => ({ name: a.deviceName || a.deviceId || '—', type: a.type }))
+      .filter(({ name }) => { if (seen.has(name)) return false; seen.add(name); return true })
+  }, [alerts])
+
+  const SHOW_LIMIT = 6
+  const visibleDevices = criticalDevices.slice(0, SHOW_LIMIT)
+  const overflow       = criticalDevices.length - SHOW_LIMIT
+
+  const typeLabel = t => {
+    if (t === 'DEVICE_OFFLINE') return 'Offline'
+    if (t === 'BATTERY_LOW')    return 'Battery'
+    if (t === 'GEOFENCE')       return 'Fence'
+    return null
+  }
+
+  return (
+    <div {...bind} style={{ ...panel, padding: '18px 20px', ...hoverStyle }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>Alerts Summary</div>
+        <button onClick={onView}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 700, padding: 0, transition: 'color 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#fca5a5' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)' }}
+        >
+          View all →
+        </button>
+      </div>
+
+      {stats.total === 0 ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 12px', borderRadius: 10, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
+          <Shield style={{ width: 16, height: 16, color: '#4ade80', flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>All clear — no active alerts</span>
+        </div>
+      ) : (
+        <>
+          {/* Severity chips */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+            {severities.map(s => (
+              <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 10, padding: '8px 10px', textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: s.color, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Critical device list */}
+          {visibleDevices.length > 0 && (
+            <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.14)' }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>
+                Critical devices
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {visibleDevices.map(({ name, type }) => (
+                  <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#f87171', flexShrink: 0, display: 'block' }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#FFFFFF', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                    {typeLabel(type) && (
+                      <span style={{ fontSize: 9, fontWeight: 700, color: '#f87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.22)', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
+                        {typeLabel(type)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {overflow > 0 && (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 11, fontStyle: 'italic' }}>
+                    +{overflow} more
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Category breakdown */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {categories.map(c => (
+              <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <c.icon style={{ width: 12, height: 12, color: c.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: '#D8D8D8', flex: 1 }}>{c.label}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F5F5' }}>{c.value}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   METRIC CARD — compact stat card with hover shadow
    ══════════════════════════════════════════════════════════════════ */
 function MetricCard({ m }) {
   const { bind, style: hoverStyle } = usePanelHover()
   return (
-    <div {...bind} style={{ ...panel, padding:'18px 20px', display:'flex', alignItems:'center', gap:'14px', ...hoverStyle }}>
-      <div style={{ width:'40px', height:'40px', borderRadius:'10px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-        <m.icon style={{ width:'18px', height:'18px', color: m.color }} />
+    <div {...bind} style={{ ...panel, padding:'14px 18px', display:'flex', alignItems:'center', gap:'12px', cursor: m.onClick ? 'pointer' : 'default', ...hoverStyle }} onClick={m.onClick}>
+      <div style={{ width:'38px', height:'38px', borderRadius:'10px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <m.icon style={{ width:'17px', height:'17px', color: m.color }} />
       </div>
       <div>
-        <div style={{ fontSize:'24px', fontWeight:800, color:'#FFFFFF', letterSpacing:'-0.02em', lineHeight:1 }}>{m.value}</div>
-        <div style={{ fontSize:'12px', fontWeight:600, color:'#E2E2E2', marginTop:'4px' }}>{m.label}</div>
-        <div style={{ fontSize:'10px', color:'#BBBBBB', marginTop:'2px' }}>{m.sub}</div>
+        <div style={{ fontSize:'22px', fontWeight:800, color:'#FFFFFF', letterSpacing:'-0.02em', lineHeight:1 }}>{m.value}</div>
+        <div style={{ fontSize:'12px', fontWeight:600, color:'#E2E2E2', marginTop:'3px' }}>{m.label}</div>
+        <div style={{ fontSize:'10px', color:'#BBBBBB', marginTop:'1px' }}>{m.sub}</div>
       </div>
     </div>
   )
@@ -765,8 +650,87 @@ export default function Dashboard() {
   const { alerts } = useAlerts()
   const { users } = useUserCache()
   const { zones } = useZoneCache()
+  const dashboardRef = useRef(null)
+  const page1Ref     = useRef(null)
+  const page2Ref     = useRef(null)
+  const exportBtnRef = useRef(null)
 
-  // Hourly activity bins from real playback data (replaces mock detectionsByHour)
+  const [exporting,    setExporting]    = useState(false)
+  const [isCapturing,  setIsCapturing]  = useState(false)
+  const [activePage,   setActivePage]   = useState(1)
+
+  const handleExportPDF = async () => {
+    if (exporting) return
+    setExporting(true)
+    const savedPage = activePage
+    setIsCapturing(true)
+    await new Promise(r => setTimeout(r, 80))
+
+    try {
+      const p1 = page1Ref.current
+      const p2 = page2Ref.current
+      if (!p1 || !p2) return
+
+      const PX_TO_MM = 25.4 / 96
+      const A4_W_MM  = 297
+      const A4_H_MM  = 210
+
+      const nodeFilter = node => {
+        if (exportBtnRef.current && node === exportBtnRef.current) return false
+        return true
+      }
+
+      async function captureEl(el) {
+        const w = el.scrollWidth
+        const h = el.scrollHeight
+        return toPng(el, {
+          pixelRatio: 2,
+          backgroundColor: '#141414',
+          width: w, height: h,
+          style: { overflow: 'visible', height: `${h}px`, width: `${w}px` },
+          filter: nodeFilter,
+        })
+      }
+
+      // Slide each page into view instantly (transitions disabled while isCapturing)
+      setActivePage(1)
+      await new Promise(r => setTimeout(r, 120))
+      const url1 = await captureEl(p1)
+
+      setActivePage(2)
+      await new Promise(r => setTimeout(r, 120))
+      const url2 = await captureEl(p2)
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+
+      function addPageImage(url, el) {
+        const wMM  = el.scrollWidth  * PX_TO_MM
+        const hMM  = el.scrollHeight * PX_TO_MM
+        const scale = Math.min(A4_W_MM / wMM, A4_H_MM / hMM)
+        const drawW = wMM * scale
+        const drawH = hMM * scale
+        const x = (A4_W_MM - drawW) / 2
+        const y = (A4_H_MM - drawH) / 2
+        pdf.addImage(url, 'PNG', x, y, drawW, drawH)
+      }
+
+      addPageImage(url1, p1)
+      pdf.addPage()
+      addPageImage(url2, p2)
+
+      const now   = new Date()
+      const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+      pdf.save(`TPL-Dashboard-${stamp}.pdf`)
+    } catch (err) {
+      console.error('PDF export failed:', err)
+    } finally {
+      setIsCapturing(false)
+      setExporting(false)
+      setActivePage(savedPage)
+    }
+  }
+
+  // Hourly activity bins from real playback data
   const generalBins = useMemo(() => {
     const devHour = {}
     rawDevices.filter(d => d.sn).forEach(({ sn }) => {
@@ -794,10 +758,11 @@ export default function Dashboard() {
     const h = peak.hour
     return `Peak ${String(h).padStart(2, '0')}:00–${String((h + 2) % 24).padStart(2, '0')}:00`
   }, [generalBins])
-  const [tick, setTick] = useState(0)
 
+  // Re-render every 3s so relative "last reported" times stay fresh
+  const [, setTick] = useState(0)
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t+1), 3000)
+    const id = setInterval(() => setTick(t => t + 1), 3000)
     return () => clearInterval(id)
   }, [])
 
@@ -829,11 +794,13 @@ export default function Dashboard() {
         const loc = locations?.[sn]
         const lastTs = loc?.timestamp ?? loc?.time ?? loc?.locTime
           ?? d.dataRetrievalTime ?? d.last_seen ?? null
-        const isOnline = lastTs
+        const withinWindow = lastTs
           ? (Date.now() - new Date(lastTs).getTime()) < 30 * 60_000
           : false
-        // 5.6 — device-type badge: numeric-only SNs are Smart Stickers,
-        // everything else (e.g. CARD-* / alphanumeric) is a BLE Locator.
+        // Also check device-level status field — catches devices the location
+        // batch API missed (they're online in the DB but missing from the cache)
+        const devStatus = String(d.status ?? d.deviceStatus ?? '').toLowerCase()
+        const isOnline = withinWindow || devStatus === 'online' || devStatus === 'on'
         const type = /^\d+$/.test(String(sn)) ? 'Sticker' : 'Locator'
         return {
           id:       sn,
@@ -848,159 +815,225 @@ export default function Dashboard() {
       .sort((a, b) => b.ts - a.ts)
   }, [rawDevices, locations])
 
+  // Executive alert aggregates — unread alerts from AlertsContext
+  // (severity: critical/high/medium · type: DEVICE_OFFLINE/BATTERY_LOW/GEOFENCE)
+  const alertStats = useMemo(() => {
+    const unread = alerts.filter(a => !a.isRead)
+    return {
+      critical: unread.filter(a => a.severity === 'critical').length,
+      warning:  unread.filter(a => a.severity === 'high').length,
+      info:     unread.filter(a => a.severity === 'medium').length,
+      offline:  unread.filter(a => a.type === 'DEVICE_OFFLINE').length,
+      battery:  unread.filter(a => a.type === 'BATTERY_LOW').length,
+      fence:    unread.filter(a => a.type === 'GEOFENCE').length,
+      total:    unread.length,
+    }
+  }, [alerts])
+
   const totalDevices    = Number(summary?.total) || 0
-  const assignedDevices = Number(summary?.assigned) ?? 0
+  const assignedDevices = Number(summary?.assigned) || 0
   const unboundCount    = Math.max(0, totalDevices - assignedDevices)
 
+  const goToPage2 = () => setActivePage(2)
+  const goToPage1 = () => setActivePage(1)
+
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:'18px' }}>
+    <div ref={dashboardRef} style={{ position:'relative', height:'100%', overflow:'hidden' }}>
 
-      {/* ── Dashboard header ──────────────────────────────────── */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
-        <div>
+      {/* ══════════════════════════════ PAGE 1 ══════════════════════════════ */}
+      <div
+        ref={page1Ref}
+        style={{
+          position: 'absolute', inset: 0,
+          overflowY: 'auto',
+          padding: '20px',
+          display: 'flex', flexDirection: 'column', gap: '14px',
+          transform: `translateY(${activePage === 1 ? '0' : '-100%'})`,
+          transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
+        }}
+      >
+
+        {/* ── Dashboard header ──────────────────────────────────── */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
           <h1 style={{ fontSize:22, fontWeight:800, color:'#FFFFFF', margin:0, letterSpacing:'-0.01em' }}>Dashboard</h1>
+          <button
+            ref={exportBtnRef}
+            onClick={handleExportPDF}
+            disabled={exporting}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '8px 16px', borderRadius: 10,
+              background: exporting ? 'rgba(167,44,50,0.25)' : 'rgba(167,44,50,0.14)',
+              border: '1px solid rgba(167,44,50,0.35)',
+              color: exporting ? 'rgba(255,255,255,0.45)' : '#FFFFFF',
+              fontSize: 13, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer',
+              transition: 'all 0.18s', letterSpacing: '0.01em',
+            }}
+            onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background='rgba(167,44,50,0.30)'; e.currentTarget.style.borderColor='rgba(167,44,50,0.60)' }}}
+            onMouseLeave={e => { e.currentTarget.style.background= exporting ? 'rgba(167,44,50,0.25)' : 'rgba(167,44,50,0.14)'; e.currentTarget.style.borderColor='rgba(167,44,50,0.35)' }}
+          >
+            {exporting
+              ? <Loader style={{ width:14, height:14, animation:'spin 1s linear infinite' }} />
+              : <FileDown style={{ width:14, height:14 }} />}
+            {exporting ? 'Exporting…' : 'Export PDF'}
+          </button>
         </div>
+
+        {/* ── KPI row ── */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'14px' }}>
+          <KPICard
+            title="Assigned Devices"
+            value={assignedDevices}
+            sub="devices bound to users"
+            icon={Link2}
+            onClick={() => navigate('/devices?status=assigned')}
+          />
+          <KPICard
+            title="Unassigned Devices"
+            value={unboundCount}
+            sub="without an owner"
+            icon={Unlink}
+            onClick={() => navigate('/devices?status=unassigned')}
+            colors={{
+              gradient:    'linear-gradient(145deg, #1C2A4A 0%, #18223C 40%, #121A2E 70%, #0C1220 100%)',
+              border:      'rgba(59,130,246,0.25)',
+              shadow:      '0 0 28px rgba(59,130,246,0.10), 0 12px 38px rgba(0,0,0,0.52)',
+              shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
+              shimmer:     'rgba(59,130,246,0.32)',
+              radialTL:    'rgba(59,130,246,0.14)',
+              iconBg:      'rgba(59,130,246,0.12)',
+              iconBorder:  'rgba(59,130,246,0.24)',
+              iconColor:   '#3B82F6',
+              gloss:       0.034,
+            }}
+          />
+          <KPICard
+            title="Active Devices"
+            value={activeNow}
+            sub="last 30 min"
+            icon={Activity}
+            trend="up"
+            trendVal="Online now"
+            onClick={() => navigate('/devices?tab=locator&status=active')}
+            colors={{
+              gradient:    'linear-gradient(145deg, #1A3328 0%, #142820 40%, #0F2018 70%, #0A1810 100%)',
+              border:      'rgba(46,196,182,0.25)',
+              shadow:      '0 0 28px rgba(46,196,182,0.10), 0 12px 38px rgba(0,0,0,0.52)',
+              shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
+              shimmer:     'rgba(46,196,182,0.34)',
+              radialTL:    'rgba(46,196,182,0.14)',
+              iconBg:      'rgba(46,196,182,0.12)',
+              iconBorder:  'rgba(46,196,182,0.24)',
+              iconColor:   '#2EC4B6',
+              gloss:       0.032,
+            }}
+          />
+          <KPICard
+            title="Offline Devices"
+            value={offlineDevices}
+            sub="requires attention"
+            icon={WifiOff}
+            trend={offlineDevices > 0 ? 'down' : 'up'}
+            trendVal={offlineDevices > 0 ? 'Needs review' : 'All online'}
+            onClick={() => navigate('/missing')}
+            colors={{
+              gradient:    'linear-gradient(145deg, #3D1D22 0%, #2D191E 40%, #231015 70%, #180C10 100%)',
+              border:      'rgba(255,77,109,0.25)',
+              shadow:      '0 0 28px rgba(255,77,109,0.10), 0 12px 38px rgba(0,0,0,0.52)',
+              shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
+              shimmer:     'rgba(255,77,109,0.34)',
+              radialTL:    'rgba(255,77,109,0.14)',
+              iconBg:      'rgba(255,77,109,0.12)',
+              iconBorder:  'rgba(255,77,109,0.24)',
+              iconColor:   '#FF4D6D',
+              gloss:       0.028,
+            }}
+          />
+        </div>
+
+        {/* ── Platform metrics ── */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:'14px' }}>
+          {[
+            { label:'Total Devices',  value: totalDevices,     icon: Layers, color:'#00B4D8', sub:`${summary.locators ?? 0} locators · ${summary.stickers ?? 0} stickers`, onClick: () => navigate('/devices') },
+            { label:'Users',          value: users.length,     icon: Users,  color:'#22D3EE', sub:'under your account' },
+            { label:'Geo-fences',     value: zones.length,     icon: Shield, color:'#F59E0B', sub:'active fence zones', onClick: () => navigate('/geofence') },
+            { label:'Smart Stickers', value: summary.stickers, icon: Tag,    color:'#FFB703', sub: weeklyStickers > 0 ? `+${weeklyStickers} this week` : 'cargo & logistics tracking', onClick: () => navigate('/stickers') },
+          ].map(m => <MetricCard key={m.label} m={m} />)}
+        </div>
+
+        {/* ── Analytics ── */}
+        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(260px, 1fr)', gap:'14px' }}>
+          <RecentTrendPanel generalBins={generalBins} peakLabel={peakLabel} />
+          <BatteryStatusPanel batteryTiers={batteryTiers} />
+        </div>
+
+        {/* ── More Insights navigator ── */}
+        <div style={{ display:'flex', alignItems:'center', gap:14, margin:'2px 0' }}>
+          <div style={{ flex:1, height:1, background:'rgba(255,255,255,0.06)' }} />
+          <button
+            onClick={goToPage2}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 18px', borderRadius:999,
+              background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)',
+              color:'rgba(255,255,255,0.55)', fontSize:11, fontWeight:700, cursor:'pointer',
+              letterSpacing:'0.06em', textTransform:'uppercase', transition:'all 0.18s' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(167,44,50,0.50)'; e.currentTarget.style.color='#FFFFFF'; e.currentTarget.style.background='rgba(167,44,50,0.10)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color='rgba(255,255,255,0.55)'; e.currentTarget.style.background='rgba(255,255,255,0.04)' }}
+          >
+            <ChevronDown style={{ width:12, height:12 }} />
+            More Insights
+          </button>
+          <div style={{ flex:1, height:1, background:'rgba(255,255,255,0.06)' }} />
+        </div>
+
       </div>
 
-      {/* ── Row 1: 4 large glossy KPI cards ───────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'16px' }}>
+      {/* ══════════════════════════════ PAGE 2 ══════════════════════════════ */}
+      <div
+        ref={page2Ref}
+        style={{
+          position: 'absolute', inset: 0,
+          overflowY: 'auto',
+          padding: '20px',
+          display: 'flex', flexDirection: 'column', gap: '14px',
+          transform: `translateY(${activePage === 2 ? '0' : '100%'})`,
+          transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
+        }}
+      >
 
-        {/* Card 1 — Total / Assigned Devices */}
-        <KPICard
-          title="Total Devices / Assigned Devices"
-          onClick={() => navigate('/devices')}
-          value={`${totalDevices} / ${assignedDevices}`}
-          sub={`${unboundCount} unassigned · ${summary.locators} locators · ${summary.stickers} stickers`}
-          icon={Radio}
-          trend="up"
-          trendVal={weeklyLocators > 0 ? `+${weeklyLocators} locators this week` : 'No new locators this week'}
-          colors={{
-            gradient:    'linear-gradient(145deg, #1E2B3D 0%, #1A2333 40%, #141B28 70%, #0F1420 100%)',
-            border:      'rgba(0,180,216,0.25)',
-            shadow:      '0 0 28px rgba(0,180,216,0.12), 0 12px 38px rgba(0,0,0,0.52)',
-            shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
-            shimmer:     'rgba(0,180,216,0.32)',
-            radialTL:    'rgba(0,180,216,0.14)',
-            iconBg:      'rgba(0,180,216,0.12)',
-            iconBorder:  'rgba(0,180,216,0.24)',
-            iconColor:   '#00B4D8',
-            gloss:       0.040,
-          }}
-        />
+        {/* ── Page 2 header ── */}
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
+          <button
+            onClick={goToPage1}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 20px', borderRadius:999,
+              background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)',
+              color:'rgba(255,255,255,0.55)', fontSize:11, fontWeight:700, cursor:'pointer',
+              letterSpacing:'0.06em', textTransform:'uppercase', transition:'all 0.18s' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(167,44,50,0.50)'; e.currentTarget.style.color='#FFFFFF'; e.currentTarget.style.background='rgba(167,44,50,0.10)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color='rgba(255,255,255,0.55)'; e.currentTarget.style.background='rgba(255,255,255,0.04)' }}
+          >
+            <ChevronDown style={{ width:12, height:12, transform:'rotate(180deg)' }} />
+            Overview
+          </button>
+          <h1 style={{ fontSize:22, fontWeight:800, color:'#FFFFFF', margin:0, letterSpacing:'-0.01em' }}>Insights</h1>
+        </div>
 
-        {/* Card 2 — Smart Stickers */}
-        <KPICard
-          title="Smart Stickers"
-          value={summary.stickers}
-          sub={`${summary.weekly_new_stickers > 0 ? `+${summary.weekly_new_stickers} this week` : 'Cargo & logistics tracking'}`}
-          icon={Tag}
-          trend="up"
-          trendVal={weeklyStickers > 0 ? `+${weeklyStickers} this week` : 'No new this week'}
-          onClick={() => navigate('/stickers')}
-          colors={{
-            gradient:    'linear-gradient(145deg, #3A2A1A 0%, #2E2216 40%, #241A10 70%, #1A1208 100%)',
-            border:      'rgba(255,183,3,0.25)',
-            shadow:      '0 0 28px rgba(255,183,3,0.10), 0 12px 38px rgba(0,0,0,0.52)',
-            shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
-            shimmer:     'rgba(255,183,3,0.34)',
-            radialTL:    'rgba(255,183,3,0.14)',
-            iconBg:      'rgba(255,183,3,0.12)',
-            iconBorder:  'rgba(255,183,3,0.24)',
-            iconColor:   '#FFB703',
-            gloss:       0.036,
-          }}
-        />
+        {/* ── Level 2 ── */}
+        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(300px, 1fr)', gap:'14px' }}>
+          <RecentActivityPanel activityRows={activityRows} totalActive={summary.online} />
+          <AlertSummaryCard stats={alertStats} alerts={alerts} onView={() => navigate('/alerts')} />
+        </div>
 
-        {/* Card 3 — Offline Devices */}
-        <KPICard
-          title="Offline Devices"
-          value={offlineDevices}
-          sub={`${summary.offline} offline total · requires attention`}
-          icon={WifiOff}
-          trend={offlineDevices > 0 ? 'down' : 'up'}
-          trendVal={offlineDevices > 0 ? 'Needs review' : 'All online'}
-          onClick={() => navigate('/missing')}
-          colors={{
-            gradient:    'linear-gradient(145deg, #3D1D22 0%, #2D191E 40%, #231015 70%, #180C10 100%)',
-            border:      'rgba(255,77,109,0.25)',
-            shadow:      '0 0 28px rgba(255,77,109,0.10), 0 12px 38px rgba(0,0,0,0.52)',
-            shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
-            shimmer:     'rgba(255,77,109,0.34)',
-            radialTL:    'rgba(255,77,109,0.14)',
-            iconBg:      'rgba(255,77,109,0.12)',
-            iconBorder:  'rgba(255,77,109,0.24)',
-            iconColor:   '#FF4D6D',
-            gloss:       0.028,
-          }}
-        />
-
-        {/* Card 4 — Active Devices */}
-        <KPICard
-          title="Active Devices"
-          value={activeNow}
-          sub={`of ${summary.total} total · last 30 min`}
-          icon={Activity}
-          trend="up"
-          trendVal="Online now"
-          onClick={() => navigate('/devices?tab=locator&status=active')}
-          colors={{
-            gradient:    'linear-gradient(145deg, #1A3328 0%, #142820 40%, #0F2018 70%, #0A1810 100%)',
-            border:      'rgba(46,196,182,0.25)',
-            shadow:      '0 0 28px rgba(46,196,182,0.10), 0 12px 38px rgba(0,0,0,0.52)',
-            shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
-            shimmer:     'rgba(46,196,182,0.34)',
-            radialTL:    'rgba(46,196,182,0.14)',
-            iconBg:      'rgba(46,196,182,0.12)',
-            iconBorder:  'rgba(46,196,182,0.24)',
-            iconColor:   '#2EC4B6',
-            gloss:       0.032,
-          }}
-        />
-
-      </div>
-
-      {/* ── Row 2: 3 muted grey metric cards ──────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'16px' }}>
-        {[
-          { label:'Geo-fences',         value: zones.length,  icon: Shield, color:'#F59E0B', sub:'active fence zones' },
-          { label:'Users',              value: users.length,  icon: Users,  color:'#22D3EE', sub:'under your account' },
-          { label:'Unassigned Devices', value: unboundCount,  icon: Tag,    color:'#3B82F6', sub:'locators & stickers without an owner' },
-        ].map(m => <MetricCard key={m.label} m={m} />)}
-      </div>
-
-      {/* ── Row 3: Detection chart + Donut ───────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'16px' }}>
-
-        {/* Detection Activity */}
-        <DetectionActivityPanel generalBins={generalBins} peakLabel={peakLabel} />
-
-        {/* Battery Status Donut */}
-        <BatteryStatusPanel batteryTiers={batteryTiers} />
-      </div>
-
-      {/* ── Row 4 (was Row 5): Advanced Device Insights ──────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'16px' }}>
-        <TopDevicesCard
+        {/* ── Level 3 ── */}
+        <FleetSnapshotCard
           devices={rawDevices}
+          locations={locations}
           activityData={activityData}
+          zones={zones}
+          summary={summary}
         />
-        <UserDevicePanelCard
-          devices={rawDevices}
-          activityData={activityData}
-        />
-        <BoundDevicesCard
-          devices={rawDevices}
-          selectedDate={todayStr()}
-        />
+
       </div>
 
-      {/* ── Row 5 (was Row 4): Recent Activity ───────────────── */}
-      <RecentActivityPanel activityRows={activityRows} />
-
-      {/* ── Critical alert strip ──────────────────────────────── */}
-      {alerts.filter(a => !a.isRead && a.severity === 'critical').length > 0 && (
-        <CriticalAlertStrip alerts={alerts} onView={() => navigate('/alerts')} />
-      )}
     </div>
   )
 }

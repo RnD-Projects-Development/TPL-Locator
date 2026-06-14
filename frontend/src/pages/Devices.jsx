@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useContext, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Layers, Radio, Tag, Search, X, ChevronRight, Plus, Download, Link2, Trash2 } from 'lucide-react'
+import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil } from 'lucide-react'
 import MissingDevices from './MissingDevices.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -18,6 +19,15 @@ const TYPE_TABS = [
   { key: 'locator', label: 'Locators',       icon: Radio  },
   { key: 'sticker', label: 'Smart Stickers', icon: Tag    },
 ]
+
+const STATUS_FILTER_TABS = ['All', 'Online', 'Offline', 'Assigned', 'Unassigned']
+const STATUS_TO_FILTER = {
+  All: 'all',
+  Online: 'online',
+  Offline: 'offline',
+  Assigned: 'assigned',
+  Unassigned: 'unassigned',
+}
 
 const modalPanel = {
   background: '#000000',
@@ -54,13 +64,228 @@ function isStickerSN(sn) { return /^\d+$/.test(String(sn ?? '')) }
 const isBound = d => !!(d.user_id || d.assigned_user_name)
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   ActionsDropdown — "Actions ▼" trigger + portal-rendered menu.
+   Portaled to document.body so it is never clipped by the grid's overflow:hidden.
+────────────────────────────────────────────────────────────────────────────── */
+const MENU_W = 150
+
+function ActionsDropdown({ isLight, onEdit, onUnbind }) {
+  const [open, setOpen] = useState(false)
+  const [pos,  setPos]  = useState({ top: 0, left: 0 })
+  const btnRef  = useRef(null)
+  const menuRef = useRef(null)
+
+  const toggle = (e) => {
+    e.stopPropagation()
+    if (open) { setOpen(false); return }
+    const r = btnRef.current.getBoundingClientRect()
+    const menuH = 88 // 2 items + padding
+    const openUp = r.bottom + menuH + 8 > window.innerHeight
+    setPos({
+      top:  openUp ? r.top - menuH - 6 : r.bottom + 6,
+      left: Math.max(8, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - 8)),
+    })
+    setOpen(true)
+  }
+
+  // Close on outside click, Escape, scroll or resize (anchor position goes stale)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => {
+      if (menuRef.current?.contains(e.target) || btnRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    const onKey    = (e) => { if (e.key === 'Escape') setOpen(false) }
+    const onMotion = () => setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onMotion)
+    window.addEventListener('scroll', onMotion, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onMotion)
+      window.removeEventListener('scroll', onMotion, true)
+    }
+  }, [open])
+
+  const itemBase = {
+    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+    padding: '8px 12px', background: 'none', border: 'none',
+    fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left',
+    transition: 'background 0.12s',
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+          fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+          background: open
+            ? (isLight ? '#DCDCDC' : 'rgba(255,255,255,0.12)')
+            : (isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'),
+          border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)',
+          color: isLight ? '#333333' : 'rgba(255,255,255,0.70)',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.12)' }}
+        onMouseLeave={e => { if (!open) e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)' }}
+      >
+        Actions
+        <ChevronDown style={{ width: 11, height: 11, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', top: pos.top, left: pos.left, width: MENU_W,
+            zIndex: 10000, padding: 4, borderRadius: 10,
+            background: isLight ? '#FFFFFF' : '#1C1C1E',
+            border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.10)',
+            boxShadow: isLight ? '0 8px 24px rgba(0,0,0,0.14)' : '0 12px 36px rgba(0,0,0,0.65)',
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen(false); onEdit() }}
+            style={{ ...itemBase, borderRadius: 7, color: isLight ? '#333333' : 'rgba(255,255,255,0.75)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = isLight ? '#F3F4F6' : 'rgba(255,255,255,0.07)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+          >
+            <Pencil style={{ width: 12, height: 12 }} /> Edit
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbind() }}
+            style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+          >
+            <Trash2 style={{ width: 12, height: 12 }} /> Unbind
+          </button>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   UserSelect — searchable user combobox for the Edit modal (dark theme).
+   Typing only filters; the value changes exclusively by picking an option,
+   so free-text/invalid entries are impossible.
+────────────────────────────────────────────────────────────────────────────── */
+function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
+  const [open,  setOpen]  = useState(false)
+  const [query, setQuery] = useState('')
+  const wrapRef = useRef(null)
+
+  const selected = users.find(u => String(u.id) === String(valueId))
+  const display  = selected ? (selected.name || selected.email) : (fallbackName || '')
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return users
+    return users.filter(u =>
+      (u.name  || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q)
+    )
+  }, [users, query])
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (!wrapRef.current?.contains(e.target)) { setOpen(false); setQuery('') } }
+    const onKey  = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); setQuery('') } }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  const pick = (u) => {
+    onChange(u)
+    setOpen(false)
+    setQuery('')
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <input
+        value={open ? query : display}
+        placeholder={open ? 'Search user…' : 'Select user…'}
+        onChange={e => setQuery(e.target.value)}
+        onFocus={() => { setOpen(true); setQuery('') }}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && open && filtered.length > 0) { e.preventDefault(); pick(filtered[0]) }
+        }}
+        style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: open ? 'text' : 'pointer', paddingRight: 32 }}
+      />
+      <ChevronDown style={{
+        position: 'absolute', right: 12, top: '50%', transform: `translateY(-50%)${open ? ' rotate(180deg)' : ''}`,
+        width: 13, height: 13, color: '#71717a', pointerEvents: 'none', transition: 'transform 0.15s',
+      }} />
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 30,
+          maxHeight: 200, overflowY: 'auto', borderRadius: 8, padding: 4,
+          background: '#18181b', border: '1px solid #3f3f46',
+          boxShadow: '0 12px 36px rgba(0,0,0,0.65)',
+        }}>
+          {loading ? (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: '#71717a' }}>Loading users…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: '10px 12px', fontSize: 12, color: '#71717a' }}>No users found</div>
+          ) : (
+            filtered.map(u => {
+              const isSel = String(u.id) === String(valueId)
+              return (
+                <button
+                  key={u.id}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => pick(u)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                    width: '100%', padding: '8px 10px', borderRadius: 6, border: 'none',
+                    background: isSel ? 'rgba(167,44,50,0.16)' : 'none', cursor: 'pointer',
+                    fontSize: 12, fontWeight: isSel ? 700 : 500, textAlign: 'left',
+                    color: isSel ? '#C86068' : '#f4f4f5', transition: 'background 0.12s',
+                  }}
+                  onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = isSel ? 'rgba(167,44,50,0.16)' : 'none' }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {u.name || u.email}
+                  </span>
+                  {u.name && u.email && (
+                    <span style={{ fontSize: 10, color: '#71717a', flexShrink: 0, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {u.email}
+                    </span>
+                  )}
+                </button>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    AllDevices: fixed 4×5 grid for All / Locators / Stickers tabs.
    Fetches the full fleet ONCE; tab + status switches are pure client-side.
 ────────────────────────────────────────────────────────────────────────────── */
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal }) {
   const navigate = useNavigate()
-  const { getDevices, unbindDevice } = useCityTag()
+  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser } = useCityTag()
   const { user, isAdmin } = useAuth()
+  const { users, loading: usersLoading } = useUserCache()
 
   const cacheValid = () =>
     Boolean(_fleetCache && _fleetFetchedAt && Date.now() - _fleetFetchedAt < FLEET_TTL)
@@ -76,6 +301,25 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const [unbindTarget,  setUnbindTarget]  = useState(null)
   const [unbindLoading, setUnbindLoading] = useState(false)
   const [unbindError,   setUnbindError]   = useState('')
+
+  // Edit state — reuses the bind-modal form layout, writes via PUT /api/devices/{sn}
+  const [editTarget,   setEditTarget]   = useState(null)
+  const [editName,     setEditName]     = useState('')
+  const [editClient,   setEditClient]   = useState('')
+  const [editCategory, setEditCategory] = useState('')
+  const [editUserId,   setEditUserId]   = useState('')
+  const [editLoading,  setEditLoading]  = useState(false)
+  const [editError,    setEditError]    = useState('')
+
+  // Transient success toast
+  const [toast, setToast] = useState(null)
+  const toastTimer = useRef(null)
+  const showToast = (msg) => {
+    setToast(msg)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 2800)
+  }
+  useEffect(() => () => clearTimeout(toastTimer.current), [])
 
   const PAGE_SIZE  = 20
   const debRef     = useRef(null)
@@ -154,6 +398,62 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     }
   }
 
+  const openEdit = (d) => {
+    setEditError('')
+    setEditName(d.name || '')
+    setEditClient(d.client || '')
+    setEditCategory(d.category || '')
+    setEditUserId(d.assigned_user_id ? String(d.assigned_user_id) : '')
+    setEditTarget(d)
+  }
+
+  const closeEdit = () => {
+    setEditTarget(null)
+    setEditError('')
+  }
+
+  // Change detection — Save stays disabled (and no API call fires) when nothing changed
+  const editDetailsChanged = !!editTarget && (
+    editName.trim()      !== (editTarget.name     || '') ||
+    editClient.trim()    !== (editTarget.client   || '') ||
+    (editCategory || '') !== (editTarget.category || '')
+  )
+  const editUserChanged = !!editTarget && !!editUserId &&
+    String(editUserId) !== String(editTarget.assigned_user_id || '')
+  const editHasChanges = editDetailsChanged || editUserChanged
+
+  const handleEditSave = async () => {
+    if (!editTarget || editLoading || !editHasChanges) return
+    setEditError('')
+    setEditLoading(true)
+    try {
+      if (editDetailsChanged) {
+        await updateDevice(editTarget.sn, {
+          name:     editName.trim(),
+          client:   editClient.trim(),
+          category: editCategory || undefined,
+        })
+      }
+      if (editUserChanged) {
+        // Admin reassignment — backend releases the device from its current
+        // user and binds it to the new one in a single request.
+        await adminAssignDeviceToUser(editUserId, editTarget.sn)
+      }
+      _fleetCache     = null
+      _fleetFetchedAt = null
+      const newUser = users.find(u => String(u.id) === String(editUserId))
+      setEditTarget(null)
+      setLocalRefresh(k => k + 1)
+      showToast(editUserChanged
+        ? `Device reassigned to ${newUser?.name || newUser?.email || 'new user'}`
+        : 'Device updated')
+    } catch (err) {
+      setEditError(err?.message || 'Failed to update device.')
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
   // Client-side filter: type → status → search → bound-first sort
   const filtered = useMemo(() => {
     let list = allDevices
@@ -161,7 +461,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if      (deviceType === 'locator') list = list.filter(d => !isStickerSN(d.sn))
     else if (deviceType === 'sticker') list = list.filter(d =>  isStickerSN(d.sn))
 
-    if (externalStatus === 'online') list = list.filter(d => d.status === 'Active')
+    if (externalStatus === 'online') list = list.filter(d => d.status === 'online')
+    else if (externalStatus === 'offline') list = list.filter(d => d.status === 'offline')
+    else if (externalStatus === 'assigned') list = list.filter(d => isBound(d))
+    else if (externalStatus === 'unassigned') list = list.filter(d => !isBound(d))
 
     if (debQ) {
       const q = debQ.toLowerCase()
@@ -252,7 +555,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               if (!d) return <div key={`_ph_${idx}`} aria-hidden="true" />
               const isSticker  = isStickerSN(d.sn)
               const DeviceIcon = isSticker ? Tag : Radio
-              const isActive   = d.status === 'Active'
+              const isActive   = d.status === 'online'
               const dotColor   = isActive ? '#059669' : '#DC2626'
               const dotGlow    = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
               const name       = deviceDisplayName(d)
@@ -288,16 +591,14 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    {deviceType === 'all' && isAdmin && isBound(d) && (
-                      <button
-                        onClick={e => { e.stopPropagation(); setUnbindError(''); setUnbindTarget(d) }}
-                        style={{ background: 'rgba(220,38,38,0.14)', border: '1px solid rgba(220,38,38,0.30)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: '#DC2626', fontSize: 11, fontWeight: 600, transition: 'background 0.15s' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.28)' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.14)' }}
-                      >
-                        <Trash2 style={{ width: 11, height: 11 }} />
-                        Unbind
-                      </button>
+                    {/* Actions only when Status filter = All; device-type tabs never affect this.
+                        Only bound devices get the menu. */}
+                    {externalStatus === 'all' && isAdmin && isBound(d) && (
+                      <ActionsDropdown
+                        isLight={isLight}
+                        onEdit={() => openEdit(d)}
+                        onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
+                      />
                     )}
                     <ChevronRight style={{ width: 14, height: 14, color: T.txt3 }} />
                   </div>
@@ -308,9 +609,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         </div>
       )}
 
-      {/* Pagination */}
+      {/* Pagination — flexShrink:0 keeps it fully visible below the fixed grid */}
       {total > 0 && !fetching && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, padding: '4px 2px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 6, padding: '4px 2px', flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: T.txt3, marginRight: 4, fontWeight: isLight ? 500 : 400 }}>
             {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
           </span>
@@ -345,6 +646,95 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               color: !hasNext ? (isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)') : (isLight ? '#333333' : 'rgba(255,255,255,0.68)'),
             }}>Next →</button>
         </div>
+      )}
+
+      {/* Edit device modal — same layout as the Bind modal, SN locked */}
+      {editTarget && (
+        <ModalPortal>
+          <div onClick={closeEdit} style={modalOverlay}>
+            <div onClick={e => e.stopPropagation()} style={{ ...modalPanel, width: '100%', maxWidth: 420, padding: 24, marginTop: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Pencil style={{ width: 16, height: 16, color: '#C86068' }} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Edit Device</div>
+                </div>
+                <button onClick={closeEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4, display: 'flex' }}>
+                  <X style={{ width: 18, height: 18 }} />
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Device SN</label>
+                  <div style={{ ...SELECT_STYLE, backgroundImage: 'none', cursor: 'default', color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace' }}>
+                    {editTarget.sn}
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                    Assigned To
+                    {editUserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86068', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will be reassigned</span>}
+                  </label>
+                  <UserSelect
+                    users={users}
+                    loading={usersLoading}
+                    valueId={editUserId}
+                    fallbackName={editTarget.assigned_user_name}
+                    onChange={u => setEditUserId(String(u.id))}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                    Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span>
+                  </label>
+                  <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="e.g. Office Locator"
+                    style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: 'text' }} />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Category</label>
+                  <select value={editCategory} onChange={e => setEditCategory(e.target.value)} style={SELECT_STYLE}>
+                    <option value="" disabled style={SELECT_OPT}>Select a category…</option>
+                    {BIND_CATS.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                    Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span>
+                  </label>
+                  <input value={editClient} onChange={e => setEditClient(e.target.value)} placeholder="e.g. Acme Corp"
+                    style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: 'text' }} />
+                </div>
+
+                {editError && (
+                  <div style={{ fontSize: 12, color: '#fca5a5', background: 'rgba(220,38,38,0.10)', border: '1px solid rgba(220,38,38,0.22)', borderRadius: 8, padding: '8px 12px' }}>
+                    {editError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                  <button onClick={closeEdit}
+                    style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleEditSave} disabled={editLoading || !editHasChanges}
+                    style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                      cursor: editLoading ? 'wait' : !editHasChanges ? 'not-allowed' : 'pointer',
+                      background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+                      border: '1px solid rgba(167,44,50,0.40)', color: '#fff',
+                      opacity: editLoading || !editHasChanges ? 0.55 : 1, transition: 'opacity 0.15s' }}>
+                    {editLoading ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
       )}
 
       {/* Unbind confirmation modal */}
@@ -386,6 +776,24 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           </div>
         </ModalPortal>
       )}
+
+      {/* Success toast — bare portal (ModalPortal would lock body scroll) */}
+      {toast && createPortal(
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 10001,
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 16px', borderRadius: 10,
+          background: isLight ? '#ECFDF5' : 'rgba(6,38,27,0.96)',
+          border: `1px solid ${isLight ? '#A7F3D0' : 'rgba(5,150,105,0.40)'}`,
+          boxShadow: '0 12px 36px rgba(0,0,0,0.45)',
+          fontSize: 12.5, fontWeight: 600,
+          color: isLight ? '#047857' : '#6ee7b7',
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#059669', flexShrink: 0 }} />
+          {toast}
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
@@ -396,7 +804,14 @@ export default function Devices() {
   const rawTab    = searchParams.get('tab')
   const activeTab = (['all', 'locator', 'sticker'].includes(rawTab)) ? rawTab : 'all'
 
-  const [statusTab,     setStatusTab]     = useState('All')
+  const [statusTab, setStatusTab] = useState(() => {
+    const s = searchParams.get('status')
+    if (s === 'active' || s === 'online') return 'Online'
+    if (s === 'offline') return 'Offline'
+    if (s === 'assigned') return 'Assigned'
+    if (s === 'unassigned') return 'Unassigned'
+    return 'All'
+  })
   const [refreshKey,    setRefreshKey]    = useState(0)
   const [offlineRaw,    setOfflineRaw]    = useState('')
   const [offlineSearch, setOfflineSearch] = useState('')
@@ -511,12 +926,12 @@ export default function Devices() {
     inputBorder: isLight ? '#C9C9C9' : 'rgba(255,255,255,0.10)',
   }
 
-  const externalStatus    = statusTab === 'Active' ? 'online' : 'all'
+  const externalStatus = STATUS_TO_FILTER[statusTab] ?? 'all'
   const offlineDeviceType = activeTab !== 'all' ? activeTab : undefined
   const showActionButtons = activeTab === 'all' && statusTab !== 'Offline'
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 0' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 24px' }}>
 
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, flexShrink: 0 }}>
@@ -559,8 +974,8 @@ export default function Devices() {
         )}
       </div>
 
-      {/* ── Type + Status toggles ─────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0 }}>
+      {/* ── Type tabs (left) + status filters (right), single row ────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
         <div style={{ display: 'flex', gap: 4, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 12, width: 'fit-content' }}>
           {TYPE_TABS.map(({ key, label, icon: Icon }) => {
             const active = activeTab === key
@@ -577,12 +992,12 @@ export default function Devices() {
           })}
         </div>
 
-        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
-          {['All', 'Active', 'Offline'].map(s => {
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap', width: 'fit-content' }}>
+          {STATUS_FILTER_TABS.map(s => {
             const active = statusTab === s
             return (
               <button key={s} onClick={() => setStatusTab(s)}
-                style={{ padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                style={{ padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
                   background: active ? '#A72C32' : 'transparent',
                   color:      active ? '#FFFFFF' : T.txt2,
                 }}>

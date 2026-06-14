@@ -1,21 +1,52 @@
 // src/pages/FencePage.jsx
-import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Component } from 'react';
 import loadTPLMaps from '../components/loadTPLMaps.js';
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useZoneCache } from '../context/ZoneCacheContext.jsx';
 import { createPolygonManager, pointInPolygon, pointInMultiPolygon } from '../utils/zonePolygonManager.js';
 import ZoneSidebar from '../components/ZoneSidebar.jsx';
+import ZoneToolbox from '../components/ZoneToolbox.jsx';
 import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
 
+const TRACK_RANGES = [
+  { label: '1D',  days: 1  },
+  { label: '3D',  days: 3  },
+  { label: '7D',  days: 7  },
+  { label: '14D', days: 14 },
+  { label: '30D', days: 30 },
+];
+
+// ─── Entry/exit detection ─────────────────────────────────────────────────────
+function computeEntryExits(allPoints, isInZone) {
+  if (!allPoints || allPoints.length === 0) return [];
+  const events = [];
+  let prevInside = null;
+  for (const pt of allPoints) {
+    const inside = isInZone(pt.lat, pt.lng);
+    if (prevInside === null) {
+      prevInside = inside;
+      if (inside) events.push({ type: 'ENTER', timestamp: pt.timestamp });
+      continue;
+    }
+    if (!prevInside && inside)  events.push({ type: 'ENTER', timestamp: pt.timestamp });
+    else if (prevInside && !inside) events.push({ type: 'EXIT',  timestamp: pt.timestamp });
+    prevInside = inside;
+  }
+  return events;
+}
+
 // ─── Error Boundary ───────────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(e) { return { error: e }; }
+  componentDidCatch(error, info) {
+    console.error('[ErrorBoundary] caught render crash:', error, info);
+  }
   render() {
     if (this.state.error) return (
       <div style={{ padding: 32, fontFamily: 'monospace', background: '#111', color: '#dc2626' }}>
@@ -33,7 +64,7 @@ class ErrorBoundary extends Component {
 function FencePageInner() {
   const { devices, refresh } = useDeviceCache();
   const { accessToken, isAdmin } = useAuth();
-  const { zones } = useZoneCache();
+  const { zones, refreshZones } = useZoneCache();
 
   const mapRef             = useRef(null);
   const mapContainerRef    = useRef(null);
@@ -44,9 +75,11 @@ function FencePageInner() {
   const zoneStatusesRef    = useRef({});
   const accessTokenRef     = useRef(accessToken);
   const devicesRef         = useRef(devices);
-
-  const [mapReady,        setMapReady]        = useState(false);
-  const [selectedZoneId,  setSelectedZoneId]  = useState(null);
+  const [mapReady,       setMapReady]       = useState(false);
+  const [toolboxMode,    setToolboxMode]    = useState(null);  // null | 'create' | 'edit'
+  const [editingZone,    setEditingZone]    = useState(null);
+  const [isSaving,       setIsSaving]       = useState(false);
+  const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [assignments,     setAssignments]     = useState({});
   const [zoneStatuses,    setZoneStatuses]    = useState({});
   const [statusLoading,   setStatusLoading]   = useState(false);
@@ -55,6 +88,7 @@ function FencePageInner() {
   const [deviceTracks,    setDeviceTracks]    = useState([]);
   const [tracksLoading,   setTracksLoading]   = useState(false);
   const [tracksFetchKey,  setTracksFetchKey]  = useState(0);
+  const [tracksRangeDays, setTracksRangeDays] = useState(7);
 
   // Keep refs in sync
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
@@ -124,6 +158,18 @@ function FencePageInner() {
     setAssignments(map);
   }, [devices]);
 
+  // For user-created zones (MongoDB 24-char hex IDs), /api/geofence/status never
+  // returns data, so supplement zoneStatuses with data derived from the device cache.
+  const displayStatuses = useMemo(() => {
+    const result = { ...zoneStatuses };
+    Object.entries(assignments).forEach(([zid, devs]) => {
+      if (/^[0-9a-f]{24}$/i.test(zid) && devs.length > 0) {
+        result[zid] = devs.map((d) => ({ ...d, status: d.status || 'OFFLINE' }));
+      }
+    });
+    return result;
+  }, [zoneStatuses, assignments]);
+
   // ── Fetch geofence statuses ───────────────────────────────────────────────────
   const fetchStatuses = useCallback(async () => {
     setStatusLoading(true);
@@ -179,7 +225,7 @@ function FencePageInner() {
     if (!selectedZone?.polygon && !selectedZone?.polygons?.length) return;
 
     const end   = new Date();
-    const start = new Date(end - 30 * 24 * 60 * 60 * 1000);
+    const start = new Date(end.getTime() - tracksRangeDays * 24 * 60 * 60 * 1000);
     const url   = `${API_BASE_URL}/api/geofence/tracks/${encodeURIComponent(selectedZoneId)}` +
                   `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
 
@@ -204,8 +250,9 @@ function FencePageInner() {
           const allPoints     = (dev.points || []).map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp ?? null }));
           const insidePoints  = allPoints.filter(p => isInZone(p.lat, p.lng));
           const outsidePoints = allPoints.filter(p => !isInZone(p.lat, p.lng));
+          const events        = computeEntryExits(allPoints, isInZone);
           return {
-            sn: dev.sn, user_name, insidePoints, outsidePoints,
+            sn: dev.sn, user_name, insidePoints, outsidePoints, events,
             firstSeen: insidePoints[0]?.timestamp ?? null,
             lastSeen:  insidePoints.at(-1)?.timestamp ?? null,
           };
@@ -214,50 +261,73 @@ function FencePageInner() {
         setDeviceTracks(tracks);
         polygonManager.current?.renderDeviceDots(tracks);
         setTracksLoading(false);
+
+        // Fire browser notifications for detected entry/exit events
+        const totalEvents = tracks.reduce((s, t) => s + (t.events?.length ?? 0), 0);
+        if (totalEvents > 0 && typeof window !== 'undefined' && 'Notification' in window) {
+          const fire = () => {
+            const zoneName = selectedZone?.name || selectedZone?.beat || selectedZoneId;
+            if (totalEvents <= 3) {
+              tracks.forEach((t) => {
+                (t.events || []).forEach((ev) => {
+                  try {
+                    new Notification('TPL Geofence Alert', {
+                      body: `${t.user_name} ${ev.type === 'ENTER' ? 'entered' : 'exited'} zone ${zoneName}`,
+                      tag: `GEO-${t.sn}-${(ev.timestamp || '').replace(/\D/g, '')}`,
+                    });
+                  } catch {}
+                });
+              });
+            } else {
+              try {
+                new Notification('TPL Geofence Alert', {
+                  body: `${totalEvents} entry/exit events detected in zone ${zoneName}`,
+                  tag: `GEO-SUMMARY-${selectedZoneId}`,
+                });
+              } catch {}
+            }
+          };
+          if (Notification.permission === 'granted') {
+            fire();
+          } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then((p) => { if (p === 'granted') fire(); }).catch(() => {});
+          }
+        }
       })
       .catch(() => setTracksLoading(false));
 
     return () => { if (tracksFetchZoneRef.current === fetchTag) tracksFetchZoneRef.current = null; };
-  }, [selectedZoneId, mapReady, accessToken, zones, authHeaders, tracksFetchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedZoneId, mapReady, accessToken, zones, authHeaders, tracksFetchKey, tracksRangeDays]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Assign device ─────────────────────────────────────────────────────────────
   async function handleAssign(zone_id, sn) {
-    console.log('[FencePage] handleAssign zone_id=%s sn=%s', zone_id, sn);
-
-    // Guard: sn must be a non-empty string — if it's undefined/null the API will
-    // return 404 "not found" because the path becomes /api/admin/devices/undefined.
     if (!sn || String(sn).trim() === '' || String(sn) === 'undefined') {
-      const msg = 'Cannot assign device: device serial number (SN) is missing or invalid.';
-      console.error('[FencePage]', msg, { zone_id, sn });
       setAssigningZoneId(null);
-      throw new Error(msg);
+      throw new Error('Cannot assign device: serial number is missing or invalid.');
     }
-
     setAssigningZoneId(zone_id);
     try {
-      const url = `${API_BASE_URL}/api/devices/${encodeURIComponent(String(sn).trim())}`;
-      const body = JSON.stringify({ add_zone: zone_id });
-      console.log('[FencePage] PUT', url, body);
-      const res = await fetch(url, { method: 'PUT', headers: authHeaders(), body });
-      console.log('[FencePage] response status:', res.status);
+      const res = await fetch(
+        `${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}/assign`,
+        { method: 'POST', headers: authHeaders(), body: JSON.stringify({ sn: String(sn).trim() }) },
+      );
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        console.error('[FencePage] assign error:', errBody);
         throw new Error(errBody?.detail || `Assignment failed (HTTP ${res.status})`);
       }
-      setAssignModal(null); // close modal only after success
+      setAssignModal(null);
       await refresh();
       fetchStatuses();
-      setTracksFetchKey((k) => k + 1); // re-fetch tracks so new device's points appear
+      setTracksFetchKey((k) => k + 1);
     } catch (err) {
-      console.error('[FencePage] handleAssign caught:', err);
       setAssigningZoneId(null);
-      throw err; // modal's handleConfirm catches this and shows the error message
+      throw err;
     }
   }
 
   // ── Unassign device ───────────────────────────────────────────────────────────
   async function handleUnassign(sn, zone_id) {
+    // Optimistic UI update
     setZoneStatuses((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
     setAssignments((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
     setDeviceTracks((prev) => {
@@ -266,9 +336,51 @@ function FencePageInner() {
       return next;
     });
     fetch(
-      `${API_BASE_URL}/api/devices/${encodeURIComponent(sn)}`,
-      { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ remove_zone: zone_id }) },
+      `${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}/assign/${encodeURIComponent(sn)}`,
+      { method: 'DELETE', headers: authHeaders() },
     ).catch(() => refresh());
+  }
+
+  // ── Zone toolbox handlers ─────────────────────────────────────────────────────
+  async function handleSaveZone(data) {
+    setIsSaving(true);
+    try {
+      if (toolboxMode === 'create') {
+        const res = await fetch(`${API_BASE_URL}/api/zones`, {
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify({ name: data.name, company: data.company, color: data.color, shape: data.shape, coordinates: data.coordinates, center: data.center, radius: data.radius }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.detail || 'Failed to create zone'); }
+      } else {
+        const res = await fetch(`${API_BASE_URL}/api/zones/${encodeURIComponent(editingZone.zone_id)}`, {
+          method: 'PUT', headers: authHeaders(),
+          body: JSON.stringify({ name: data.name, company: data.company, color: data.color, shape: data.shape, coordinates: data.coordinates, center: data.center, radius: data.radius }),
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.detail || 'Failed to update zone'); }
+      }
+      setToolboxMode(null);
+      setEditingZone(null);
+      refreshZones();
+      refresh();
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteZone(zone_id) {
+    try {
+      await fetch(`${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}`, {
+        method: 'DELETE', headers: authHeaders(),
+      });
+    } catch {}
+    if (selectedZoneId === zone_id) setSelectedZoneId(null);
+    refreshZones();
+    refresh();
+  }
+
+  function handleEditZone(zone) {
+    setEditingZone(zone);
+    setToolboxMode('edit');
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -279,16 +391,27 @@ function FencePageInner() {
       <div className="fp-topbar">
         <div className="fp-topbar-left">
           <span className="fp-topbar-label">Geofencing</span>
-          <span className="fp-topbar-area">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
-              <circle cx="12" cy="10" r="1" fill="currentColor"/>
-            </svg>
-            UC 216 — Muslim Town &nbsp;·&nbsp; 1 zone
-          </span>
         </div>
         <div className="fp-topbar-right">
-<button onClick={fetchStatuses} disabled={statusLoading} className="fp-btn-load" style={{ fontSize: 11 }}>
+          {/* Date-range shortcuts — only meaningful once a zone is selected */}
+          {selectedZoneId && (
+            <div className="fp-shortcuts">
+              {TRACK_RANGES.map(({ label, days }) => (
+                <button
+                  key={label}
+                  className={`fp-shortcut-btn${tracksRangeDays === days ? ' active' : ''}`}
+                  onClick={() => setTracksRangeDays(days)}
+                  disabled={tracksLoading}
+                  title={`Show last ${days} day${days === 1 ? '' : 's'}`}
+                >
+                  {tracksRangeDays === days && tracksLoading
+                    ? <span className="fp-spinner" />
+                    : label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={fetchStatuses} disabled={statusLoading} className="fp-btn-load" style={{ fontSize: 11 }}>
             {statusLoading ? <><span className="fp-spinner" /> Refreshing…</> : '↻ Refresh Status'}
           </button>
         </div>
@@ -300,7 +423,7 @@ function FencePageInner() {
           zones={zones}
           selectedZoneId={selectedZoneId}
           onSelect={setSelectedZoneId}
-          zoneStatuses={zoneStatuses}
+          zoneStatuses={displayStatuses}
           statusLoading={statusLoading}
           assignments={assignments}
           onOpenAssign={isAdmin ? (zone) => setAssignModal({ zone }) : null}
@@ -308,15 +431,28 @@ function FencePageInner() {
           assigningZoneId={assigningZoneId}
           deviceTracks={deviceTracks}
           tracksLoading={tracksLoading}
+          onCreateZone={isAdmin ? () => {
+            setEditingZone(null);
+            setToolboxMode('create');
+          } : null}
+          onEditZone={isAdmin ? handleEditZone : null}
+          onDeleteZone={isAdmin ? handleDeleteZone : null}
         />
         <div className="fp-map-wrap" ref={mapWrapRef}>
           <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />
-          {/* GPS tracks loading overlay — absolutely positioned inside the map
-              wrap (which is position:relative), so it always covers exactly the
-              map. Absolute positioning is unaffected by the transformed
-              <main>.page-anim ancestor that previously broke position:fixed. */}
           {tracksLoading && <TPLLoader overlay label="Fetching GPS tracks…" />}
         </div>
+
+        {toolboxMode && (
+          <ZoneToolbox
+            mode={toolboxMode}
+            initialZone={editingZone}
+            mapRef={mapRef}
+            onSave={handleSaveZone}
+            onCancel={() => { setToolboxMode(null); setEditingZone(null); }}
+            isSaving={isSaving}
+          />
+        )}
       </div>
 
       {/* Assign Device Modal */}

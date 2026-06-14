@@ -154,7 +154,7 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
     return () => clearTimeout(debounceRef.current)
   }, [rawQuery])
 
-  const serverStatus = statusF === 'All' ? 'all' : statusF === 'Active' ? 'online' : 'offline'
+  const serverFilter = FILTER_TO_SERVER[statusF] ?? 'all'
 
   const {
     devices: stickers, page, totalPages, total, loading,
@@ -445,8 +445,8 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10 }}>
-          {['All', 'Active', 'Offline'].map(s => {
+        <div style={{ display: 'flex', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap' }}>
+          {DEVICE_FILTER_TABS.map(s => {
             const active = statusF === s
             const activeStyle = { background: '#A72C32', color: '#fff', border: 'none' }
             const defaultStyle = { background: 'transparent', color: T.txt2, border: 'none' }
