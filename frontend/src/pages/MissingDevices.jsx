@@ -428,7 +428,14 @@ export default function MissingDevices({ embedded = false, deviceType = undefine
 
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: embedded ? 12 : 24,
+      height: embedded ? 'auto' : undefined,
+      minHeight: embedded ? 'min-content' : undefined,
+      paddingBottom: embedded ? 8 : 0,
+    }}>
       <style>{`@keyframes mdPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
 
       {/* ── Header — hidden when embedded ──────────────────────────────────── */}

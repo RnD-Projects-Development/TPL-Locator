@@ -207,186 +207,191 @@ export default function LocatorDetail() {
   ]
 
   return (
-    // height:100% fills the flex-1 slot from Layout; overflow:hidden kills the outer scroll
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '4px 0' }}>
 
       {/* Back */}
       <button onClick={() => navigate('/locators')}
         style={{ display: 'flex', alignItems: 'center', gap: 6, color: isLight ? '#000000' : T.txt2, fontSize: 13,
-          background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content', flexShrink: 0 }}
+          background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}
         onMouseEnter={e => e.currentTarget.style.color = isLight ? '#000000' : T.txt1}
         onMouseLeave={e => e.currentTarget.style.color = isLight ? '#000000' : T.txt2}>
         <ArrowLeft style={{ width: 15, height: 15 }} /> Back to Locators
       </button>
 
-      {/* Two-column: map (left) + info cards (right) — fills remaining height, no outer scroll */}
-      <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      {/* Two-column: details (left) + last-location map (right) */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: '1 1 560px', minWidth: 0, maxWidth: 760, alignSelf: 'stretch', minHeight: 'calc(100vh - 130px)', height: 'calc(100vh - 130px)' }}>
 
-        {/* LEFT — map (narrower: 55% of row) */}
-        <div style={{ flex: '0 0 55%', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ ...panel, ...(cardAccent || {}), overflow: 'hidden', flex: 1, minHeight: 0,
-            display: 'flex', flexDirection: 'column' }}>
-            {/* Map header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '13px 16px',
-              borderBottom: `1px solid ${T.fieldBdr}`, flexShrink: 0 }}>
-              <MapPin style={{ width: 14, height: 14, color: T.locColor }} />
-              <span style={{ color: T.txt1, fontWeight: 600, fontSize: 13 }}>Current Location</span>
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: T.txt2, overflow: 'hidden',
-                textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
-                {hasMapCoords ? (geoLabel || `${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`) : ''}
-              </span>
-            </div>
-            {/* Map body */}
-            <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-              {locLoading ? (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                  justifyContent: 'center', color: T.txt2, fontSize: 13 }}>
-                  Locating…
-                </div>
-              ) : hasMapCoords ? (
-                <MapView
-                  sn={loc.id}
-                  label={loc.userName || loc.name}
-                  latest={livePoint}
-                  trajectory={[]}
-                  playbackPoint={null}
-                  showFences={false}
-                  zones={zones}
-                />
-              ) : (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
-                  <MapPin style={{ width: 30, height: 30, color: T.txt3 }} />
-                  <div style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>No GPS data</div>
-                  <div style={{ color: T.txt2, fontSize: 12 }}>This device has no reported location yet.</div>
-                </div>
+      {/* Header card */}
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+          <div style={{ padding: 12, borderRadius: 14, background: T.headIconBg, border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>
+            <Radio style={{ width: 26, height: 26, color: headGlyphColor }} />
+          </div>
+          <div>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: T.txt1, margin: 0 }}>{loc.userName || loc.name}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: 'monospace', color: T.accent, fontSize: 13 }}>{loc.id}</span>
+              {loc.category && (
+                <><span style={{ color: T.txt3 }}>·</span>
+                <span style={{ color: T.txt2, fontSize: 13 }}>{loc.category}</span></>
               )}
+              {loc.company && (
+                <><span style={{ color: T.txt3 }}>·</span>
+                <span style={{ color: T.txt2, fontSize: 13 }}>{loc.company}</span></>
+              )}
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <span style={{ ...sStyle, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, letterSpacing: '0.04em' }}>
+                {displayStatus.toUpperCase()}
+              </span>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* RIGHT — info cards, takes remaining 45% */}
-        <div style={{ flex: 1, minWidth: 320, minHeight: 0, overflow: 'hidden',
-          display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'stretch' }}>
+        {stats.map(s => (
+          <div key={s.label} style={{ ...panel, ...(cardAccent || {}), padding: 16, minHeight: 92 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <s.icon style={{ width: 13, height: 13, color: s.color }} />
+              <span style={{ color: T.statLabel, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: s.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title={s.value}>
+              {s.value}
+            </div>
+          </div>
+        ))}
+      </div>
 
-          {/* Header card */}
-          <div style={{ ...panel, ...(cardAccent || {}), padding: 16, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-              <div style={{ padding: 10, borderRadius: 12, background: T.headIconBg,
-                border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>
-                <Radio style={{ width: 22, height: 22, color: headGlyphColor }} />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <h1 style={{ fontSize: 17, fontWeight: 700, color: T.txt1, margin: 0,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {loc.userName || loc.name}
-                </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                  <span style={{ fontFamily: 'monospace', color: T.accent, fontSize: 12 }}>{loc.id}</span>
-                  {loc.category && (
-                    <><span style={{ color: T.txt3 }}>·</span>
-                    <span style={{ color: T.txt2, fontSize: 12 }}>{loc.category}</span></>
-                  )}
-                  {loc.company && (
-                    <><span style={{ color: T.txt3 }}>·</span>
-                    <span style={{ color: T.txt2, fontSize: 12 }}>{loc.company}</span></>
-                  )}
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <span style={{ ...sStyle, fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 20, letterSpacing: '0.04em' }}>
-                    {displayStatus.toUpperCase()}
-                  </span>
-                </div>
+      {/* Device info */}
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 20, flex: '1 1 0', minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <Radio style={{ width: 15, height: 15, color: T.accent }} />
+          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Device Info</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          {infoFields.map(f => (
+            <div key={f.l} style={{ background: T.fieldBg, borderRadius: 12, padding: 12, border: `1px solid ${T.fieldBdr}` }}>
+              <div style={{ color: T.fieldLabel, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{f.l}</div>
+              <div style={{ color: T.fieldVal, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={String(f.v)}>
+                {f.v}
               </div>
             </div>
-          </div>
+          ))}
+        </div>
+      </div>
 
-          {/* Stats grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, flexShrink: 0 }}>
-            {stats.map(s => (
-              <div key={s.label} style={{ ...panel, ...(cardAccent || {}), padding: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
-                  <s.icon style={{ width: 11, height: 11, color: s.color }} />
-                  <span style={{ color: T.statLabel, fontSize: 9, textTransform: 'uppercase',
-                    letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
-                </div>
-                <div style={{ fontWeight: 700, fontSize: 12, color: s.color,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  title={s.value}>
-                  {s.value}
-                </div>
+      {/* Track device */}
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 20, flex: '1 1 0', minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <Navigation style={{ width: 15, height: 15, color: T.accent }} />
+          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Track Device</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          <button
+            onClick={() => navigate(`/map?device=${loc.id}`)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
+              background: T.primBtnBg, border: `1px solid ${T.primBtnBdr}`,
+              color: T.btnTxt, fontSize: 13, fontWeight: 600,
+              transition: 'background 0.18s, border-color 0.18s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.primBtnBgHov; e.currentTarget.style.borderColor = T.primBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.primBtnBg; e.currentTarget.style.borderColor = T.primBtnBdr }}
+          >
+            <MapPin style={{ width: 16, height: 16, color: isLight ? '#FFFFFF' : T.accent, flexShrink: 0 }} />
+            <div style={{ textAlign: 'left' }}>
+              <div>Live Map View</div>
+              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>See current location on map</div>
+            </div>
+          </button>
+          <button
+            onClick={() => navigate(`/trajectory?device=${loc.id}`)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
+              background: T.ghostBtnBg, border: `1px solid ${T.ghostBtnBdr}`,
+              color: T.btnTxt, fontSize: 13, fontWeight: 600,
+              transition: 'background 0.18s, border-color 0.18s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.ghostBtnBgHov; e.currentTarget.style.borderColor = T.ghostBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.ghostBtnBg; e.currentTarget.style.borderColor = T.ghostBtnBdr }}
+          >
+            <Route style={{ width: 16, height: 16, color: T.ghostIcon, flexShrink: 0 }} />
+            <div style={{ textAlign: 'left' }}>
+              <div>GPS Trajectory</div>
+              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>View historical GPS path</div>
+            </div>
+          </button>
+          <button
+            onClick={() => navigate(`/reports?device=${loc.id}`)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
+              background: T.ghostBtnBg, border: `1px solid ${T.ghostBtnBdr}`,
+              color: T.btnTxt, fontSize: 13, fontWeight: 600,
+              transition: 'background 0.18s, border-color 0.18s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.ghostBtnBgHov; e.currentTarget.style.borderColor = T.ghostBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.ghostBtnBg; e.currentTarget.style.borderColor = T.ghostBtnBdr }}
+          >
+            <FileText style={{ width: 16, height: 16, color: T.ghostIcon, flexShrink: 0 }} />
+            <div style={{ textAlign: 'left' }}>
+              <div>Reports</div>
+              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>Export location history</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      </div>{/* end left column */}
+
+      {/* Right column — last-location map (TPL Maps) */}
+      <div style={{ flex: '1 1 420px', minWidth: 300, alignSelf: 'stretch' }}>
+        <div style={{ ...panel, ...(cardAccent || {}), overflow: 'hidden', position: 'sticky', top: 12,
+          display: 'flex', flexDirection: 'column', height: 'calc(100vh - 130px)', minHeight: 480 }}>
+          {/* Map header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 18px', borderBottom: `1px solid ${T.fieldBdr}`, flexShrink: 0 }}>
+            <MapPin style={{ width: 15, height: 15, color: T.locColor }} />
+            <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Current Location</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: T.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+              {hasMapCoords ? (geoLabel || `${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`) : ''}
+            </span>
+          </div>
+          {/* Map body */}
+          <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+            {locLoading ? (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.txt2, fontSize: 13 }}>
+                Locating…
               </div>
-            ))}
+            ) : hasMapCoords ? (
+              <MapView
+                sn={loc.id}
+                label={loc.userName || loc.name}
+                latest={livePoint}
+                trajectory={[]}
+                playbackPoint={null}
+                showFences={false}
+                zones={zones}
+              />
+            ) : (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
+                <MapPin style={{ width: 30, height: 30, color: T.txt3 }} />
+                <div style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>No GPS data</div>
+                <div style={{ color: T.txt2, fontSize: 12 }}>This device has no reported location yet.</div>
+              </div>
+            )}
           </div>
+        </div>
+      </div>
 
-          {/* Device info */}
-          <div style={{ ...panel, ...(cardAccent || {}), padding: 14, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-              <Radio style={{ width: 13, height: 13, color: T.accent }} />
-              <span style={{ color: T.txt1, fontWeight: 600, fontSize: 13 }}>Device Info</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-              {infoFields.map(f => (
-                <div key={f.l} style={{ background: T.fieldBg, borderRadius: 10, padding: 10,
-                  border: `1px solid ${T.fieldBdr}` }}>
-                  <div style={{ color: T.fieldLabel, fontSize: 9, textTransform: 'uppercase',
-                    letterSpacing: '0.07em', marginBottom: 4 }}>{f.l}</div>
-                  <div style={{ color: T.fieldVal, fontSize: 11, fontWeight: 600,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    title={String(f.v)}>
-                    {f.v}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Track device */}
-          <div style={{ ...panel, ...(cardAccent || {}), padding: 14, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-              <Navigation style={{ width: 13, height: 13, color: T.accent }} />
-              <span style={{ color: T.txt1, fontWeight: 600, fontSize: 13 }}>Track Device</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                { label: 'Live Map View', sub: 'See current location on map', icon: MapPin,
-                  onClick: () => navigate(`/map?device=${loc.id}`), primary: true },
-                { label: 'GPS Trajectory', sub: 'View historical GPS path', icon: Route,
-                  onClick: () => navigate(`/trajectory?device=${loc.id}`), primary: false },
-                { label: 'Reports', sub: 'Export location history', icon: FileText,
-                  onClick: () => navigate(`/reports?device=${loc.id}`), primary: false },
-              ].map(btn => (
-                <button key={btn.label} onClick={btn.onClick}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 14px', borderRadius: 10, cursor: 'pointer', width: '100%',
-                    background: btn.primary ? T.primBtnBg : T.ghostBtnBg,
-                    border: `1px solid ${btn.primary ? T.primBtnBdr : T.ghostBtnBdr}`,
-                    color: T.btnTxt, fontSize: 12, fontWeight: 600,
-                    transition: 'background 0.18s, border-color 0.18s',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background    = btn.primary ? T.primBtnBgHov : T.ghostBtnBgHov;
-                    e.currentTarget.style.borderColor   = btn.primary ? T.primBtnBdrHov : T.ghostBtnBdrHov;
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background    = btn.primary ? T.primBtnBg : T.ghostBtnBg;
-                    e.currentTarget.style.borderColor   = btn.primary ? T.primBtnBdr : T.ghostBtnBdr;
-                  }}
-                >
-                  <btn.icon style={{ width: 14, height: 14,
-                    color: btn.primary ? (isLight ? '#FFFFFF' : T.accent) : T.ghostIcon, flexShrink: 0 }} />
-                  <div style={{ textAlign: 'left' }}>
-                    <div>{btn.label}</div>
-                    <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 1 }}>{btn.sub}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-        </div>{/* end right info column */}
       </div>{/* end two-column row */}
+
     </div>
   )
 }

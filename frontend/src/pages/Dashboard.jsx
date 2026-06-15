@@ -169,7 +169,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
             {[
               { label: 'Battery < 20%',  value: batteryWarn,  warn: batteryWarn > 0,  color: batteryWarn > 0 ? '#F59E0B' : '#4ade80' },
               { label: 'Offline > 7 days', value: longOffline, warn: longOffline > 0,  color: longOffline > 0  ? '#f87171' : '#4ade80' },
-              { label: 'In a geofence',  value: inZone,        warn: false,            color: '#22D3EE' },
+              { label: 'In Geofence',  value: inZone,        warn: false,            color: '#22D3EE' },
             ].map(item => (
               <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -209,7 +209,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
 
         {/* ── Section 4: Zone Pizza Chart or Top Devices ── */}
         <div style={{ padding: '4px 20px 4px 24px' }}>
-          <div style={SECTION_HDR}>{topZones.length > 0 ? 'Most Loaded Zones' : 'Most Active Devices'}</div>
+          <div style={SECTION_HDR}>{topZones.length > 0 ? 'Top Active Zones' : 'Most Active Devices'}</div>
           {topZones.length > 0 ? (
             <ResponsiveContainer width="100%" height={90}>
               <PieChart>

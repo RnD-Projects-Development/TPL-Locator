@@ -1054,7 +1054,7 @@ export default function Devices() {
                 )}
               </div>
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
               <MissingDevices embedded deviceType={offlineDeviceType} externalSearch={offlineSearch} />
             </div>
           </div>
