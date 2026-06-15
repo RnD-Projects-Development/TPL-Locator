@@ -209,7 +209,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
 
         {/* ── Section 4: Zone Pizza Chart or Top Devices ── */}
         <div style={{ padding: '4px 20px 4px 24px' }}>
-          <div style={SECTION_HDR}>{topZones.length > 0 ? 'Top Active Zones' : 'Most Active Devices'}</div>
+          <div style={SECTION_HDR}>Top Active Zones</div>
           {topZones.length > 0 ? (
             <ResponsiveContainer width="100%" height={90}>
               <PieChart>
