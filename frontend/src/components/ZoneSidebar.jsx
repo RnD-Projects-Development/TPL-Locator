@@ -254,8 +254,11 @@ export default function ZoneSidebar({
   onOpenAssign,
   onUnassign,
   assigningZoneId = null,
-  deviceTracks    = [],     // ← NEW: Array<{ sn, user_name, points }>
-  tracksLoading   = false,  // ← NEW: true while GPS playback is fetching
+  deviceTracks    = [],
+  tracksLoading   = false,
+  onCreateZone    = null,
+  onEditZone      = null,
+  onDeleteZone    = null,
 }) {
   // Count from zoneStatuses — works for both admin and user roles.
   // assignments comes from DeviceCache which users may not fully see.
@@ -278,10 +281,21 @@ export default function ZoneSidebar({
           Zones
           <span className="fp-sidebar-count">{zones.length}</span>
         </div>
-        {totalAssigned > 0 && (
-          <span style={{ fontSize: 10, color: '#6b7280' }}>
-            {totalAssigned} device{totalAssigned !== 1 ? 's' : ''} assigned
-          </span>
+        {onCreateZone && (
+          <button
+            onClick={onCreateZone}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.03em',
+              background: 'rgba(193,18,31,0.12)', border: '1px solid rgba(193,18,31,0.35)',
+              color: '#ef9fa2', transition: 'all 0.15s', flexShrink: 0,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(193,18,31,0.22)'; e.currentTarget.style.color = '#fff'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(193,18,31,0.12)'; e.currentTarget.style.color = '#ef9fa2'; }}
+          >
+            + New Zone
+          </button>
         )}
       </div>
 
@@ -432,6 +446,42 @@ export default function ZoneSidebar({
                       >
                         + Assign Device
                       </button>
+                    )}
+
+                    {/* Edit / Delete — only for user-created zones */}
+                    {(onEditZone || onDeleteZone) && zone.isUserZone && !isAssigning && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        {onEditZone && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onEditZone(zone); }}
+                            style={{
+                              flex: 1, padding: '5px 0', borderRadius: 6, cursor: 'pointer',
+                              background: 'transparent', border: '1px solid rgba(255,255,255,0.10)',
+                              color: '#9ca3af', fontSize: 11, fontWeight: 600,
+                              transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.28)'; e.currentTarget.style.color = '#e2e8f0'; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = '#9ca3af'; }}
+                          >
+                            ✎ Edit
+                          </button>
+                        )}
+                        {onDeleteZone && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete zone "${zone.name}"?`)) onDeleteZone(zone.zone_id); }}
+                            style={{
+                              flex: 1, padding: '5px 0', borderRadius: 6, cursor: 'pointer',
+                              background: 'transparent', border: '1px solid rgba(220,38,38,0.20)',
+                              color: '#f87171', fontSize: 11, fontWeight: 600,
+                              transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.45)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.20)'; }}
+                          >
+                            ✕ Delete
+                          </button>
+                        )}
+                      </div>
                     )}
 
                   </div>

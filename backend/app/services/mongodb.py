@@ -51,6 +51,10 @@ class MongoService:
     def locations(self):
         return self.db["locations"]
 
+    @property
+    def zones(self):
+        return self.db["zones"]
+
     async def get_account_by_email(self, email: str, role: Optional[str] = None):
         """Get account by email. If role is specified, filter by role."""
         from app.models.admin import AccountInDB

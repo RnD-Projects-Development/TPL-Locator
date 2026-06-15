@@ -76,6 +76,9 @@ def create_app() -> FastAPI:
     from app.routers.geofence import router as geofence_router
     app.include_router(geofence_router)
 
+    from app.routers.zones import router as zones_router
+    app.include_router(zones_router)
+
 
     start_auto_sync_tasks(app)
 

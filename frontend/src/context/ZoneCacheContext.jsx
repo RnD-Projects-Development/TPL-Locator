@@ -1,8 +1,11 @@
 // Single source of truth for fence zones, shared across FencePage sidebar and AreaSelector.
 // Geocoding runs once here; any consumer gets the cached result immediately.
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { UC_ZONE } from '../data/kmlZones.js';
 import { tplGeocode } from '../utils/tplGeocode.js';
+import { useAuth } from './AuthContext.jsx';
+
+const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
 
 // ── Add new zones here when additional KML files are loaded ──────────────────
 const SOURCE_ZONES = [UC_ZONE];
@@ -23,10 +26,31 @@ function _toArea(zone) {
 const ZoneCacheContext = createContext(null);
 
 export function ZoneCacheProvider({ children }) {
-  const [zones,   setZones]   = useState(SOURCE_ZONES);
-  const [areas,   setAreas]   = useState(() => SOURCE_ZONES.map(_toArea));
-  const [loading, setLoading] = useState(true);
+  const { accessToken } = useAuth();
+  const [kmlZones,  setKmlZones]  = useState(SOURCE_ZONES);
+  const [userZones, setUserZones] = useState([]);
+  const [loading,   setLoading]   = useState(true);
 
+  // Keep a ref so refreshZones callback can read the latest token without needing
+  // to be recreated every time the token object reference changes.
+  const accessTokenRef = useRef(accessToken);
+  useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
+
+  // ── Fetch user zones from MongoDB ─────────────────────────────────────────────
+  const refreshZones = useCallback(async () => {
+    const token = accessTokenRef.current;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/zones`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setUserZones(Array.isArray(data) ? data : []);
+    } catch {}
+  }, []);
+
+  // ── KML geocoding — runs once on mount ───────────────────────────────────────
   useEffect(() => {
     let cancelled  = false;
     let retryTimer = null;
@@ -44,8 +68,7 @@ export function ZoneCacheProvider({ children }) {
       );
       if (!cancelled) {
         const enriched = SOURCE_ZONES.map((z, i) => ({ ...z, name: names[i] }));
-        setZones(enriched);
-        setAreas(enriched.map(_toArea));
+        setKmlZones(enriched);
         setLoading(false);
       }
     }
@@ -62,8 +85,17 @@ export function ZoneCacheProvider({ children }) {
     return () => { cancelled = true; clearTimeout(retryTimer); };
   }, []);
 
+  // ── Fetch user zones once the auth token is available ────────────────────────
+  useEffect(() => {
+    if (accessToken) refreshZones();
+  }, [accessToken, refreshZones]);
+
+  // KML zones first, then user-created zones so they appear below in the sidebar
+  const zones = [...kmlZones, ...userZones];
+  const areas = zones.map(_toArea);
+
   return (
-    <ZoneCacheContext.Provider value={{ zones, areas, loading }}>
+    <ZoneCacheContext.Provider value={{ zones, areas, loading, refreshZones }}>
       {children}
     </ZoneCacheContext.Provider>
   );
