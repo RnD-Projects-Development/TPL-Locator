@@ -64,7 +64,7 @@ class ErrorBoundary extends Component {
 function FencePageInner() {
   const { devices, refresh } = useDeviceCache();
   const { accessToken, isAdmin } = useAuth();
-  const { zones, refreshZones } = useZoneCache();
+  const { zones, refreshZones, zonesLoading } = useZoneCache();
 
   const mapRef             = useRef(null);
   const mapContainerRef    = useRef(null);
@@ -206,11 +206,25 @@ function FencePageInner() {
     if (accessToken) fetchStatuses();
   }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Zone selection → map highlight ────────────────────────────────────────────
+  // ── Zone selection → map highlight + zoom to zone bounds ─────────────────────
   useEffect(() => {
     if (!mapReady || !polygonManager.current) return;
     polygonManager.current.selectZone(selectedZoneId);
-  }, [selectedZoneId, mapReady]);
+
+    if (!selectedZoneId) return;
+    const zone = zones.find(z => z.zone_id === selectedZoneId);
+    if (!zone) return;
+
+    const pts = zone.polygons
+      ? zone.polygons.flat().map(p => [p.lat, p.lng])
+      : (zone.polygon || []).map(p => [p.lat, p.lng]);
+
+    if (pts.length < 2) return;
+    try {
+      const bounds = window.L.latLngBounds(pts);
+      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+    } catch {}
+  }, [selectedZoneId, mapReady, zones]);
 
   // ── Fetch + render device GPS tracks ─────────────────────────────────────────
   useEffect(() => {
@@ -429,6 +443,7 @@ function FencePageInner() {
           assigningZoneId={assigningZoneId}
           deviceTracks={deviceTracks}
           tracksLoading={tracksLoading}
+          zonesLoading={zonesLoading}
           onCreateZone={isAdmin ? () => {
             setEditingZone(null);
             setToolboxMode('create');

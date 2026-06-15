@@ -91,12 +91,22 @@ function buildPopupHtml({ displayName, sn, label, coords, point, geocode }) {
     </div>`;
 }
 
-// ── Multi-device helpers ──────────────────────────────────────────────────────
-function buildColoredPinHtml(color) {
-  return `<div style="width:28px;height:28px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));">
-    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="${color}" width="28" height="28">
-      <path d="M14,10a2,2,0,1,1-2-2A2.006,2.006,0,0,1,14,10Zm5.5,0c0,6.08-4.67,9.89-6.67,11.24a1.407,1.407,0,0,1-.83.26,1.459,1.459,0,0,1-.84-.26C9.16,19.89,4.5,16.09,4.5,10A7.33,7.33,0,0,1,12,2.5,7.336,7.336,0,0,1,19.5,10ZM16,10a4,4,0,1,0-4,4A4,4,0,0,0,16,10Z"/>
-    </svg>
+// ── Lollipop pin — outer ring + bright inner circle + slim stem + ground shadow ─
+function buildPinIconHtml(innerColor = '#E8192C', outerColor = '#8B0000') {
+  return `
+  <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:44px;height:68px;">
+    <div style="width:38px;height:38px;border-radius:50%;flex-shrink:0;
+      background:${outerColor};
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 4px 12px rgba(0,0,0,0.45);">
+      <div style="width:26px;height:26px;border-radius:50%;background:${innerColor};"></div>
+    </div>
+    <div style="width:5px;height:26px;flex-shrink:0;
+      background:#3d3d3d;
+      border-radius:0 0 3px 3px;"></div>
+    <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+      width:26px;height:8px;border-radius:50%;
+      background:rgba(0,0,0,0.18);"></div>
   </div>`;
 }
 
@@ -200,12 +210,7 @@ function extractCoords(point) {
   return { lat: latN, lng: lngN };
 }
 
-const DEVICE_ICON_HTML = `
-  <div style="width:32px;height:32px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));">
-    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#b91c1c" width="32" height="32">
-      <path d="M14,10a2,2,0,1,1-2-2A2.006,2.006,0,0,1,14,10Zm5.5,0c0,6.08-4.67,9.89-6.67,11.24a1.407,1.407,0,0,1-.83.26,1.459,1.459,0,0,1-.84-.26C9.16,19.89,4.5,16.09,4.5,10A7.33,7.33,0,0,1,12,2.5,7.336,7.336,0,0,1,19.5,10ZM16,10a4,4,0,1,0-4,4A4,4,0,0,0,16,10Z"/>
-    </svg>
-  </div>`;
+const DEVICE_ICON_HTML = buildPinIconHtml('#E8192C', '#8B0000');
 
 // ── Smooth animation between two lat/lng points ───────────────────────────────
 function smoothMoveTo(marker, fromLat, fromLng, toLat, toLng, duration, onTick) {
@@ -284,10 +289,12 @@ export default function MapView({
   const fenceLayersRef = useRef([]);
 
   // Multi-device marker refs
-  const multiMarkersRef   = useRef(new Map());
-  const multiGeocodeRef   = useRef(new Map());
-  const multiSnsRef       = useRef(new Set());
-  const pannedForCountRef = useRef(0);
+  const multiMarkersRef = useRef(new Map());
+  const multiGeocodeRef = useRef(new Map());
+  const multiSnsRef     = useRef(new Set());
+  // Tracks which SNs we've already panned to in the current selection.
+  // We pan exactly once per device per selection (when its first location arrives).
+  const pannedSnsRef    = useRef(new Set());
 
   // ── Smooth playback animation refs ───────────────────────────────────────
   const animFromRef    = useRef(null);
@@ -337,7 +344,7 @@ export default function MapView({
     if (!window.L || !map || !c) return;
     if (!markerRef.current) {
       const icon = window.L.divIcon({
-        html: DEVICE_ICON_HTML, className: '', iconSize: [32, 32], iconAnchor: [16, 29],
+        html: DEVICE_ICON_HTML, className: '', iconSize: [44, 68], iconAnchor: [22, 60],
       });
       markerRef.current = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
       animFromRef.current = { lat: c.lat, lng: c.lng };
@@ -438,8 +445,8 @@ export default function MapView({
       fenceLayersRef.current = [];
       multiMarkersRef.current.clear();
       multiGeocodeRef.current.clear();
-      multiSnsRef.current = new Set();
-      pannedForCountRef.current = 0;
+      multiSnsRef.current  = new Set();
+      pannedSnsRef.current = new Set();
       animFromRef.current = null;
       detachMap();
       mapRef.current = null;
@@ -819,8 +826,8 @@ export default function MapView({
         }).catch(() => {});
       } else {
         const icon = window.L.divIcon({
-          html: buildColoredPinHtml(color),
-          className: '', iconSize: [28, 28], iconAnchor: [14, 25],
+          html: buildPinIconHtml(color),
+          className: '', iconSize: [44, 68], iconAnchor: [22, 60],
         });
         const marker      = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
         const pointHolder = { current: point };
@@ -838,22 +845,32 @@ export default function MapView({
     });
 
     if (selectionChanged) {
-      pannedForCountRef.current = 0;
+      // Drop SNs that are no longer selected so they re-pan if re-added
+      pannedSnsRef.current = new Set(
+        [...pannedSnsRef.current].filter(sn => incomingSns.has(sn))
+      );
     }
 
     const validCoords = multiDevices
       .map(d => extractCoords(d.latest))
       .filter(Boolean);
 
-    if (validCoords.length > pannedForCountRef.current) {
-      pannedForCountRef.current = validCoords.length;
+    // Pan exactly once per device per selection — when its first location arrives.
+    const hasNewLocation = multiDevices.some(
+      d => extractCoords(d.latest) && !pannedSnsRef.current.has(d.sn)
+    );
+
+    if (hasNewLocation) {
+      multiDevices.forEach(d => {
+        if (extractCoords(d.latest)) pannedSnsRef.current.add(d.sn);
+      });
       if (validCoords.length === 1) {
         map.setView(
           [validCoords[0].lat, validCoords[0].lng],
           Math.max(map.getZoom(), 15),
           { animate: true, duration: 0.5 }
         );
-      } else {
+      } else if (validCoords.length > 1) {
         try {
           const bounds = window.L.latLngBounds(validCoords.map(c => [c.lat, c.lng]));
           if (bounds.isValid()) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
@@ -898,11 +915,10 @@ export default function MapView({
       )}
 
       {sn && !coords && (
-        <div style={{ position:'absolute', top:12, left:'50%', transform:'translateX(-50%)', zIndex:1000 }}>
-          <div style={{ background:'rgba(0,0,0,0.75)', backdropFilter:'blur(6px)', border:'1px solid #2d2d2d', borderRadius:8, padding:'7px 16px', fontSize:12, color:'#a3a3a3', display:'flex', gap:8, alignItems:'center', whiteSpace:'nowrap' }}>
-            <span style={{ width:8, height:8, borderRadius:'50%', background:'#f59e0b', display:'inline-block' }} />
-            Waiting for GPS — {displayName}
-          </div>
+        <div style={{ position:'absolute', top:0, left:0, right:0, height:3, zIndex:1000, overflow:'hidden', pointerEvents:'none' }}>
+          <style>{`@keyframes mv-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}`}</style>
+          <div style={{ position:'absolute', inset:0, background:'rgba(167,44,50,0.25)' }} />
+          <div style={{ position:'absolute', top:0, bottom:0, width:'50%', background:'linear-gradient(90deg,transparent,#A72C32,transparent)', animation:'mv-shimmer 1.4s ease-in-out infinite' }} />
         </div>
       )}
 

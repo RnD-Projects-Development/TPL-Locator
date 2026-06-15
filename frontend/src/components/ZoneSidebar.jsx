@@ -1,6 +1,7 @@
 // src/components/ZoneSidebar.jsx
 import React from 'react';
 import { deviceColor } from '../utils/zonePolygonManager.js';
+import tplLogo from '../assets/tpl.png';
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -101,12 +102,18 @@ function fmtTs(ts) {
 
 // ── Device row inside an expanded zone ───────────────────────────────────────
 function DeviceRow({ entry, onUnassign, statusLoading, trackInfo }) {
-  const firstSeen  = fmtTs(entry.first_seen);
-  const lastSeen   = fmtTs(entry.last_seen);
-  const duration   = fmtDuration(entry.first_seen, entry.last_seen);
-  const color      = deviceColor(entry.sn);
-  const insideCount = trackInfo?.insidePoints?.length ?? null;
-  const outsideCount = trackInfo?.outsidePoints?.length ?? null;
+  // Prefer track-derived timestamps (always present for MongoDB zones);
+  // fall back to status-endpoint data (only present for KML zones).
+  const firstSeenRaw  = entry.first_seen  || trackInfo?.firstSeen  || null;
+  const lastSeenRaw   = entry.last_seen   || trackInfo?.lastSeen   || null;
+  const firstSeen     = fmtTs(firstSeenRaw);
+  const lastSeen      = fmtTs(lastSeenRaw);
+  const duration      = fmtDuration(firstSeenRaw, lastSeenRaw);
+  const color         = deviceColor(entry.sn);
+  const insideCount   = trackInfo?.insidePoints?.length  ?? null;
+  const outsideCount  = trackInfo?.outsidePoints?.length ?? null;
+  const events        = trackInfo?.events ?? [];
+  const neverEntered  = entry.status === 'OFFLINE' && !firstSeenRaw && (insideCount === null || insideCount === 0);
 
   return (
     <div style={{
@@ -115,7 +122,6 @@ function DeviceRow({ entry, onUnassign, statusLoading, trackInfo }) {
       borderRadius: 6,
       marginBottom: 4,
       border: `1px solid rgba(255,255,255,0.06)`,
-      // Subtle left accent in the device's map color
       borderLeft: `3px solid ${color}`,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
@@ -157,32 +163,22 @@ function DeviceRow({ entry, onUnassign, statusLoading, trackInfo }) {
       {(insideCount !== null || outsideCount !== null) && (
         <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
           {insideCount !== null && (
-            <span style={{
-              fontSize: 10, color: color, fontWeight: 600,
-              display: 'inline-flex', alignItems: 'center', gap: 3,
-            }}>
-              <svg width="8" height="8" viewBox="0 0 8 8" fill={color}>
-                <circle cx="4" cy="4" r="3.5"/>
-              </svg>
+            <span style={{ fontSize: 10, color: color, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <svg width="8" height="8" viewBox="0 0 8 8" fill={color}><circle cx="4" cy="4" r="3.5"/></svg>
               {insideCount} inside
             </span>
           )}
           {outsideCount !== null && (
-            <span style={{
-              fontSize: 10, color: '#6b7280', fontWeight: 500,
-              display: 'inline-flex', alignItems: 'center', gap: 3,
-            }}>
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="#6b7280">
-                <circle cx="4" cy="4" r="3.5"/>
-              </svg>
+            <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="#6b7280"><circle cx="4" cy="4" r="3.5"/></svg>
               {outsideCount} outside
             </span>
           )}
         </div>
       )}
 
-      {/* Offline — device never entered this zone */}
-      {entry.status === 'OFFLINE' && !entry.first_seen && (
+      {/* Never entered — only show when we genuinely have no inside data */}
+      {neverEntered && (
         <p style={{ fontSize: 10, color: '#6b7280', margin: '4px 0 0', fontStyle: 'italic' }}>
           Device hasn't entered this zone yet
         </p>
@@ -193,11 +189,35 @@ function DeviceRow({ entry, onUnassign, statusLoading, trackInfo }) {
         <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {firstSeen && <span style={{ fontSize: 10, color: '#9ca3af' }}>First seen: {firstSeen}</span>}
           {lastSeen && lastSeen !== firstSeen && <span style={{ fontSize: 10, color: '#9ca3af' }}>Last seen: {lastSeen}</span>}
-          {duration && (
-            <span style={{ fontSize: 10, color: '#60a5fa', fontWeight: 600 }}>
-              Duration: {duration}
-            </span>
-          )}
+          {duration && <span style={{ fontSize: 10, color: '#60a5fa', fontWeight: 600 }}>Duration: {duration}</span>}
+        </div>
+      )}
+
+      {/* Entry / Exit event log */}
+      {events.length > 0 && (
+        <div style={{ marginTop: 7 }}>
+          <p style={{
+            fontSize: 9, color: '#6b7280', margin: '0 0 4px',
+            textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
+          }}>
+            Zone Activity
+          </p>
+          <div style={{ maxHeight: 130, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {events.map((ev, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0,
+                  color: ev.type === 'ENTER' ? '#4ade80' : '#f87171',
+                  width: 38,
+                }}>
+                  {ev.type === 'ENTER' ? '→ IN' : '← OUT'}
+                </span>
+                <span style={{ fontSize: 9, color: '#9ca3af' }}>
+                  {fmtTs(ev.timestamp) || ev.timestamp}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -256,6 +276,7 @@ export default function ZoneSidebar({
   assigningZoneId = null,
   deviceTracks    = [],
   tracksLoading   = false,
+  zonesLoading    = false,
   onCreateZone    = null,
   onEditZone      = null,
   onDeleteZone    = null,
@@ -267,8 +288,32 @@ export default function ZoneSidebar({
   // Build a quick lookup: sn → track for the DeviceRow
   const trackBySn = Object.fromEntries(deviceTracks.map((t) => [t.sn, t]));
 
+  const sidebarLoading = zonesLoading || tracksLoading;
+
   return (
-    <aside className="fp-sidebar">
+    <aside className="fp-sidebar" style={{ position: 'relative' }}>
+
+      {/* ── API loading overlay ── */}
+      {sidebarLoading && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 50,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(3px)',
+          WebkitBackdropFilter: 'blur(3px)',
+          pointerEvents: 'none',
+          gap: 10,
+        }}>
+          <style>{`@keyframes zs-tpl-pulse{0%,100%{opacity:.15;transform:scale(.95)}50%{opacity:.70;transform:scale(1.02)}}`}</style>
+          <img
+            src={tplLogo} alt="Loading"
+            style={{ width: 90, height: 'auto', filter: 'brightness(0) invert(1)', animation: 'zs-tpl-pulse 1.6s ease-in-out infinite' }}
+          />
+          <span style={{ fontSize: 11, color: '#9ca3af', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600 }}>
+            {zonesLoading ? 'Loading zones…' : 'Fetching GPS tracks…'}
+          </span>
+        </div>
+      )}
 
       {/* ── Header ── */}
       <div className="fp-sidebar-header">
