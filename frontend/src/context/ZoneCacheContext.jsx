@@ -44,10 +44,13 @@ export function ZoneCacheProvider({ children }) {
   const accessTokenRef = useRef(accessToken);
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
 
+  const [userZonesLoading, setUserZonesLoading] = useState(false);
+
   // ── Fetch user zones from MongoDB ─────────────────────────────────────────────
   const refreshZones = useCallback(async () => {
     const token = accessTokenRef.current;
     if (!token) return;
+    setUserZonesLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/zones`, {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -56,6 +59,7 @@ export function ZoneCacheProvider({ children }) {
       const data = await res.json();
       setUserZones(Array.isArray(data) ? data : []);
     } catch {}
+    finally { setUserZonesLoading(false); }
   }, []);
 
   // ── KML zone labels via backend geocoding ────────────────────────────────────
@@ -102,7 +106,7 @@ export function ZoneCacheProvider({ children }) {
   const areas = zones.map(_toArea);
 
   return (
-    <ZoneCacheContext.Provider value={{ zones, areas, loading, refreshZones }}>
+    <ZoneCacheContext.Provider value={{ zones, areas, loading, zonesLoading: loading || userZonesLoading, refreshZones }}>
       {children}
     </ZoneCacheContext.Provider>
   );

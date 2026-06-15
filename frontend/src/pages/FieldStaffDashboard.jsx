@@ -191,9 +191,10 @@ function MapSection({ devices, selectedZone, mapContainerRef }) {
 
     const withCoords = devices.filter(d => d.latitude != null && d.longitude != null);
     withCoords.forEach(device => {
-      const pinColor = device.isOnline ? '#22c55e' : '#ef4444';
-      const iconHtml = `<div style="width:28px;height:28px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));"><svg viewBox="0 0 24 24" fill="${pinColor}" width="28" height="28"><path d="M14,10a2,2,0,1,1-2-2A2.006,2.006,0,0,1,14,10Zm5.5,0c0,6.08-4.67,9.89-6.67,11.24a1.407,1.407,0,0,1-.83.26,1.459,1.459,0,0,1-.84-.26C9.16,19.89,4.5,16.09,4.5,10A7.33,7.33,0,0,1,12,2.5,7.336,7.336,0,0,1,19.5,10ZM16,10a4,4,0,1,0-4,4A4,4,0,0,0,16,10Z"/></svg></div>`;
-      const icon = window.L.divIcon({ html: iconHtml, className: '', iconSize: [28, 28], iconAnchor: [14, 26], popupAnchor: [0, -24] });
+      const outerColor = device.isOnline ? '#14532d' : '#8B0000';
+      const innerColor = device.isOnline ? '#22c55e' : '#E8192C';
+      const iconHtml = `<div style="position:relative;display:flex;flex-direction:column;align-items:center;width:44px;height:68px;"><div style="width:38px;height:38px;border-radius:50%;flex-shrink:0;background:${outerColor};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.45);"><div style="width:26px;height:26px;border-radius:50%;background:${innerColor};"></div></div><div style="width:5px;height:26px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 3px 3px;"></div><div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:26px;height:8px;border-radius:50%;background:rgba(0,0,0,0.18);"></div></div>`;
+      const icon = window.L.divIcon({ html: iconHtml, className: '', iconSize: [44, 68], iconAnchor: [22, 60], popupAnchor: [0, -62] });
       const marker = window.L.marker([device.latitude, device.longitude], { icon }).addTo(map);
       marker.bindPopup(`<div style="font-family:sans-serif;padding:4px;min-width:140px;"><div style="font-weight:700;font-size:13px;color:#f9fafb;">${device.name || device.sn}</div><div style="font-size:11px;color:#9ca3af;margin-top:2px;">${device.assignedUser || 'Unassigned'}</div></div>`);
       markersRef.current.push(marker);

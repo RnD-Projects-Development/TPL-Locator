@@ -27,6 +27,24 @@ const getCrumbs = path => {
   return ['Page']
 }
 
+// Route each crumb label resolves to when clicked (intermediate crumbs only)
+const crumbRouteMap = {
+  'Dashboard':       '/dashboard',
+  'Devices':         '/locators',
+  'Locators':        '/locators',
+  'Smart Stickers':  '/stickers',
+  'Offline Devices': '/missing',
+  'Map View':        '/map',
+  'Trajectory':      '/trajectory',
+  'Playback':        '/playback',
+  'Fence':           '/fence',
+  'Alerts':          '/alerts',
+  'Reports':         '/reports',
+  'Field Staff':     '/field-staff',
+  'Users':           '/users',
+  'Search':          '/search',
+}
+
 export default function Header({ pageTheme, setPageTheme }) {
   const { pathname } = useLocation()
   const navigate     = useNavigate()
@@ -53,22 +71,35 @@ export default function Header({ pageTheme, setPageTheme }) {
       {/* Breadcrumb / Dashboard hint */}
       {pathname === '/dashboard' ? (
         <div className="flex items-center gap-1.5 text-xs flex-1">
-          <span className="text-gray-500 font-medium">TPL TRAKKER</span>
+          <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
+            onClick={() => navigate('/dashboard')}>TPL TRAKKER</span>
           <ChevronRight className="w-3 h-3 text-gray-700" />
-          <span className='text-white font-semibold'>Dashboard</span>
+          <span className="text-white font-semibold">Dashboard</span>
           <div style={{ marginLeft: 8 }}>
             <FieldStaffPill onClick={() => navigate('/field-staff')} />
           </div>
         </div>
       ) : (
         <div className="flex items-center gap-1.5 text-xs flex-1">
-          <span className="text-gray-500 font-medium">TPL TRAKKER</span>
-          {parts.map((p, i) => (
-            <React.Fragment key={i}>
-              <ChevronRight className="w-3 h-3 text-gray-700" />
-              <span className={i === parts.length - 1 ? 'text-white font-semibold' : 'text-gray-400'}>{p}</span>
-            </React.Fragment>
-          ))}
+          <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
+            onClick={() => navigate('/dashboard')}>TPL TRAKKER</span>
+          {parts.map((p, i) => {
+            const isLast  = i === parts.length - 1
+            const route   = !isLast ? crumbRouteMap[p] : null
+            return (
+              <React.Fragment key={i}>
+                <ChevronRight className="w-3 h-3 text-gray-700" />
+                {isLast ? (
+                  <span className="text-white font-semibold">{p}</span>
+                ) : route ? (
+                  <span className="text-gray-400 cursor-pointer hover:text-gray-200 transition-colors"
+                    onClick={() => navigate(route)}>{p}</span>
+                ) : (
+                  <span className="text-gray-400">{p}</span>
+                )}
+              </React.Fragment>
+            )
+          })}
         </div>
       )}
 
