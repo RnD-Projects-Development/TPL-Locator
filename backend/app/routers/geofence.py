@@ -217,59 +217,10 @@ async def get_zone_report(
 
 # ── GET /api/geofence/tracks/{zone_id} ───────────────────────────────────────
 
-@router.get("/tracks/{zone_id}")
-async def get_zone_tracks(
-    zone_id: str,
-    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
-    mongo:   Annotated[MongoService, Depends(get_mongo_service)],
-    start:   Optional[datetime] = Query(default=None),
-    end:     Optional[datetime] = Query(default=None),
-):
-    """
-    Return all raw GPS points (lat, lng, timestamp) for every device
-    assigned to the zone, accessible by both admins and users.
-
-    Users are scoped to their parent admin's devices so they see all zone
-    devices — not just the single device bound to their account.
-
-    Debug logs:
-        [tracks] role  actor  zone  admin_scope
-        [tracks] device sn  points_in_range  points_returned
-        [tracks] done  zone  total_points
-    """
-    role = "admin" if isinstance(account, AdminInDB) else "user"
-
-    if zone_id not in KML_POLYGONS:
-        logger.warning("[tracks] zone_not_found zone=%s actor=%s", zone_id, account.email)
-        raise HTTPException(status_code=404, detail="Zone not found")
-
-    # Default: last 30 days
-    if end is None:
-        end = datetime.now(tz=timezone.utc)
-    if start is None:
-        start = end - timedelta(days=30)
-
-    admin_scope = str(account.id) if isinstance(account, AdminInDB) else str(getattr(account, "admin_id", "none"))
-    logger.info("[tracks] role=%s actor=%s zone=%s admin_scope=%s start=%s end=%s",
-                role, account.email, zone_id, admin_scope, start.isoformat(), end.isoformat())
-
-    device_docs  = await _get_assigned_devices(account, mongo)
-    zone_devices = [
-        d for d in device_docs
-        if zone_id in (d.get("fence_zone_ids") or []) or d.get("zone") == zone_id
-    ]
-
-    logger.info("[tracks] zone=%s devices_in_zone=%d", zone_id, len(zone_devices))
-
-    if not zone_devices:
-        logger.info("[tracks] no_devices zone=%s role=%s admin_scope=%s", zone_id, role, admin_scope)
-        return {"zone_id": zone_id, "devices": []}
-
+async def _fetch_points_for_sns(sns: list[str], mongo: MongoService, start: datetime, end: datetime) -> list[dict]:
+    """Query mongo.locations for each SN and return [{sn, points}] list."""
     result_devices = []
-    total_points   = 0
-
-    for doc in zone_devices:
-        sn = doc["sn"]
+    for sn in sns:
         try:
             cursor = (
                 mongo.locations
@@ -292,10 +243,82 @@ async def get_zone_tracks(
             ]
             logger.info("[tracks] device sn=%s points_raw=%d points_clean=%d", sn, len(points_raw), len(points))
             result_devices.append({"sn": sn, "points": points})
-            total_points += len(points)
         except Exception as exc:
             logger.error("[tracks] device_error sn=%s error=%s", sn, exc)
             result_devices.append({"sn": sn, "points": [], "error": str(exc)})
+    return result_devices
 
-    logger.info("[tracks] done zone=%s total_points=%d", zone_id, total_points)
-    return {"zone_id": zone_id, "devices": result_devices}
+
+@router.get("/tracks/{zone_id}")
+async def get_zone_tracks(
+    zone_id: str,
+    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    mongo:   Annotated[MongoService, Depends(get_mongo_service)],
+    start:   Optional[datetime] = Query(default=None),
+    end:     Optional[datetime] = Query(default=None),
+):
+    """
+    Return all raw GPS points (lat, lng, timestamp) from the locations table
+    for every device assigned to the zone.  Supports both KML zones and
+    MongoDB user-created zones (24-char hex ObjectId).
+
+    Debug logs:
+        [tracks] role  actor  zone  admin_scope
+        [tracks] device sn  points_in_range  points_returned
+        [tracks] done  zone  total_points
+    """
+    role = "admin" if isinstance(account, AdminInDB) else "user"
+
+    # Default: last 7 days (frontend sends explicit start/end via TRACK_RANGES)
+    if end is None:
+        end = datetime.now(tz=timezone.utc)
+    if start is None:
+        start = end - timedelta(days=7)
+
+    admin_scope = str(account.id) if isinstance(account, AdminInDB) else str(getattr(account, "admin_id", "none"))
+    logger.info("[tracks] role=%s actor=%s zone=%s admin_scope=%s start=%s end=%s",
+                role, account.email, zone_id, admin_scope, start.isoformat(), end.isoformat())
+
+    # ── Branch A: KML zone ────────────────────────────────────────────────────
+    if zone_id in KML_POLYGONS:
+        device_docs  = await _get_assigned_devices(account, mongo)
+        zone_devices = [
+            d for d in device_docs
+            if zone_id in (d.get("fence_zone_ids") or []) or d.get("zone") == zone_id
+        ]
+        logger.info("[tracks] kml zone=%s devices_in_zone=%d", zone_id, len(zone_devices))
+        if not zone_devices:
+            return {"zone_id": zone_id, "devices": []}
+        sns = [d["sn"] for d in zone_devices]
+        devices = await _fetch_points_for_sns(sns, mongo, start, end)
+        return {"zone_id": zone_id, "devices": devices}
+
+    # ── Branch B: MongoDB user zone (24-char hex ObjectId) ────────────────────
+    zone_oid = _to_oid(zone_id)
+    if not zone_oid:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    # Resolve the admin scope so users can only see their admin's zone
+    admin_oid = None
+    if isinstance(account, AdminInDB):
+        admin_oid = _to_oid(account.id)
+    elif getattr(account, "admin_id", None):
+        admin_oid = _to_oid(account.admin_id)
+
+    query = {"_id": zone_oid}
+    if admin_oid:
+        query["admin_id"] = admin_oid
+
+    zone_doc = await mongo.zones.find_one(query)
+    if not zone_doc:
+        logger.warning("[tracks] mongo_zone_not_found zone=%s actor=%s", zone_id, account.email)
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    sns = zone_doc.get("device_sns") or []
+    logger.info("[tracks] mongo zone=%s device_sns=%d", zone_id, len(sns))
+
+    if not sns:
+        return {"zone_id": zone_id, "devices": []}
+
+    devices = await _fetch_points_for_sns(sns, mongo, start, end)
+    return {"zone_id": zone_id, "devices": devices}

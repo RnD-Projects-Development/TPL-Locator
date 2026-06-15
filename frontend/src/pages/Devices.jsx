@@ -60,6 +60,19 @@ let _fleetCache     = null
 let _fleetFetchedAt = null
 const FLEET_TTL     = 5 * 60 * 1000   // 5 min
 
+function fmtLastSeen(device) {
+  const raw = device.dataRetrievalTime ?? device.last_seen ?? device.lastSeen ?? null
+  if (!raw) return null
+  try {
+    const d = new Date(raw)
+    if (isNaN(d.getTime())) return null
+    return d.toLocaleString(undefined, {
+      month: 'short', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    })
+  } catch { return null }
+}
+
 function isStickerSN(sn) { return /^\d+$/.test(String(sn ?? '')) }
 const isBound = d => !!(d.user_id || d.assigned_user_name)
 
@@ -559,6 +572,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               const dotColor   = isActive ? '#059669' : '#DC2626'
               const dotGlow    = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
               const name       = deviceDisplayName(d)
+              const lastSeen   = fmtLastSeen(d)
               return (
                 <div
                   key={d.sn}
@@ -589,6 +603,15 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                     <div style={{ fontSize: 10, color: T.txt3, marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 19 }}>
                       {d.sn}
                     </div>
+                    {lastSeen ? (
+                      <div style={{ fontSize: 9.5, color: T.txt1, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 19 }}>
+                        Last seen: {lastSeen}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 9.5, color: '#6b7280', marginTop: 2, paddingLeft: 19, fontStyle: 'italic' }}>
+                        No last report
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     {/* Actions only when Status filter = All; device-type tabs never affect this.

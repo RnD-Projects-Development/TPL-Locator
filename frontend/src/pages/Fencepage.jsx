@@ -393,24 +393,22 @@ function FencePageInner() {
           <span className="fp-topbar-label">Geofencing</span>
         </div>
         <div className="fp-topbar-right">
-          {/* Date-range shortcuts — only meaningful once a zone is selected */}
-          {selectedZoneId && (
-            <div className="fp-shortcuts">
-              {TRACK_RANGES.map(({ label, days }) => (
-                <button
-                  key={label}
-                  className={`fp-shortcut-btn${tracksRangeDays === days ? ' active' : ''}`}
-                  onClick={() => setTracksRangeDays(days)}
-                  disabled={tracksLoading}
-                  title={`Show last ${days} day${days === 1 ? '' : 's'}`}
-                >
-                  {tracksRangeDays === days && tracksLoading
-                    ? <span className="fp-spinner" />
-                    : label}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Date-range shortcuts */}
+          <div className="fp-shortcuts">
+            {TRACK_RANGES.map(({ label, days }) => (
+              <button
+                key={label}
+                className={`fp-shortcut-btn${tracksRangeDays === days ? ' active' : ''}`}
+                onClick={() => setTracksRangeDays(days)}
+                disabled={tracksLoading && tracksRangeDays === days}
+                title={`Show last ${days} day${days === 1 ? '' : 's'}`}
+              >
+                {tracksRangeDays === days && tracksLoading
+                  ? <span className="fp-spinner" />
+                  : label}
+              </button>
+            ))}
+          </div>
           <button onClick={fetchStatuses} disabled={statusLoading} className="fp-btn-load" style={{ fontSize: 11 }}>
             {statusLoading ? <><span className="fp-spinner" /> Refreshing…</> : '↻ Refresh Status'}
           </button>

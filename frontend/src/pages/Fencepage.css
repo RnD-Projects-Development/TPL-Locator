@@ -651,9 +651,7 @@
 /* height is also inline but capped here so the panel stays compact.            */
 .zt-panel {
   position: fixed;
-  left: 260px;
   width: 300px;
-  max-height: 560px;
   background: var(--surface-1, #111);
   border-right: 1px solid var(--border-default, #2a2a2a);
   border-left: 1px solid var(--border-default, #2a2a2a);

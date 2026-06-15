@@ -112,12 +112,14 @@ export default function ZoneToolbox({
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Measure topbar so the panel starts right below it ───────────────────────
-  const [topOffset, setTopOffset] = useState(50);
+  // ── Measure fp-sidebar right edge + topbar bottom for fixed positioning ──────
+  const [topOffset,  setTopOffset]  = useState(50);
+  const [leftOffset, setLeftOffset] = useState(320);
   useLayoutEffect(() => {
-    const bar = document.querySelector('.fp-topbar');
-    // .bottom gives the y-coordinate of the topbar's lower edge from viewport top
-    if (bar) setTopOffset(Math.ceil(bar.getBoundingClientRect().bottom));
+    const bar     = document.querySelector('.fp-topbar');
+    const sidebar = document.querySelector('.fp-sidebar');
+    if (bar)     setTopOffset(Math.ceil(bar.getBoundingClientRect().bottom));
+    if (sidebar) setLeftOffset(Math.ceil(sidebar.getBoundingClientRect().right));
   }, []);
 
   // ── Reset all drawing state (used when tool or colour changes mid-draw) ───────
@@ -212,7 +214,7 @@ export default function ZoneToolbox({
 
   // ── Render — portal into document.body bypasses all ancestor stacking issues ─
   return createPortal(
-    <div className="zt-panel" style={{ top: topOffset, height: `calc(100vh - ${topOffset}px)` }}>
+    <div className="zt-panel" style={{ top: topOffset, left: leftOffset, height: `calc(100vh - ${topOffset}px)` }}>
 
       {/* ── Header ── */}
       <div className="zt-header">
