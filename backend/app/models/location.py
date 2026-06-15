@@ -36,6 +36,7 @@ class PlaybackPoint(BaseModel):
     lat: float
     lng: float
     timestamp: datetime
+    landmark: Optional[str] = None
 
 
 class PlaybackResponse(BaseModel):

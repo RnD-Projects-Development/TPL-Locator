@@ -6,7 +6,6 @@ import MapInfoPanel from "../components/MapInfoPanel.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
-import { tplGeocode } from "../utils/tplGeocode.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
 import "./TrajectoryPage.css";
@@ -54,12 +53,14 @@ function normaliseTrajectoryResponse(data) {
   if (data.feature?.geometry?.coordinates) {
     const coords     = data.feature.geometry.coordinates;
     const timestamps = data.feature.properties?.timestamps ?? [];
+    const landmarks  = data.feature.properties?.landmarks ?? [];
     // Map each [lng, lat] coord to a point object with its timestamp so
     // MapView hover popups can display the time for every trajectory dot.
     return coords.map(([lng, lat], i) => ({
       lng,
       lat,
       timestamp: timestamps[i] ?? null,
+      landmark: landmarks[i] ?? null,
     }));
   }
   if (data.type === "FeatureCollection" && Array.isArray(data.features)) {
@@ -216,25 +217,19 @@ export default function TrajectoryPage() {
   const activeTraj   = mode === "historical" ? historicalTraj : sessionTraj;
   const activeLatest = mode === "historical" ? (historicalTraj[historicalTraj.length - 1] ?? null) : latest;
 
-  // Geocode first and last points when trajectory changes
+  // Start/end landmarks from backend-stored trajectory points
   useEffect(() => {
-    setStartLocation(null);
-    setEndLocation(null);
-    if (activeTraj.length === 0) return;
-
-    const firstCoords = extractCoords(activeTraj[0]);
-    const lastCoords  = extractCoords(activeTraj[activeTraj.length - 1]);
-
-    if (firstCoords) {
-      tplGeocode(firstCoords.lat, firstCoords.lng).then((g) => {
-        setStartLocation(g?.primary ?? null);
-      });
+    if (activeTraj.length === 0) {
+      setStartLocation(null);
+      setEndLocation(null);
+      return;
     }
-    if (lastCoords && activeTraj.length > 1) {
-      tplGeocode(lastCoords.lat, lastCoords.lng).then((g) => {
-        setEndLocation(g?.primary ?? null);
-      });
-    }
+    setStartLocation(activeTraj[0]?.landmark?.trim() || null);
+    setEndLocation(
+      activeTraj.length > 1
+        ? (activeTraj[activeTraj.length - 1]?.landmark?.trim() || null)
+        : null
+    );
   }, [activeTraj]);
 
   return (

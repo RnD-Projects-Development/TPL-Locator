@@ -9,6 +9,7 @@ import certifi
 from app.auth_utils import hash_password
 from app.models.admin import AdminInDB, AdminCreate
 from app.models.device import DeviceInDB
+from app.services.tpl_geocode import reverse_geocode
 
 
 
@@ -258,7 +259,7 @@ class MongoService:
 
         cursor = self.locations.find(
             {"sn": {"$in": sns}, "timestamp": {"$gte": start_time, "$lte": end_time}},
-            {"sn": 1, "lat": 1, "lng": 1, "timestamp": 1, "speed": 1, "accuracy": 1},
+            {"sn": 1, "lat": 1, "lng": 1, "timestamp": 1, "speed": 1, "accuracy": 1, "landmark": 1},
             sort=[("sn", 1), ("timestamp", 1)],
         )
 
@@ -394,6 +395,10 @@ class MongoService:
 
         if doc["lat"] == 0 or doc["lng"] == 0 or not doc["sn"]:
             return False
+
+        landmark = await reverse_geocode(doc["lat"], doc["lng"])
+        if landmark:
+            doc["landmark"] = landmark
 
         query = {
             "uid": doc["uid"],

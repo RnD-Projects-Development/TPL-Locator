@@ -41,12 +41,13 @@ class LocationService:
                 "sn": sn,
                 "timestamp": {"$gte": start_time, "$lte": end_time},
             },
-            {"lat": 1, "lng": 1, "timestamp": 1},
+            {"lat": 1, "lng": 1, "timestamp": 1, "landmark": 1},
             sort=[("timestamp", 1)],
         )
 
         coords     = []
         timestamps = []
+        landmarks  = []
         async for doc in cursor:
             lat = doc.get("lat")
             lng = doc.get("lng")
@@ -60,6 +61,7 @@ class LocationService:
                     timestamps.append(str(ts))
                 else:
                     timestamps.append(None)
+                landmarks.append(doc.get("landmark"))
 
         logger.info("get_trajectory completed sn=%s count=%s", sn, len(coords))
 
@@ -76,6 +78,7 @@ class LocationService:
                     "end":        end_time.isoformat(),
                     # Per-point timestamps so the frontend popup can show time on hover
                     "timestamps": timestamps,
+                    "landmarks": landmarks,
                 },
             },
             count=len(coords),
@@ -101,7 +104,7 @@ class LocationService:
                 "sn": sn,
                 "timestamp": {"$gte": start_time, "$lte": end_time},
             },
-            {"lat": 1, "lng": 1, "timestamp": 1, "speed": 1, "accuracy": 1},
+            {"lat": 1, "lng": 1, "timestamp": 1, "speed": 1, "accuracy": 1, "landmark": 1},
             sort=[("timestamp", 1)],
         )
 
@@ -110,11 +113,14 @@ class LocationService:
             lat = doc.get("lat")
             lng = doc.get("lng")
             if lat is not None and lng is not None:
-                points.append({
+                point = {
                     "lat": float(lat),
                     "lng": float(lng),
                     "timestamp": doc["timestamp"],
-                })
+                }
+                if doc.get("landmark"):
+                    point["landmark"] = doc["landmark"]
+                points.append(point)
 
         logger.info("get_playback_points completed sn=%s count=%s", sn, len(points))
 

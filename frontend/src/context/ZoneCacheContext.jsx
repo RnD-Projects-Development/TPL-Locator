@@ -1,8 +1,6 @@
 // Single source of truth for fence zones, shared across FencePage sidebar and AreaSelector.
-// Geocoding runs once here; any consumer gets the cached result immediately.
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { UC_ZONE } from '../data/kmlZones.js';
-import { tplGeocode } from '../utils/tplGeocode.js';
 import { useAuth } from './AuthContext.jsx';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -21,6 +19,16 @@ function _toArea(zone) {
     ucNo:   zone.uc_no,
     coords: rawCoords.map(p => [p.lat, p.lng]),
   };
+}
+
+async function fetchLandmark(lat, lng, token) {
+  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+  const res = await fetch(`${API_BASE_URL}/api/geocode?${params}`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.landmark?.trim() || null;
 }
 
 const ZoneCacheContext = createContext(null);
@@ -50,22 +58,29 @@ export function ZoneCacheProvider({ children }) {
     } catch {}
   }, []);
 
-  // ── KML geocoding — runs once on mount ───────────────────────────────────────
+  // ── KML zone labels via backend geocoding ────────────────────────────────────
   useEffect(() => {
-    let cancelled  = false;
-    let retryTimer = null;
+    let cancelled = false;
 
-    async function geocodeAll() {
+    async function enrichZoneNames() {
+      const token = accessTokenRef.current;
+      if (!token) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
       const names = await Promise.all(
         SOURCE_ZONES.map(async (zone) => {
           try {
-            const geo = await tplGeocode(zone.center.lat, zone.center.lng);
-            return geo?.area || geo?.roadOnly || geo?.city || zone.name;
+            const landmark = await fetchLandmark(zone.center.lat, zone.center.lng, token);
+            if (!landmark) return zone.name;
+            return landmark.split(' — ')[0] || zone.name;
           } catch {
             return zone.name;
           }
         })
       );
+
       if (!cancelled) {
         const enriched = SOURCE_ZONES.map((z, i) => ({ ...z, name: names[i] }));
         setKmlZones(enriched);
@@ -73,17 +88,9 @@ export function ZoneCacheProvider({ children }) {
       }
     }
 
-    function tryGeocode() {
-      if (window.TPLMaps?.api?.reverseGeoCode) {
-        geocodeAll();
-      } else {
-        retryTimer = setTimeout(tryGeocode, 1_000);
-      }
-    }
-
-    tryGeocode();
-    return () => { cancelled = true; clearTimeout(retryTimer); };
-  }, []);
+    enrichZoneNames();
+    return () => { cancelled = true; };
+  }, [accessToken]);
 
   // ── Fetch user zones once the auth token is available ────────────────────────
   useEffect(() => {

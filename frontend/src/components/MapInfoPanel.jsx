@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { tplGeocode } from "../utils/tplGeocode.js";
+import React from "react";
+import { landmarkDisplayFromPoint } from "../utils/landmark.js";
 import "./MapInfoPanel.css";
 
 function extractCoords(point) {
@@ -65,15 +65,7 @@ export default function MapInfoPanel({
   emptyHint = "Select a device to view its live details",
 }) {
   const coords = extractCoords(point);
-  const [geo, setGeo] = useState(null);
-
-  useEffect(() => {
-    let active = true;
-    setGeo(null);
-    if (!coords) return;
-    tplGeocode(coords.lat, coords.lng).then((g) => { if (active) setGeo(g); }).catch(() => {});
-    return () => { active = false; };
-  }, [coords?.lat, coords?.lng]);
+  const geo = landmarkDisplayFromPoint(point);
 
   if (!sn) {
     return (
@@ -139,7 +131,7 @@ export default function MapInfoPanel({
               </>
             ) : (
               <div className="mip-row-val mip-muted">
-                {coords ? "Resolving address…" : "No GPS fix yet"}
+                {coords ? "No landmark yet" : "No GPS fix yet"}
               </div>
             )}
           </div>

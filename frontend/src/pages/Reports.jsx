@@ -1,9 +1,8 @@
-import React, { useCallback, useState } from "react";
+import React, { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
-import { reverseGeocode } from "../utils/reverseGeocode.js";
 import "./ReportPage.css";
 import * as XLSX from "xlsx";
 
@@ -38,7 +37,12 @@ function normalisePoints(data) {
   if (data.feature?.geometry?.coordinates) {
     const coords = data.feature.geometry.coordinates;
     const timestamps = data.feature.properties?.timestamps ?? [];
-    return coords.map(([lng, lat], i) => ({ lng, lat, timestamp: timestamps[i] ?? null }));
+    const landmarks = data.feature.properties?.landmarks ?? [];
+    return coords.map(([lng, lat], i) => ({
+      lng, lat,
+      timestamp: timestamps[i] ?? null,
+      landmark: landmarks[i] ?? null,
+    }));
   }
   if (data.geometry?.coordinates) {
     const ts = data.properties?.timestamps ?? [];
@@ -110,7 +114,6 @@ export default function Reports() {
   const [endTime,   setEndTime]   = useState("23:59");
 
   const [points,         setPoints]         = useState([]);
-  const [geocoded,       setGeocoded]       = useState({});
   const [loading,        setLoading]        = useState(false);
   const [error,          setError]          = useState("");
   const [activeShortcut, setActiveShortcut] = useState(null);
@@ -122,33 +125,9 @@ export default function Reports() {
     setSn(newSn);
     setLabel(newLabel);
     setPoints([]);
-    setGeocoded({});
     setError("");
     setActiveShortcut(null);
   };
-
-  const geocodePoints = useCallback(async (pts) => {
-    const results = {};
-    const unique  = [];
-    const seen    = new Set();
-    for (const p of pts) {
-      const c = extractCoords(p);
-      if (!c) continue;
-      const key = `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`;
-      if (!seen.has(key)) { seen.add(key); unique.push({ c, key }); }
-    }
-    const BATCH = 5;
-    for (let i = 0; i < unique.length; i += BATCH) {
-      await Promise.all(unique.slice(i, i + BATCH).map(async ({ c, key }) => {
-        try {
-          const geo = await reverseGeocode(c.lat, c.lng);
-          if (geo) results[key] = geo;
-        } catch { /* skip */ }
-      }));
-      setGeocoded({ ...results });
-      if (i + BATCH < unique.length) await new Promise(r => setTimeout(r, 200));
-    }
-  }, []);
 
   const loadReport = async (overrideStart, overrideEnd) => {
     if (!sn) return;
@@ -163,7 +142,6 @@ export default function Reports() {
       const pts = normalisePoints(res);
       if (pts.length === 0) throw new Error("No data found in that time range");
       setPoints(pts);
-      geocodePoints(pts);
     } catch (err) {
       setError(err.message || "Failed to load report data");
     } finally {
@@ -186,20 +164,13 @@ export default function Reports() {
   };
 
   const getLocationLabel = (point) => {
+    if (point?.landmark?.trim()) return point.landmark.trim();
     const c = extractCoords(point);
     if (!c) return "—";
-    const key = `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`;
-    const geo = geocoded[key];
-    if (geo?.primary) return geo.isSpecific ? geo.primary : `Near ${geo.primary}`;
     return `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
   };
 
-  const getLocationSecondary = (point) => {
-    const c = extractCoords(point);
-    if (!c) return "";
-    const key = `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`;
-    return geocoded[key]?.secondary ?? "";
-  };
+  const getLocationSecondary = () => "";
 
   const exportCSV = () => {
     if (points.length === 0) return;

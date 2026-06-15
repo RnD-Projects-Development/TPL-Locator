@@ -63,6 +63,11 @@ def get_settings():
         "vendor_admin_citytag_email": _env_strip(
             "VENDOR_ADMIN_CITYTAG_EMAIL", "abdulsaboornaeem@gmail.com"
         ),
+        # TPL Maps reverse geocoding
+        "tpl_maps_api_key": _env_strip("TPL_MAPS_API_KEY", ""),
+        "tpl_maps_rgeocode_url": _env_strip(
+            "TPL_MAPS_RGEOCODE_URL", "https://api1.tplmaps.com:8888/search/rgeocode"
+        ),
     }
 
 

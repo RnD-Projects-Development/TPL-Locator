@@ -1,11 +1,12 @@
 from typing import Annotated, Any, Dict, Optional, Union
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel
 import jwt
 
 from app.dependencies import get_current_account, get_mongo_service, get_settings
+from app.services.tpl_geocode import reverse_geocode
 from app.models.admin import AdminInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
@@ -34,6 +35,17 @@ async def get_current_token_payload(request: Request):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     return payload
+
+
+@router.get("/geocode")
+async def geocode_point(
+    lat: float = Query(..., description="Latitude"),
+    lng: float = Query(..., description="Longitude"),
+    _account=Depends(get_current_account),
+) -> Dict[str, Any]:
+    """Reverse geocode coordinates via TPL Maps (server-side API key)."""
+    landmark = await reverse_geocode(lat, lng)
+    return {"lat": lat, "lng": lng, "landmark": landmark}
 
 
 @router.get("/location/{sn}")

@@ -263,6 +263,14 @@ export function useCityTag() {
     }, [accessToken, logout]
   );
 
+  const getGeocode = useCallback(
+    async (lat, lng) => {
+      const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+      return apiFetch(`/api/geocode?${params}`, {}, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
   const getPlaybackBatch = useCallback(
     async (sns, start, end) => apiFetch(
       "/api/devices/playback-batch",
@@ -306,7 +314,7 @@ export function useCityTag() {
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,
     bindDevice, bindDeviceByIdentifier, unbindDevice, adminUnbindDevice,
-    searchDevice, getLatestLocation, getTrajectory, getPlayback,
+    searchDevice, getLatestLocation, getTrajectory, getPlayback, getGeocode,
     getLatestLocationsBatch, getPlaybackBatch,
     getFieldStaffLiveDevices,
   };

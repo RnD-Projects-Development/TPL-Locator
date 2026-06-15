@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Tag, MapPin, Clock, Battery, ArrowLeft, Package, Navigation, Route, FileText } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
-import { tplGeocode } from '../utils/tplGeocode.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
@@ -115,13 +114,7 @@ export default function StickerDetail() {
         if (cancelled) return
         const point = res?.latest ?? res ?? null
         setLivePoint(point)
-        if (point?.lat != null && point?.lng != null) {
-          tplGeocode(point.lat, point.lng).then(geo => {
-            if (cancelled) return
-            const label = geo?.area || geo?.name || geo?.roadOnly || geo?.primary
-            if (label) setGeoLabel(label)
-          }).catch(() => {})
-        }
+        setGeoLabel(point?.landmark?.trim() || '')
       })
       .catch(err => { if (!cancelled) setLocError(err?.message || 'Location unavailable') })
       .finally(() => { if (!cancelled) setLocLoading(false) })
@@ -226,8 +219,8 @@ export default function StickerDetail() {
       </button>
 
       {/* Two-column: details (left) + last-location map (right) */}
-      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: '1 1 560px', minWidth: 0, maxWidth: 760 }}>
+      <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: '1 1 560px', minWidth: 0, maxWidth: 760, alignSelf: 'stretch', minHeight: 'calc(100vh - 130px)', height: 'calc(100vh - 130px)' }}>
 
       {/* Header card */}
       <div style={{ ...panel, ...(cardAccent || {}), padding: 24 }}>
@@ -258,9 +251,9 @@ export default function StickerDetail() {
       </div>
 
       {/* Stats grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'stretch' }}>
         {stats.map(s => (
-          <div key={s.label} style={{ ...panel, ...(cardAccent || {}), padding: 16 }}>
+          <div key={s.label} style={{ ...panel, ...(cardAccent || {}), padding: 16, minHeight: 92 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <s.icon style={{ width: 13, height: 13, color: s.color }} />
               <span style={{ color: T.statLabel, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
@@ -274,7 +267,7 @@ export default function StickerDetail() {
       </div>
 
       {/* Device info */}
-      <div style={{ ...panel, ...(cardAccent || {}), padding: 20 }}>
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 20, flex: '1 1 0', minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
           <Tag style={{ width: 15, height: 15, color: T.accent }} />
           <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Device Info</span>
@@ -293,7 +286,7 @@ export default function StickerDetail() {
       </div>
 
       {/* Track device */}
-      <div style={{ ...panel, ...(cardAccent || {}), padding: 20 }}>
+      <div style={{ ...panel, ...(cardAccent || {}), padding: 20, flex: '1 1 0', minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <Navigation style={{ width: 15, height: 15, color: T.accent }} />
           <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Track Device</span>

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import loadTPLMaps from "./loadTPLMaps.js";
-import { tplGeocode } from "../utils/tplGeocode.js";
+import { landmarkDisplayFromPoint } from "../utils/landmark.js";
 import { deviceColor } from "../utils/zonePolygonManager.js";
 
 function safe(v) { return v == null || v === '' ? '—' : String(v); }
@@ -285,7 +285,6 @@ export default function MapView({
 
   // Multi-device marker refs
   const multiMarkersRef   = useRef(new Map());
-  const multiGeocodeRef   = useRef(new Map());
   const multiSnsRef       = useRef(new Set());
   const pannedForCountRef = useRef(0);
 
@@ -355,21 +354,19 @@ export default function MapView({
   useEffect(() => { snRef.current          = sn;          }, [sn]);
   useEffect(() => { labelRef.current       = label;       }, [label]);
 
-  // Reverse geocode eagerly
+  // Landmark from backend-stored location point
   useEffect(() => {
-    if (!coords) { geocodeRef.current = null; return; }
-    tplGeocode(coords.lat, coords.lng).then(result => {
-      geocodeRef.current = result;
-      if (popupRef.current && mapRef.current) {
-        popupRef.current.setContent(buildPopupHtml({
-          displayName: displayNameRef.current,
-          sn: snRef.current, label: labelRef.current,
-          coords: coordsRef.current, point: latestRef.current,
-          geocode: result,
-        }));
-      }
-    });
-  }, [coords?.lat, coords?.lng]);
+    const display = landmarkDisplayFromPoint(activePoint);
+    geocodeRef.current = display;
+    if (popupRef.current && mapRef.current) {
+      popupRef.current.setContent(buildPopupHtml({
+        displayName: displayNameRef.current,
+        sn: snRef.current, label: labelRef.current,
+        coords: coordsRef.current, point: latestRef.current,
+        geocode: display,
+      }));
+    }
+  }, [activePoint?.landmark, coords?.lat, coords?.lng]);
 
   /* ── INVALIDATE SIZE ── */
   useEffect(() => {
@@ -437,7 +434,6 @@ export default function MapView({
       } catch {}
       fenceLayersRef.current = [];
       multiMarkersRef.current.clear();
-      multiGeocodeRef.current.clear();
       multiSnsRef.current = new Set();
       pannedForCountRef.current = 0;
       animFromRef.current = null;
@@ -802,10 +798,6 @@ export default function MapView({
 
     if (multiDevices.length === 0) return;
 
-    multiGeocodeRef.current.forEach((_, sn) => {
-      if (!incomingSns.has(sn)) multiGeocodeRef.current.delete(sn);
-    });
-
     multiDevices.forEach(({ sn, label: devLabel, latest: point, color }) => {
       const c = extractCoords(point);
       if (!c) return;
@@ -814,9 +806,6 @@ export default function MapView({
         const entry = multiMarkersRef.current.get(sn);
         entry.marker.setLatLng([c.lat, c.lng]);
         entry.pointHolder.current = point;
-        tplGeocode(c.lat, c.lng).then(geo => {
-          multiGeocodeRef.current.set(sn, geo);
-        }).catch(() => {});
       } else {
         const icon = window.L.divIcon({
           html: buildColoredPinHtml(color),
@@ -828,10 +817,6 @@ export default function MapView({
         marker.on('click', () => {
           if (onFocusRef.current) onFocusRef.current(sn);
         });
-
-        tplGeocode(c.lat, c.lng).then(geo => {
-          multiGeocodeRef.current.set(sn, geo);
-        }).catch(() => {});
 
         multiMarkersRef.current.set(sn, { marker, pointHolder });
       }
