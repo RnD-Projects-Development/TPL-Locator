@@ -94,18 +94,18 @@ function buildPopupHtml({ displayName, sn, label, coords, point, geocode }) {
 // ── Lollipop pin — outer ring + bright inner circle + slim stem + ground shadow ─
 function buildPinIconHtml(innerColor = '#E8192C', outerColor = '#8B0000') {
   return `
-  <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:44px;height:68px;">
-    <div style="width:38px;height:38px;border-radius:50%;flex-shrink:0;
+  <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:30px;height:48px;">
+    <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;
       background:${outerColor};
       display:flex;align-items:center;justify-content:center;
-      box-shadow:0 4px 12px rgba(0,0,0,0.45);">
-      <div style="width:26px;height:26px;border-radius:50%;background:${innerColor};"></div>
+      box-shadow:0 3px 8px rgba(0,0,0,0.45);">
+      <div style="width:16px;height:16px;border-radius:50%;background:${innerColor};"></div>
     </div>
-    <div style="width:5px;height:26px;flex-shrink:0;
+    <div style="width:4px;height:18px;flex-shrink:0;
       background:#3d3d3d;
       border-radius:0 0 3px 3px;"></div>
     <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);
-      width:26px;height:8px;border-radius:50%;
+      width:16px;height:6px;border-radius:50%;
       background:rgba(0,0,0,0.18);"></div>
   </div>`;
 }
@@ -344,7 +344,7 @@ export default function MapView({
     if (!window.L || !map || !c) return;
     if (!markerRef.current) {
       const icon = window.L.divIcon({
-        html: DEVICE_ICON_HTML, className: '', iconSize: [44, 68], iconAnchor: [22, 60],
+        html: DEVICE_ICON_HTML, className: '', iconSize: [30, 48], iconAnchor: [15, 42],
       });
       markerRef.current = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
       animFromRef.current = { lat: c.lat, lng: c.lng };
@@ -818,7 +818,7 @@ export default function MapView({
       } else {
         const icon = window.L.divIcon({
           html: buildPinIconHtml(color),
-          className: '', iconSize: [44, 68], iconAnchor: [22, 60],
+          className: '', iconSize: [30, 48], iconAnchor: [15, 42],
         });
         const marker      = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
         const pointHolder = { current: point };
