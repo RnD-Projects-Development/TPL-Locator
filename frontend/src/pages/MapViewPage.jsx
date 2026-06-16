@@ -44,11 +44,7 @@ export default function MapViewPage() {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [intervalSec, setIntervalSec] = useState(15);
   const [showFences, setShowFences]   = useState(false);
-
-  const intervalRef = useRef(null);
 
   useEffect(() => {
     saveSidebarScopeState(MAP_SCOPE, {
@@ -108,14 +104,6 @@ export default function MapViewPage() {
     refresh();
   }, [selectedSns]); // intentionally omitting refresh — selection change is the trigger
 
-  // Auto-refresh interval
-  useEffect(() => {
-    clearInterval(intervalRef.current);
-    if (autoRefresh && selectedSns.size > 0) {
-      intervalRef.current = setInterval(refresh, intervalSec * 1000);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [autoRefresh, intervalSec, selectedSns.size, refresh]);
 
   // When selection changes, clean up locations for deselected devices
   function handleSelectionChange(newSns) {
@@ -220,19 +208,6 @@ export default function MapViewPage() {
         </div>
 
         <div className="mv-topbar-right">
-          <label className="mv-toggle-label">
-            <button className={`mv-toggle ${autoRefresh ? "on" : "off"}`} onClick={() => setAutoRefresh(v => !v)}>
-              <span className="mv-toggle-knob" />
-            </button>
-            Auto-refresh
-          </label>
-          <input
-            type="number" className="mv-interval-input"
-            value={intervalSec} min={5} max={300}
-            disabled={!autoRefresh}
-            onChange={(e) => setIntervalSec(Number(e.target.value))}
-          />
-          <span className="mv-unit">sec</span>
           <button
             className={`mv-fence-btn${showFences ? " active" : ""}`}
             onClick={() => setShowFences(v => !v)}

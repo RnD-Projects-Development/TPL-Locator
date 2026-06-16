@@ -86,8 +86,10 @@ body {
 
 body, button, input, div {
   font-family: var(--font-sans);
-  -webkit-font-smoothing: auto;
-  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-weight: 400;
+  letter-spacing: 0.04em;
 }
 
 /* ── Global text weight boost ─────────────────────────────────────────────────

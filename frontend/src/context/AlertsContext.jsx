@@ -20,7 +20,6 @@ import { useAuth } from './AuthContext.jsx'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS  = 5 * 60 * 1000   // 5 minutes
 const BATTERY_THRESHOLD = 25               // percent
 const OFFLINE_HOURS     = 24              // hours
 const GEO_WINDOW_MS     = 24 * 60 * 60 * 1000  // only show geofence events from last 24 h
@@ -132,7 +131,7 @@ export function AlertsProvider({ children }) {
   const [error,       setError]       = useState(null)
 
   const readIdsRef  = useRef(loadReadIds())
-  const intervalRef = useRef(null)
+
   const seenAlertIdsRef = useRef(null) // null until first fetch — avoids a notification burst on load
 
   // Ask for web-notification permission once the user is authenticated
@@ -255,12 +254,9 @@ export function AlertsProvider({ children }) {
       setError('')
       readIdsRef.current = new Set()
       seenAlertIdsRef.current = null
-      clearInterval(intervalRef.current)
       return
     }
     fetchAlerts()
-    intervalRef.current = setInterval(fetchAlerts, POLL_INTERVAL_MS)
-    return () => clearInterval(intervalRef.current)
   }, [accessToken, fetchAlerts])
 
   // ── Actions ────────────────────────────────────────────────────────────────

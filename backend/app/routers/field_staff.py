@@ -13,7 +13,7 @@ from app.services.mongodb import MongoService
 router = APIRouter(prefix="/api/field-staff", tags=["field_staff"])
 logger = logging.getLogger(__name__)
 
-ONLINE_THRESHOLD_MINUTES = 30
+ONLINE_THRESHOLD_MINUTES = 720  # 12 hours
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 

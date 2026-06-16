@@ -4,7 +4,6 @@ import { useBindCache } from './BindCacheContext.jsx';
 import { parseKMLText } from '../utils/geofenceUtils.js';
 import { registerCacheResetListener } from '../utils/clearAppCaches.js';
 
-const AUTO_REFRESH_MS = 10 * 60 * 1000; // 10 minutes
 const SUMMARY_CACHE_MS = 5 * 60 * 1000; // 5 minutes — matches device list cache
 
 const EMPTY_SUMMARY = {
@@ -250,16 +249,6 @@ export function HomePageCacheProvider({ children }) {
       fetchActivity(f.date, f.date === todayStr(), { force, deviceList }),
     ]);
   }, [fetchDevices, fetchSummary, fetchLocations, fetchActivity]);
-
-  // ── Auto-refresh every 10 minutes — only while on live date ──────────────
-  useEffect(() => {
-    const id = setInterval(() => {
-      const f = filtersRef.current;
-      if (f.date !== todayStr()) return; // skip if user is on a historical date
-      refreshAll({ force: true });
-    }, AUTO_REFRESH_MS);
-    return () => clearInterval(id);
-  }, [refreshAll]);
 
   // ── When user changes the date filter, re-fetch activity ─────────────────
   const prevDateRef = useRef(null);

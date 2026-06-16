@@ -57,6 +57,32 @@ export function AuthProvider({ children }) {
         setRole(null);
         localStorage.removeItem(STORAGE_KEY);
       },
+      updateProfile: async ({ name, currentPassword, newPassword }) => {
+        if (!accessToken) throw new Error("Not authenticated");
+        const body = {};
+        if (name !== undefined) body.name = name;
+        if (newPassword) { body.current_password = currentPassword; body.new_password = newPassword; }
+        const res = await fetch("/api/me", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || "Update failed");
+        }
+        const data = await res.json();
+        if (data.name !== undefined) {
+          const updated = { ...user, name: data.name };
+          setUser(updated);
+          try {
+            const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+            stored.user = updated;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+          } catch {}
+        }
+        return data;
+      },
     }),
     [user, accessToken, role]
   );

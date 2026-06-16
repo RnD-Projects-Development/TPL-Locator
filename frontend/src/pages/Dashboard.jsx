@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield, Layers, Link2, Unlink, ChevronDown, FileDown, Loader } from 'lucide-react'
+import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield, Layers, Link2, Unlink, FileDown, Loader } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { toPng } from 'html-to-image'
 import jsPDF from 'jspdf'
@@ -120,13 +120,13 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
   const typeTotal    = locatorCount + stickerCount || 1
   const locPct       = Math.round((locatorCount / typeTotal) * 100)
 
-  const topZones = useMemo(() =>
-    [...zones]
+  const { topZones, extraZones } = useMemo(() => {
+    const active = [...zones]
       .map(z => ({ name: z.name || 'Unnamed', count: z.device_sns?.length || 0 }))
       .sort((a, b) => b.count - a.count)
       .filter(z => z.count > 0)
-      .slice(0, 4)
-  , [zones])
+    return { topZones: active.slice(0, 4), extraZones: Math.max(0, active.length - 4) }
+  }, [zones])
 
   const topDevices = useMemo(() =>
     [...devices]
@@ -143,7 +143,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
       <div style={CARD_HDR}>
         <div>
           <div style={CARD_TTL}>Fleet Health Snapshot</div>
-          <div style={CARD_SUB}>Live system diagnostics — {total} devices total</div>
+          <div style={CARD_SUB}>Live system diagnostics</div>
         </div>
       </div>
 
@@ -167,9 +167,9 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
           <div style={SECTION_HDR}>Critical Watches</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[
-              { label: 'Battery < 20%',  value: batteryWarn,  warn: batteryWarn > 0,  color: batteryWarn > 0 ? '#F59E0B' : '#4ade80' },
-              { label: 'Offline > 7 days', value: longOffline, warn: longOffline > 0,  color: longOffline > 0  ? '#f87171' : '#4ade80' },
-              { label: 'In Geofence',  value: inZone,        warn: false,            color: '#22D3EE' },
+              { label: 'Battery (Less than 20%)',  value: batteryWarn,  warn: batteryWarn > 0,  color: batteryWarn > 0 ? '#F59E0B' : '#4ade80' },
+              { label: 'Offline (More than 7 days)', value: longOffline, warn: longOffline > 0,  color: longOffline > 0  ? '#f87171' : '#4ade80' },
+              { label: 'fence',  value: inZone,        warn: false,            color: '#22D3EE' },
             ].map(item => (
               <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -211,45 +211,70 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
         <div style={{ padding: '4px 20px 4px 24px' }}>
           <div style={SECTION_HDR}>Top Active Zones</div>
           {topZones.length > 0 ? (
-            <ResponsiveContainer width="100%" height={90}>
-              <PieChart>
-                <Pie
-                  data={topZones}
-                  dataKey="count"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={42}
-                  paddingAngle={topZones.length > 1 ? 3 : 0}
-                  startAngle={90}
-                  endAngle={-270}
-                  stroke="none"
-                  isAnimationActive={false}
-                >
-                  {topZones.map((z, i) => (
-                    <Cell key={z.name} fill={BAR_COLORS[i % BAR_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  cursor={false}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null
-                    const z = payload[0].payload
-                    const color = BAR_COLORS[topZones.indexOf(z) % BAR_COLORS.length]
-                    const pct = Math.round((z.count / topZones.reduce((s, x) => s + x.count, 0)) * 100)
-                    return (
-                      <div style={{ background: '#161616', border: `1px solid ${color}40`, borderRadius: 8, padding: '8px 12px', pointerEvents: 'none', boxShadow: `0 4px 16px rgba(0,0,0,0.5)` }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{z.name}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
-                          <span style={{ fontSize: 11, color: color, fontWeight: 700 }}>{z.count} device{z.count !== 1 ? 's' : ''}</span>
-                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginLeft: 2 }}>{pct}%</span>
-                        </div>
-                      </div>
-                    )
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {/* Legend on left */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 0.5 }}>
+                {topZones.map((z, i) => {
+                  const totalCount = topZones.reduce((s, x) => s + x.count, 0)
+                  const pct = Math.round((z.count / totalCount) * 100)
+                  const color = BAR_COLORS[i % BAR_COLORS.length]
+                  return (
+                    <div key={z.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'block', flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: '#D0D0D0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{z.name}</span>
+                      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 700, flexShrink: 0 }}>{pct}%</span>
+                    </div>
+                  )
+                })}
+                {extraZones > 0 && (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', paddingLeft: 12, fontStyle: 'italic' }}>
+                    +{extraZones} more zone{extraZones !== 1 ? 's' : ''}
+                  </div>
+                )}
+              </div>
+              {/* Pie chart on right */}
+              <div style={{ flex: 0.5 }}>
+                <ResponsiveContainer width="100%" height={90}>
+                  <PieChart>
+                    <Pie
+                      data={topZones}
+                      dataKey="count"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={42}
+                      paddingAngle={topZones.length > 1 ? 3 : 0}
+                      startAngle={90}
+                      endAngle={-270}
+                      stroke="none"
+                      isAnimationActive={false}
+                    >
+                      {topZones.map((z, i) => (
+                        <Cell key={z.name} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      cursor={false}
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null
+                        const z = payload[0].payload
+                        const color = BAR_COLORS[topZones.indexOf(z) % BAR_COLORS.length]
+                        const pct = Math.round((z.count / topZones.reduce((s, x) => s + x.count, 0)) * 100)
+                        return (
+                          <div style={{ background: '#161616', border: `1px solid ${color}40`, borderRadius: 8, padding: '8px 12px', pointerEvents: 'none', boxShadow: `0 4px 16px rgba(0,0,0,0.5)` }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{z.name}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
+                              <span style={{ fontSize: 11, color: color, fontWeight: 700 }}>{z.count} device{z.count !== 1 ? 's' : ''}</span>
+                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginLeft: 2 }}>{pct}%</span>
+                            </div>
+                          </div>
+                        )
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {topDevices.map((d, i) => (
@@ -493,9 +518,9 @@ function BatteryStatusPanel({ batteryTiers }) {
       )}
       <div style={{ display:'flex', flexDirection:'column', gap:'7px', marginTop:'10px' }}>
         {[
-          { name: 'High',   range: '≥ 60%',  value: batteryTiers.high,   color: BATT_COLORS[0] },
-          { name: 'Medium', range: '20–59%', value: batteryTiers.medium, color: BATT_COLORS[1] },
-          { name: 'Low',    range: '< 20%',  value: batteryTiers.low,    color: BATT_COLORS[2] },
+          { name: 'High',   range: 'atleast 60%',  value: batteryTiers.high,   color: BATT_COLORS[0] },
+          { name: 'Medium', range: '20 to 50%', value: batteryTiers.medium, color: BATT_COLORS[1] },
+          { name: 'Low',    range: 'less than 20%',  value: batteryTiers.low,    color: BATT_COLORS[2] },
         ].map(s => (
           <div key={s.name} style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
@@ -672,8 +697,6 @@ export default function Dashboard() {
       if (!p1 || !p2) return
 
       const PX_TO_MM = 25.4 / 96
-      const A4_W_MM  = 297
-      const A4_H_MM  = 210
 
       const nodeFilter = node => {
         if (exportBtnRef.current && node === exportBtnRef.current) return false
@@ -681,42 +704,49 @@ export default function Dashboard() {
       }
 
       async function captureEl(el) {
+        // Temporarily reveal full content so nothing is clipped
+        const prev = { overflow: el.style.overflow, height: el.style.height }
+        el.style.overflow = 'visible'
+        el.style.height   = 'auto'
+        await new Promise(r => requestAnimationFrame(r))
         const w = el.scrollWidth
         const h = el.scrollHeight
-        return toPng(el, {
+        const dataUrl = await toPng(el, {
           pixelRatio: 2,
-          backgroundColor: '#141414',
+          backgroundColor: '#0d0d0d',
           width: w, height: h,
-          style: { overflow: 'visible', height: `${h}px`, width: `${w}px` },
           filter: nodeFilter,
         })
+        el.style.overflow = prev.overflow
+        el.style.height   = prev.height
+        return { dataUrl, w, h }
       }
 
-      // Slide each page into view instantly (transitions disabled while isCapturing)
+      // Capture page 1
       setActivePage(1)
       await new Promise(r => setTimeout(r, 120))
-      const url1 = await captureEl(p1)
+      const r1 = await captureEl(p1)
 
+      // Capture page 2
       setActivePage(2)
       await new Promise(r => setTimeout(r, 120))
-      const url2 = await captureEl(p2)
+      const r2 = await captureEl(p2)
 
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+      // Single PDF page — both views stacked vertically, zero padding
+      const w1mm = r1.w * PX_TO_MM
+      const h1mm = r1.h * PX_TO_MM
+      const w2mm = r2.w * PX_TO_MM
+      const h2mm = r2.h * PX_TO_MM
+      const pageW = Math.max(w1mm, w2mm)
+      const pageH = h1mm + h2mm
 
-      function addPageImage(url, el) {
-        const wMM  = el.scrollWidth  * PX_TO_MM
-        const hMM  = el.scrollHeight * PX_TO_MM
-        const scale = Math.min(A4_W_MM / wMM, A4_H_MM / hMM)
-        const drawW = wMM * scale
-        const drawH = hMM * scale
-        const x = (A4_W_MM - drawW) / 2
-        const y = (A4_H_MM - drawH) / 2
-        pdf.addImage(url, 'PNG', x, y, drawW, drawH)
-      }
-
-      addPageImage(url1, p1)
-      pdf.addPage()
-      addPageImage(url2, p2)
+      const pdf = new jsPDF({
+        orientation: pageW >= pageH ? 'landscape' : 'portrait',
+        unit: 'mm',
+        format: [pageW, pageH],
+      })
+      pdf.addImage(r1.dataUrl, 'PNG', 0, 0, w1mm, h1mm)
+      pdf.addImage(r2.dataUrl, 'PNG', 0, h1mm, w2mm, h2mm)
 
       const now   = new Date()
       const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
@@ -795,7 +825,7 @@ export default function Dashboard() {
         const lastTs = loc?.timestamp ?? loc?.time ?? loc?.locTime
           ?? d.dataRetrievalTime ?? d.last_seen ?? null
         const withinWindow = lastTs
-          ? (Date.now() - new Date(lastTs).getTime()) < 30 * 60_000
+          ? (Date.now() - new Date(lastTs).getTime()) < 12 * 60 * 60_000
           : false
         // Also check device-level status field — catches devices the location
         // batch API missed (they're online in the DB but missing from the cache)
@@ -834,23 +864,47 @@ export default function Dashboard() {
   const assignedDevices = Number(summary?.assigned) || 0
   const unboundCount    = Math.max(0, totalDevices - assignedDevices)
 
+  const p1TransLock = useRef(false)
+  const p2TransLock = useRef(false)
   const goToPage2 = () => setActivePage(2)
   const goToPage1 = () => setActivePage(1)
 
+  const handlePage1Wheel = (e) => {
+    if (e.deltaY > 0 && !p1TransLock.current) {
+      p1TransLock.current = true
+      goToPage2()
+      setTimeout(() => { p1TransLock.current = false }, 600)
+    }
+  }
+
+  const handlePage2Wheel = (e) => {
+    if (page2Ref.current?.scrollTop === 0 && e.deltaY < 0 && !p2TransLock.current) {
+      p2TransLock.current = true
+      goToPage1()
+      setTimeout(() => { p2TransLock.current = false }, 600)
+    }
+  }
+
   return (
     <div ref={dashboardRef} style={{ position:'relative', height:'100%', overflow:'hidden' }}>
-
       {/* ══════════════════════════════ PAGE 1 ══════════════════════════════ */}
+      {/* Outer wrapper owns the slide transform */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        transform: `translateY(${activePage === 1 ? '0' : '-100%'})`,
+        transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
+      }}>
+
+      {/* Inner content div — overflow hidden */}
       <div
         ref={page1Ref}
         style={{
           position: 'absolute', inset: 0,
-          overflowY: 'auto',
-          padding: '20px',
-          display: 'flex', flexDirection: 'column', gap: '14px',
-          transform: `translateY(${activePage === 1 ? '0' : '-100%'})`,
-          transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
+          overflow: 'hidden',
+          padding: '14px 16px',
+          display: 'flex', flexDirection: 'column', gap: '10px',
         }}
+        onWheel={handlePage1Wheel}
       >
 
         {/* ── Dashboard header ──────────────────────────────────── */}
@@ -880,18 +934,18 @@ export default function Dashboard() {
         </div>
 
         {/* ── KPI row ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'14px' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'10px', flexShrink: 0 }}>
           <KPICard
             title="Assigned Devices"
             value={assignedDevices}
-            sub="devices bound to users"
+            sub=""
             icon={Link2}
             onClick={() => navigate('/devices?status=assigned')}
           />
           <KPICard
             title="Unassigned Devices"
             value={unboundCount}
-            sub="without an owner"
+            sub=""
             icon={Unlink}
             onClick={() => navigate('/devices?status=unassigned')}
             colors={{
@@ -952,86 +1006,62 @@ export default function Dashboard() {
         </div>
 
         {/* ── Platform metrics ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:'14px' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:'10px', flexShrink: 0 }}>
           {[
             { label:'Total Devices',  value: totalDevices,     icon: Layers, color:'#00B4D8', sub:`${summary.locators ?? 0} locators · ${summary.stickers ?? 0} stickers`, onClick: () => navigate('/devices') },
             { label:'Users',          value: users.length,     icon: Users,  color:'#22D3EE', sub:'under your account' },
-            { label:'Geo-fences',     value: zones.length,     icon: Shield, color:'#F59E0B', sub:'active fence zones', onClick: () => navigate('/geofence') },
-            { label:'Smart Stickers', value: summary.stickers, icon: Tag,    color:'#FFB703', sub: weeklyStickers > 0 ? `+${weeklyStickers} this week` : 'cargo & logistics tracking', onClick: () => navigate('/stickers') },
+            { label:'fences',     value: zones.length,     icon: Shield, color:'#F59E0B', sub:'active fence zones', onClick: () => navigate('/geofence') },
+            { label:'Smart Stickers', value: summary.stickers, icon: Tag,    color:'#FFB703', sub: weeklyStickers > 0 ? `+${weeklyStickers} this week` : '', onClick: () => navigate('/stickers') },
           ].map(m => <MetricCard key={m.label} m={m} />)}
         </div>
 
         {/* ── Analytics ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(260px, 1fr)', gap:'14px' }}>
+        <div style={{ flex: 1, minHeight: 0, display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(240px, 1fr)', gap:'10px' }}>
           <RecentTrendPanel generalBins={generalBins} peakLabel={peakLabel} />
           <BatteryStatusPanel batteryTiers={batteryTiers} />
         </div>
 
-        {/* ── More Insights navigator ── */}
-        <div style={{ display:'flex', alignItems:'center', gap:14, margin:'2px 0' }}>
-          <div style={{ flex:1, height:1, background:'rgba(255,255,255,0.06)' }} />
-          <button
-            onClick={goToPage2}
-            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 18px', borderRadius:999,
-              background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)',
-              color:'rgba(255,255,255,0.55)', fontSize:11, fontWeight:700, cursor:'pointer',
-              letterSpacing:'0.06em', textTransform:'uppercase', transition:'all 0.18s' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(167,44,50,0.50)'; e.currentTarget.style.color='#FFFFFF'; e.currentTarget.style.background='rgba(167,44,50,0.10)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color='rgba(255,255,255,0.55)'; e.currentTarget.style.background='rgba(255,255,255,0.04)' }}
-          >
-            <ChevronDown style={{ width:12, height:12 }} />
-            More Insights
-          </button>
-          <div style={{ flex:1, height:1, background:'rgba(255,255,255,0.06)' }} />
-        </div>
 
       </div>
 
+      </div>{/* ── closes page 1 slide wrapper ── */}
+
       {/* ══════════════════════════════ PAGE 2 ══════════════════════════════ */}
-      <div
-        ref={page2Ref}
-        style={{
-          position: 'absolute', inset: 0,
-          overflowY: 'auto',
-          padding: '20px',
-          display: 'flex', flexDirection: 'column', gap: '14px',
-          transform: `translateY(${activePage === 2 ? '0' : '100%'})`,
-          transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
-        }}
-      >
+      {/* Outer wrapper owns the slide transform; inner div owns the scroll */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        transform: `translateY(${activePage === 2 ? '0' : '100%'})`,
+        transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
+      }}>
 
-        {/* ── Page 2 header ── */}
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
-          <button
-            onClick={goToPage1}
-            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 20px', borderRadius:999,
-              background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)',
-              color:'rgba(255,255,255,0.55)', fontSize:11, fontWeight:700, cursor:'pointer',
-              letterSpacing:'0.06em', textTransform:'uppercase', transition:'all 0.18s' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(167,44,50,0.50)'; e.currentTarget.style.color='#FFFFFF'; e.currentTarget.style.background='rgba(167,44,50,0.10)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color='rgba(255,255,255,0.55)'; e.currentTarget.style.background='rgba(255,255,255,0.04)' }}
-          >
-            <ChevronDown style={{ width:12, height:12, transform:'rotate(180deg)' }} />
-            Overview
-          </button>
-          <h1 style={{ fontSize:22, fontWeight:800, color:'#FFFFFF', margin:0, letterSpacing:'-0.01em' }}>Insights</h1>
+        {/* Scrollable content */}
+        <div
+          ref={page2Ref}
+          style={{
+            position: 'absolute', inset: 0,
+            overflowY: 'auto',
+            padding: '20px',
+            display: 'flex', flexDirection: 'column', gap: '14px',
+          }}
+          onWheel={handlePage2Wheel}
+        >
+
+          {/* ── Level 2 ── */}
+          <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(300px, 1fr)', gap:'14px' }}>
+            <RecentActivityPanel activityRows={activityRows} totalActive={summary.online} />
+            <AlertSummaryCard stats={alertStats} alerts={alerts} onView={() => navigate('/alerts')} />
+          </div>
+
+          {/* ── Level 3 ── */}
+          <FleetSnapshotCard
+            devices={rawDevices}
+            locations={locations}
+            activityData={activityData}
+            zones={zones}
+            summary={summary}
+          />
+
         </div>
-
-        {/* ── Level 2 ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(300px, 1fr)', gap:'14px' }}>
-          <RecentActivityPanel activityRows={activityRows} totalActive={summary.online} />
-          <AlertSummaryCard stats={alertStats} alerts={alerts} onView={() => navigate('/alerts')} />
-        </div>
-
-        {/* ── Level 3 ── */}
-        <FleetSnapshotCard
-          devices={rawDevices}
-          locations={locations}
-          activityData={activityData}
-          zones={zones}
-          summary={summary}
-        />
-
       </div>
 
     </div>
