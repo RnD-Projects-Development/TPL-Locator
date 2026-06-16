@@ -40,7 +40,7 @@ export default function Layout({ children }) {
     <BindCacheProvider>
       <HomePageCacheProvider>
         <div className="flex h-screen overflow-hidden" style={{ background: '#0d0d0d' }}>
-          <Sidebar pageTheme={pageTheme} setPageTheme={setPageTheme} />
+          <Sidebar />
           <div className="flex flex-col flex-1 overflow-hidden">
             <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
             <main
