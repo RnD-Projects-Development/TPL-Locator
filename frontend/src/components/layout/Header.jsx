@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, ChevronRight, RefreshCw, Bell } from 'lucide-react'
 import FieldStaffPill from '../FieldStaffPill.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
-import Switch from '../Switch.jsx'
+
 
 const crumbs = {
   '/dashboard':   ['Dashboard'],
@@ -72,7 +72,7 @@ export default function Header({ pageTheme, setPageTheme }) {
       {pathname === '/dashboard' ? (
         <div className="flex items-center gap-1.5 text-xs flex-1">
           <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
-            onClick={() => navigate('/dashboard')}>TPL TRAKKER</span>
+            onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
           <ChevronRight className="w-3 h-3 text-gray-700" />
           <span className="text-white font-semibold">Dashboard</span>
           <div style={{ marginLeft: 8 }}>
@@ -82,7 +82,7 @@ export default function Header({ pageTheme, setPageTheme }) {
       ) : (
         <div className="flex items-center gap-1.5 text-xs flex-1">
           <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
-            onClick={() => navigate('/dashboard')}>TPL TRAKKER</span>
+            onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
           {parts.map((p, i) => {
             const isLast  = i === parts.length - 1
             const route   = !isLast ? crumbRouteMap[p] : null
@@ -138,17 +138,6 @@ export default function Header({ pageTheme, setPageTheme }) {
           </span>
         )}
       </button>
-
-      {/* Theme toggle */}
-      {typeof setPageTheme === 'function' && (
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginRight: 8 }}>{pageTheme === 'light' ? 'Light' : pageTheme === 'dark' ? 'Dark' : 'Theme'}</span>
-          <Switch checked={pageTheme === 'light'} onChange={(checked) => {
-            const newTheme = checked ? 'light' : 'dark'
-            setPageTheme(newTheme)
-          }} />
-        </div>
-      )}
 
       {/* Refresh */}
       <button

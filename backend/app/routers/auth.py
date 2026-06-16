@@ -1,17 +1,18 @@
 from datetime import datetime, timezone
 import logging
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from bson import ObjectId
 
-from app.auth_utils import verify_password
+from app.auth_utils import verify_password, hash_password
 from app.dependencies import (
     create_access_token,
     get_mongo_service,
     admin_to_public,
     user_to_public,
+    require_role,
 )
 from app.models.admin import AdminCreate, AdminPublic
 from app.models.user import UserCreate, UserPublic
@@ -217,3 +218,38 @@ async def register(
             "role":  "user",
         },
     }
+
+
+# ── Update own profile ────────────────────────────────────────────────────────
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+
+@router.put("/me")
+async def update_profile(
+    payload: UpdateProfileRequest,
+    current_account: Annotated[Any, Depends(require_role("any"))],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    account_id = str(current_account.id)
+    updates: dict = {}
+
+    if payload.name is not None:
+        updates["name"] = payload.name.strip()
+
+    if payload.new_password:
+        if not payload.current_password:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password required")
+        doc = await mongo.accounts.find_one({"_id": ObjectId(account_id)})
+        if not doc or not verify_password(payload.current_password, doc.get("password", "")):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+        updates["password"] = hash_password(payload.new_password)
+
+    if not updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No changes provided")
+
+    await mongo.accounts.update_one({"_id": ObjectId(account_id)}, {"$set": updates})
+    return {"name": updates.get("name", getattr(current_account, "name", None))}

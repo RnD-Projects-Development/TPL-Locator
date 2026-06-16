@@ -55,6 +55,77 @@ const BIND_CATS = [
   'pallet','carton','container','parcel','equipment','other',
 ]
 
+// ── Search + dropdown combo for bind modal ────────────────────────────────────
+function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg, allowFreeText = false, onFreeTextChange }) {
+  const [q, setQ] = React.useState('')
+  const [open, setOpen] = React.useState(false)
+  const found = items.find(it => keyOf(it) === selectedValue)
+  const inputVal = open ? q : (allowFreeText ? (selectedValue || '') : (found ? labelOf(found) : ''))
+  const matches = q.trim()
+    ? items.filter(it => labelOf(it).toLowerCase().includes(q.toLowerCase())).slice(0, 10)
+    : items.slice(0, 10)
+
+  const toggleOpen = () => {
+    if (open) { setOpen(false); setQ('') }
+    else { setQ(allowFreeText ? (selectedValue || '') : ''); setOpen(true) }
+  }
+
+  const inputSt = {
+    width: '100%', background: '#18181b', border: open ? '1px solid rgba(167,44,50,0.60)' : '1px solid #3f3f46',
+    borderRadius: 8, padding: '10px 12px', color: '#f4f4f5', fontSize: 13,
+    outline: 'none', cursor: 'text', boxSizing: 'border-box',
+    paddingLeft: 34, paddingRight: 34, transition: 'border-color 0.15s',
+  }
+
+  return (
+    <div>
+      <div style={{ position: 'relative' }}>
+        <svg style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', width:13, height:13, color: open ? 'rgba(255,255,255,0.60)' : 'rgba(255,255,255,0.32)', pointerEvents:'none', transition:'color 0.15s' }} viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd"/>
+        </svg>
+        <input
+          value={inputVal}
+          onChange={e => { setQ(e.target.value); setOpen(true); if (allowFreeText && onFreeTextChange) onFreeTextChange(e.target.value) }}
+          onFocus={() => { setQ(allowFreeText ? (selectedValue || '') : ''); setOpen(true) }}
+          onBlur={() => setTimeout(() => { setOpen(false); if (!allowFreeText) setQ('') }, 160)}
+          placeholder={placeholder}
+          autoComplete="off"
+          style={inputSt}
+        />
+        <svg
+          onMouseDown={e => { e.preventDefault(); toggleOpen() }}
+          style={{ position:'absolute', right:10, top:'50%', transform: open ? 'translateY(-50%) rotate(180deg)' : 'translateY(-50%)', width:13, height:13, color: open ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.28)', cursor:'pointer', transition:'transform 0.2s, color 0.15s' }}
+          viewBox="0 0 20 20" fill="currentColor"
+        >
+          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd"/>
+        </svg>
+      </div>
+      {open && (
+        <div style={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.55)', marginTop: 4 }}>
+          {matches.length === 0
+            ? <div style={{ padding: '10px 12px', fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>{emptyMsg || 'No matches'}</div>
+            : matches.map(it => (
+                <div key={keyOf(it)}
+                  onMouseDown={e => { e.preventDefault(); onSelect(keyOf(it)); setOpen(false); setQ('') }}
+                  style={{ padding: '9px 12px', fontSize: 13, cursor: 'pointer', color: keyOf(it) === selectedValue ? '#fff' : '#d4d4d8', background: keyOf(it) === selectedValue ? 'rgba(167,44,50,0.22)' : 'transparent', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                  onMouseLeave={e => e.currentTarget.style.background = keyOf(it) === selectedValue ? 'rgba(167,44,50,0.22)' : 'transparent'}
+                >
+                  {labelOf(it)}
+                </div>
+              ))
+          }
+          {items.length > 10 && q.trim() === '' && (
+            <div style={{ padding: '6px 12px', fontSize: 11, color: 'rgba(255,255,255,0.28)', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              Showing top 10 — type to filter {items.length} total
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Module-level fleet cache — survives remounts, invalidated on bind/unbind ──
 let _fleetCache     = null
 let _fleetFetchedAt = null
@@ -880,12 +951,8 @@ export default function Devices() {
     setBindClient('')
     setBindName('')
     setBindCategory('')
-    if (isAdmin) {
-      setBindSn(unboundDevices.length > 0 ? unboundDevices[0].sn : '')
-      setBindUserId(users?.length > 0 ? users[0].id : '')
-    } else {
-      setBindSn('')
-    }
+    setBindSn('')
+    setBindUserId('')
     setShowBindModal(true)
   }
 
@@ -1088,32 +1155,53 @@ export default function Devices() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Device SN</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                    Device SN <span style={{ color: '#C86068' }}>*</span>
+                  </label>
                   {isAdmin ? (
-                    <select value={bindSn} onChange={e => setBindSn(e.target.value)} style={SELECT_STYLE}>
-                      {unboundDevices.length === 0
-                        ? <option value="" style={SELECT_OPT}>No unbound devices</option>
-                        : unboundDevices.map(d => <option key={d.sn} value={d.sn} style={SELECT_OPT}>{d.sn}</option>)
-                      }
-                    </select>
+                    unboundDevices.length === 0
+                      ? <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No unbound devices available</p>
+                      : <SearchSelect
+                          items={unboundDevices}
+                          selectedValue={bindSn}
+                          onSelect={setBindSn}
+                          labelOf={d => d.sn + (d.client ? ` — ${d.client}` : '')}
+                          keyOf={d => d.sn}
+                          placeholder="Type to search or select a device…"
+                          emptyMsg="No matching devices"
+                        />
                   ) : (
-                    <>
-                      <input value={bindSn} onChange={e => setBindSn(e.target.value)} list="available-sns"
-                        placeholder="Enter or select device SN…"
-                        style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: 'text' }} />
-                      <datalist id="available-sns">
-                        {availableDevices.map(d => <option key={d.sn} value={d.sn} />)}
-                      </datalist>
-                    </>
+                    <SearchSelect
+                      items={availableDevices}
+                      selectedValue={bindSn}
+                      onSelect={setBindSn}
+                      labelOf={d => d.sn + ((d.name || d.client) ? ` — ${d.name || d.client}` : '')}
+                      keyOf={d => d.sn}
+                      placeholder="Type to search or enter device SN…"
+                      emptyMsg="No matching devices"
+                      allowFreeText
+                      onFreeTextChange={setBindSn}
+                    />
                   )}
                 </div>
 
                 {isAdmin && (
                   <div>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Assign to User</label>
-                    <select value={bindUserId} onChange={e => setBindUserId(e.target.value)} style={SELECT_STYLE}>
-                      {(users || []).map(u => <option key={u.id} value={u.id} style={SELECT_OPT}>{u.name || u.email}</option>)}
-                    </select>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                      Assign to User <span style={{ color: '#C86068' }}>*</span>
+                    </label>
+                    {(!users || users.length === 0)
+                      ? <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No users available</p>
+                      : <SearchSelect
+                          items={users}
+                          selectedValue={bindUserId}
+                          onSelect={setBindUserId}
+                          labelOf={u => u.email + (u.name ? ` (${u.name})` : '')}
+                          keyOf={u => u.id}
+                          placeholder="Type to search or select a user…"
+                          emptyMsg="No matching users"
+                        />
+                    }
                   </div>
                 )}
 

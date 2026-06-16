@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin_devices"])
 logger = logging.getLogger(__name__)
 
 ADMIN_MAX_DEVICES = 2000
-ONLINE_THRESHOLD_MINUTES = 30
+ONLINE_THRESHOLD_MINUTES = 720  # 12 hours
 
 
 class AssignDeviceRequest(BaseModel):

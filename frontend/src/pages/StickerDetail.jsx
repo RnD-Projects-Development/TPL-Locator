@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Tag, MapPin, Clock, Battery, ArrowLeft, Package, Navigation, Route, FileText } from 'lucide-react'
+import { Tag, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
+import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay } from '../utils/landmark.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
@@ -22,48 +23,45 @@ export default function StickerDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
   const { zones }            = useZoneCache()
-  const { getLatestLocation, getDeviceBySn } = useCityTag()
+  const { getLatestLocation, getDeviceBySn, getGeocode } = useCityTag()
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
 
-  // ── Theme tokens (dark = original, light = enterprise) ───────────────────────
   const panel = isLight
-    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
-    : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
+    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
+    : { background: '#161616', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 14 }
 
   const T = {
     accent:        isLight ? '#DC2626' : '#A72C32',
     txt1:          isLight ? '#000000' : '#FFFFFF',
-    txt2:          isLight ? '#333333' : 'rgba(255,255,255,0.45)',
-    txt3:          isLight ? '#333333' : 'rgba(255,255,255,0.30)',
+    txt2:          isLight ? '#444444' : 'rgba(255,255,255,0.72)',
+    txt3:          isLight ? '#666666' : 'rgba(255,255,255,0.30)',
     locColor:      isLight ? '#2563EB' : '#22D3EE',
-    headIconBg:    isLight ? '#A72C32' : 'rgba(167,44,50,0.10)',
-    headIconBdr:   isLight ? '#8B2328' : 'rgba(167,44,50,0.25)',
+    headIconBg:    isLight ? '#A72C32' : 'rgba(167,44,50,0.12)',
+    headIconBdr:   isLight ? '#8B2328' : 'rgba(167,44,50,0.28)',
     headIconColor: isLight ? '#FFFFFF' : '#C86068',
-    fieldBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
-    fieldBdr:      isLight ? '#CFCFCF' : 'rgba(255,255,255,0.05)',
-    fieldLabel:    isLight ? '#333333' : 'rgba(255,255,255,0.30)',
-    fieldVal:      isLight ? '#000000' : 'rgba(255,255,255,0.85)',
-    statLabel:     isLight ? '#333333' : 'rgba(255,255,255,0.35)',
+    fieldBg:       isLight ? '#E8E8E8' : 'rgba(255,255,255,0.07)',
+    fieldBdr:      isLight ? '#D0D0D0' : 'rgba(255,255,255,0.10)',
+    fieldLabel:    isLight ? '#555555' : 'rgba(255,255,255,0.65)',
+    fieldVal:      isLight ? '#000000' : '#FFFFFF',
     primBtnBg:     isLight ? '#A72C32' : 'rgba(167,44,50,0.10)',
     primBtnBdr:    isLight ? '#8B2328' : 'rgba(167,44,50,0.28)',
     primBtnBgHov:  isLight ? '#8B2328' : 'rgba(167,44,50,0.20)',
     primBtnBdrHov: isLight ? '#8B2328' : 'rgba(167,44,50,0.55)',
-    ghostBtnBg:    isLight ? '#A72C32' : 'rgba(255,255,255,0.04)',
-    ghostBtnBdr:   isLight ? '#8B2328' : 'rgba(255,255,255,0.09)',
-    ghostBtnBgHov: isLight ? '#8B2328' : 'rgba(255,255,255,0.08)',
-    ghostBtnBdrHov:isLight ? '#8B2328' : 'rgba(255,255,255,0.18)',
-    ghostIcon:     isLight ? '#FFFFFF' : '#94a3b8',
+    ghostBtnBg:    isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)',
+    ghostBtnBdr:   isLight ? '#C0C0C0' : 'rgba(255,255,255,0.09)',
+    ghostBtnBgHov: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
+    ghostBtnBdrHov:isLight ? '#A0A0A0' : 'rgba(255,255,255,0.18)',
+    ghostIcon:     isLight ? '#555555' : '#94a3b8',
     btnTxt:        isLight ? '#FFFFFF' : '#FFFFFF',
-    btnSub:        isLight ? 'rgba(255,255,255,0.70)' : 'rgba(255,255,255,0.40)',
+    btnSub:        isLight ? 'rgba(255,255,255,0.70)' : 'rgba(255,255,255,0.60)',
     notFoundIcon:  isLight ? '#DC2626' : 'rgba(255,255,255,0.18)',
+    topBarBg:      isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.02)',
   }
 
-  // Solid auburn left-accent for light theme cards (harmonizes with dark brand)
-  const cardAccent = isLight ? { borderLeft: '3px solid #A72C32' } : null
+  const cardAccent = isLight ? { borderLeft: '3px solid #A72C32', borderRadius: 0, borderTopRightRadius: 14, borderBottomRightRadius: 14 } : null
 
-  // ── Device metadata state ────────────────────────────────────────────────────
   const [sticker, setSticker] = useState(null)
   const [devLoading, setDevLoading] = useState(true)
 
@@ -98,7 +96,6 @@ export default function StickerDetail() {
     return () => { cancelled = true }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Live location state ──────────────────────────────────────────────────────
   const [livePoint,  setLivePoint]  = useState(null)
   const [geoLabel,   setGeoLabel]   = useState('')
   const [locLoading, setLocLoading] = useState(false)
@@ -114,14 +111,28 @@ export default function StickerDetail() {
         if (cancelled) return
         const point = res?.latest ?? res ?? null
         setLivePoint(point)
-        setGeoLabel(point?.landmark?.trim() || '')
+        const stored = landmarkFromPoint(point)
+        if (stored) {
+          setGeoLabel(stored)
+        } else {
+          const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
+          const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
+          if (ptLat != null && ptLng != null) {
+            clientReverseGeocode(ptLat, ptLng)
+              .then(lm => {
+                if (lm) { if (!cancelled) setGeoLabel(lm); return; }
+                return getGeocode(ptLat, ptLng)
+                  .then(geo => { if (!cancelled && geo?.landmark) setGeoLabel(geo.landmark) })
+              })
+              .catch(() => {})
+          }
+        }
       })
       .catch(err => { if (!cancelled) setLocError(err?.message || 'Location unavailable') })
       .finally(() => { if (!cancelled) setLocLoading(false) })
     return () => { cancelled = true }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── useMemo must be above ALL early returns (Rules of Hooks) ────────────────
   const fenceZoneNames = useMemo(() => {
     if (!sticker?.fence_zone_ids?.length) return '—'
     return sticker.fence_zone_ids
@@ -136,13 +147,12 @@ export default function StickerDetail() {
       <Tag style={{ width: 40, height: 40, color: T.notFoundIcon, margin: '0 auto 12px' }} />
       <p style={{ color: T.txt1, fontWeight: 600, marginBottom: 16 }}>Sticker not found</p>
       <button onClick={() => navigate('/stickers')}
-        style={{ color: T.accent, fontSize: 13, background: 'none', border: 'none', cursor: 'pointer' }}>
+        style={{ color: T.accent, fontSize: 15, background: 'none', border: 'none', cursor: 'pointer' }}>
         ← Back to Stickers
       </button>
     </div>
   )
 
-  // ── Derive display values ────────────────────────────────────────────────────
   const liveTs    = livePoint?.timestamp ?? livePoint?.time ?? livePoint?.locTime ?? null
   const deviceTs  = sticker.dataRetrievalTime ?? null
   const displayTs = liveTs ?? deviceTs
@@ -151,16 +161,17 @@ export default function StickerDetail() {
     ? (Date.now() - new Date(displayTs).getTime()) / 3_600_000
     : (sticker.hoursAgo ?? 99)
 
-  const liveBattery  = livePoint?.batteryStatus ?? livePoint?.battery ?? sticker.battery ?? null
+  const liveBattery = livePoint?.batteryStatus ?? livePoint?.battery ?? sticker.battery ?? null
 
+  const geoDisplay  = parseLandmarkDisplay(geoLabel)
   const liveLocation = locLoading
-    ? 'Locating…'
+    ? 'Acquiring position…'
     : locError
-    ? 'No GPS data'
-    : (geoLabel || sticker.lastLocation || (
+    ? 'No position data'
+    : (geoDisplay?.secondary || geoDisplay?.primary || sticker.lastLocation || (
         livePoint?.lat != null
           ? `${Number(livePoint.lat).toFixed(5)}, ${Number(livePoint.lng).toFixed(5)}`
-          : 'No GPS data'
+          : 'No position data'
       ))
 
   const liveLastSeen = locLoading
@@ -169,205 +180,191 @@ export default function StickerDetail() {
 
   const displayStatus = sticker.status || 'Active'
   const sStyle        = statusStyle(displayStatus, isLight)
-  const battColor     = isLight
+
+  const battColor = isLight
     ? ((liveBattery ?? 0) <= 20 ? '#DC2626' : (liveBattery ?? 0) <= 40 ? '#D97706' : '#059669')
     : ((liveBattery ?? 0) <= 20 ? '#F87171' : (liveBattery ?? 0) <= 40 ? '#FBBF24' : '#34D399')
-  // Header glyph colour reflects battery: <50 red · 50–60 yellow · >60 green
+
   const headGlyphColor = liveBattery == null
     ? T.headIconColor
     : liveBattery < 50  ? (isLight ? '#DC2626' : '#F87171')
     : liveBattery <= 60 ? (isLight ? '#D97706' : '#FBBF24')
     :                     (isLight ? '#059669' : '#34D399')
-  const timeColor     = isLight
-    ? (liveHoursAgo > 24 ? '#DC2626' : liveHoursAgo > 12 ? '#D97706' : '#059669')
-    : (liveHoursAgo > 24 ? '#F87171' : liveHoursAgo > 12 ? '#FBBF24' : '#34D399')
-
-  const stats = [
-    { icon: MapPin,  label: 'Last Location', value: liveLocation,  color: T.locColor },
-    { icon: Clock,   label: 'Last Seen',      value: liveLastSeen, color: timeColor },
-    { icon: Battery, label: 'Battery',        value: liveBattery != null ? `${liveBattery}%` : '—', color: battColor },
-  ]
 
   const bindDateStr = sticker.bindTime
     ? new Date(sticker.bindTime).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     : '—'
 
-  // Coordinates for the side map (last reported location)
   const mapLat = livePoint?.lat ?? livePoint?.latitude ?? livePoint?.gpsLat ?? livePoint?.wgLat
   const mapLng = livePoint?.lng ?? livePoint?.lon ?? livePoint?.longitude ?? livePoint?.gpsLng ?? livePoint?.wgLng
   const hasMapCoords = mapLat != null && mapLng != null && !isNaN(Number(mapLat)) && !isNaN(Number(mapLng))
 
   const infoFields = [
-    { l: 'Device ID',   v: sticker.id },
-    { l: 'Bind Date',   v: bindDateStr },
-    { l: 'Category',    v: sticker.category || '—' },
-    { l: 'Company',     v: sticker.company  || '—' },
-    { l: 'Fence Zones', v: fenceZoneNames },
-    { l: 'Detections',  v: sticker.detections ?? 0 },
+    { l: 'Device ID',     v: sticker.id },
+    { l: 'Registered',    v: bindDateStr },
+    { l: 'Category',      v: sticker.category || '—' },
+    { l: 'Client',        v: sticker.company  || '—' },
+    { l: 'Assigned Zone', v: fenceZoneNames },
+    { l: 'Detections',    v: sticker.detections ?? 0 },
+  ]
+
+  const actionBtns = [
+    { label: 'Live Tracking', sub: 'View current position on map',  icon: MapPin,  onClick: () => navigate(`/map?device=${sticker.id}`),        primary: true },
+    { label: 'Route History', sub: 'View historical movement path', icon: Route,   onClick: () => navigate(`/trajectory?device=${sticker.id}`), primary: false },
+    { label: 'Export Report', sub: 'Download location history',     icon: FileText,onClick: () => navigate(`/reports?device=${sticker.id}`),    primary: false },
   ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '4px 0' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', letterSpacing: '1px', WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale' }}>
 
-      {/* Back */}
-      <button onClick={() => navigate('/stickers')}
-        style={{ display: 'flex', alignItems: 'center', gap: 6, color: isLight ? '#000000' : T.txt2, fontSize: 13,
-          background: 'none', border: 'none', cursor: 'pointer', padding: 0, width: 'fit-content' }}
-        onMouseEnter={e => e.currentTarget.style.color = isLight ? '#000000' : T.txt1}
-        onMouseLeave={e => e.currentTarget.style.color = isLight ? '#000000' : T.txt2}>
-        <ArrowLeft style={{ width: 15, height: 15 }} /> Back to Stickers
-      </button>
+      {/* Top bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px',
+        flexShrink: 0, borderBottom: `1px solid ${T.fieldBdr}`, background: T.topBarBg }}>
+        <button onClick={() => navigate('/stickers')}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: T.txt2,
+            background: T.fieldBg, border: `1px solid ${T.fieldBdr}`, borderRadius: 7,
+            padding: '4px 9px', cursor: 'pointer', flexShrink: 0 }}
+          onMouseEnter={e => e.currentTarget.style.color = T.txt1}
+          onMouseLeave={e => e.currentTarget.style.color = T.txt2}>
+          <ArrowLeft style={{ width: 12, height: 12 }} /> Stickers
+        </button>
 
-      {/* Two-column: details (left) + last-location map (right) */}
-      <div style={{ display: 'flex', gap: 20, alignItems: 'stretch', flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, flex: '1 1 560px', minWidth: 0, maxWidth: 760, alignSelf: 'stretch', minHeight: 'calc(100vh - 130px)', height: 'calc(100vh - 130px)' }}>
+        <div style={{ width: 1, height: 18, background: T.fieldBdr, flexShrink: 0 }} />
 
-      {/* Header card */}
-      <div style={{ ...panel, ...(cardAccent || {}), padding: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ padding: 12, borderRadius: 14, background: T.headIconBg, border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>
-            <Package style={{ width: 26, height: 26, color: headGlyphColor }} />
-          </div>
-          <div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: T.txt1, margin: 0 }}>{sticker.userName || sticker.name}</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontFamily: 'monospace', color: T.accent, fontSize: 13 }}>{sticker.id}</span>
-              {sticker.category && (
-                <><span style={{ color: T.txt3 }}>·</span>
-                <span style={{ color: T.txt2, fontSize: 13 }}>{sticker.category}</span></>
-              )}
-              {sticker.company && (
-                <><span style={{ color: T.txt3 }}>·</span>
-                <span style={{ color: T.txt2, fontSize: 13 }}>{sticker.company}</span></>
-              )}
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <span style={{ ...sStyle, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, letterSpacing: '0.04em' }}>
-                {displayStatus.toUpperCase()}
-              </span>
-            </div>
-          </div>
+        <div style={{ padding: '6px 7px', borderRadius: 9, background: T.headIconBg,
+          border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>
+          <Tag style={{ width: 15, height: 15, color: headGlyphColor, display: 'block' }} />
         </div>
+
+        <span style={{ fontSize: 16, fontWeight: 600, color: T.txt1, overflow: 'hidden',
+          textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {sticker.userName}
+        </span>
+        <span style={{ fontFamily: 'monospace', fontSize: 13, color: T.accent, flexShrink: 0 }}>{sticker.id}</span>
+        {sticker.category && (
+          <><span style={{ color: T.txt3, flexShrink: 0 }}>·</span>
+          <span style={{ color: T.txt2, fontSize: 14, flexShrink: 0 }}>{sticker.category}</span></>
+        )}
+        <span style={{ ...sStyle, fontSize: 11, fontWeight: 700, padding: '2px 8px',
+          borderRadius: 20, letterSpacing: '0.05em', flexShrink: 0 }}>
+          {displayStatus.toUpperCase()}
+        </span>
       </div>
 
-      {/* Stats grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, alignItems: 'stretch' }}>
-        {stats.map(s => (
-          <div key={s.label} style={{ ...panel, ...(cardAccent || {}), padding: 16, minHeight: 92 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <s.icon style={{ width: 13, height: 13, color: s.color }} />
-              <span style={{ color: T.statLabel, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>{s.label}</span>
-            </div>
-            <div style={{ fontWeight: 700, fontSize: 13, color: s.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              title={s.value}>
-              {s.value}
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Body */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 10, padding: 10, overflow: 'hidden' }}>
 
-      {/* Device info */}
-      <div style={{ ...panel, ...(cardAccent || {}), padding: 20, flex: '1 1 0', minHeight: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Tag style={{ width: 15, height: 15, color: T.accent }} />
-          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Device Info</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          {infoFields.map(f => (
-            <div key={f.l} style={{ background: T.fieldBg, borderRadius: 12, padding: 12, border: `1px solid ${T.fieldBdr}` }}>
-              <div style={{ color: T.fieldLabel, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>{f.l}</div>
-              <div style={{ color: T.fieldVal, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={String(f.v)}>
-                {f.v}
+        {/* Left column */}
+        <div style={{ width: '38%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
+
+          {/* Stat strip */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, flexShrink: 0 }}>
+            <div style={{ ...panel, ...(cardAccent || {}), padding: '13px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                <MapPin style={{ width: 11, height: 11, color: T.txt2 }} />
+                <span style={{ color: T.txt2, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>Last Position</span>
               </div>
+              <div style={{ color: T.txt1, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={liveLocation}>{liveLocation}</div>
             </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Track device */}
-      <div style={{ ...panel, ...(cardAccent || {}), padding: 20, flex: '1 1 0', minHeight: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-          <Navigation style={{ width: 15, height: 15, color: T.accent }} />
-          <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Track Device</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          <button
-            onClick={() => navigate(`/map?device=${sticker.id}`)}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: T.primBtnBg, border: `1px solid ${T.primBtnBdr}`,
-              color: T.btnTxt, fontSize: 13, fontWeight: 600,
-              transition: 'background 0.18s, border-color 0.18s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.primBtnBgHov; e.currentTarget.style.borderColor = T.primBtnBdrHov }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.primBtnBg; e.currentTarget.style.borderColor = T.primBtnBdr }}
-          >
-            <MapPin style={{ width: 16, height: 16, color: isLight ? '#FFFFFF' : T.accent, flexShrink: 0 }} />
-            <div style={{ textAlign: 'left' }}>
-              <div>Live Map View</div>
-              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>See current location on map</div>
+            <div style={{ ...panel, ...(cardAccent || {}), padding: '13px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                <Clock style={{ width: 11, height: 11, color: T.txt2 }} />
+                <span style={{ color: T.txt2, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>Last Report</span>
+              </div>
+              <div style={{ color: T.txt1, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={liveLastSeen}>{liveLastSeen}</div>
             </div>
-          </button>
-          <button
-            onClick={() => navigate(`/trajectory?device=${sticker.id}`)}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: T.ghostBtnBg, border: `1px solid ${T.ghostBtnBdr}`,
-              color: T.btnTxt, fontSize: 13, fontWeight: 600,
-              transition: 'background 0.18s, border-color 0.18s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.ghostBtnBgHov; e.currentTarget.style.borderColor = T.ghostBtnBdrHov }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.ghostBtnBg; e.currentTarget.style.borderColor = T.ghostBtnBdr }}
-          >
-            <Route style={{ width: 16, height: 16, color: T.ghostIcon, flexShrink: 0 }} />
-            <div style={{ textAlign: 'left' }}>
-              <div>GPS Trajectory</div>
-              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>View historical GPS path</div>
-            </div>
-          </button>
-          <button
-            onClick={() => navigate(`/reports?device=${sticker.id}`)}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
-              background: T.ghostBtnBg, border: `1px solid ${T.ghostBtnBdr}`,
-              color: T.btnTxt, fontSize: 13, fontWeight: 600,
-              transition: 'background 0.18s, border-color 0.18s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.ghostBtnBgHov; e.currentTarget.style.borderColor = T.ghostBtnBdrHov }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.ghostBtnBg; e.currentTarget.style.borderColor = T.ghostBtnBdr }}
-          >
-            <FileText style={{ width: 16, height: 16, color: T.ghostIcon, flexShrink: 0 }} />
-            <div style={{ textAlign: 'left' }}>
-              <div>Reports</div>
-              <div style={{ fontSize: 10, color: T.btnSub, fontWeight: 400, marginTop: 2 }}>Export location history</div>
-            </div>
-          </button>
-        </div>
-      </div>
 
-      </div>{/* end left column */}
+            <div style={{ ...panel, ...(cardAccent || {}), padding: '13px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                <Battery style={{ width: 11, height: 11, color: battColor }} />
+                <span style={{ color: T.txt2, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>Power</span>
+              </div>
+              <div style={{ color: battColor, fontSize: 13, fontWeight: 600 }}>
+                {liveBattery != null ? `${liveBattery}%` : '—'}
+              </div>
+              {liveBattery != null && (
+                <div style={{ height: 3, borderRadius: 2, background: T.fieldBdr, marginTop: 5 }}>
+                  <div style={{ height: 3, borderRadius: 2, width: `${Math.min(liveBattery, 100)}%`, background: battColor }} />
+                </div>
+              )}
+            </div>
+          </div>
 
-      {/* Right column — last-location map (TPL Maps) */}
-      <div style={{ flex: '1 1 420px', minWidth: 300, alignSelf: 'stretch' }}>
-        <div style={{ ...panel, ...(cardAccent || {}), overflow: 'hidden', position: 'sticky', top: 12,
-          display: 'flex', flexDirection: 'column', height: 'calc(100vh - 130px)', minHeight: 480 }}>
+          {/* Device details */}
+          <div style={{ ...panel, ...(cardAccent || {}), padding: '8px 13px 2px 13px', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+              <Tag style={{ width: 12, height: 12, color: T.accent }} />
+              <span style={{ color: T.txt1, fontWeight: 600, fontSize: 12 }}>Device Details</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+              {infoFields.map(f => (
+                <div key={f.l} style={{ background: T.fieldBg, borderRadius: 9, padding: '11px 10px', border: `1px solid ${T.fieldBdr}` }}>
+                  <div style={{ color: T.fieldLabel, fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>{f.l}</div>
+                  <div style={{ color: T.fieldVal, fontSize: 13, fontWeight: 400, letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={String(f.v)}>{f.v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div style={{ ...panel, ...(cardAccent || {}), padding: '28px 13px 18px 13px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
+              <Navigation style={{ width: 12, height: 12, color: T.accent }} />
+              <span style={{ color: T.txt1, fontWeight: 600, fontSize: 12 }}>Actions</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {actionBtns.map(btn => (
+                <button key={btn.label} onClick={btn.onClick}
+                  style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px',
+                    borderRadius: 9, cursor: 'pointer', width: '100%', textAlign: 'left',
+                    background: btn.primary ? T.primBtnBg : T.ghostBtnBg,
+                    border: `1px solid ${btn.primary ? T.primBtnBdr : T.ghostBtnBdr}`,
+                    color: T.btnTxt, fontSize: 13, fontWeight: 600,
+                    transition: 'background 0.15s, border-color 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = btn.primary ? T.primBtnBgHov : T.ghostBtnBgHov; e.currentTarget.style.borderColor = btn.primary ? T.primBtnBdrHov : T.ghostBtnBdrHov }}
+                  onMouseLeave={e => { e.currentTarget.style.background = btn.primary ? T.primBtnBg : T.ghostBtnBg; e.currentTarget.style.borderColor = btn.primary ? T.primBtnBdr : T.ghostBtnBdr }}
+                >
+                  <btn.icon style={{ width: 13, height: 13, color: btn.primary ? (isLight ? '#FFFFFF' : T.accent) : T.ghostIcon, flexShrink: 0 }} />
+                  <div>
+                    <div style={{ letterSpacing: '0.04em' }}>{btn.label}</div>
+                    <div style={{ fontSize: 11, color: T.btnSub, fontWeight: 400, marginTop: 1, letterSpacing: '0.04em' }}>{btn.sub}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+        </div>{/* end left */}
+
+        {/* Right column — map */}
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
+          ...panel, ...(cardAccent || {}), overflow: 'hidden' }}>
           {/* Map header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 18px', borderBottom: `1px solid ${T.fieldBdr}`, flexShrink: 0 }}>
-            <MapPin style={{ width: 15, height: 15, color: T.locColor }} />
-            <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>Current Location</span>
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: T.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
-              {hasMapCoords ? (geoLabel || `${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`) : ''}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+            borderBottom: `1px solid ${T.fieldBdr}`, flexShrink: 0 }}>
+            <MapPin style={{ width: 13, height: 13, color: T.locColor, flexShrink: 0 }} />
+            <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14, flex: 1,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {locLoading ? 'Acquiring position…'
+                : hasMapCoords ? (geoDisplay?.primary || geoLabel || `${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`)
+                : 'No position data'}
             </span>
+            {hasMapCoords && (
+              <span style={{ fontSize: 12, fontFamily: 'monospace', color: T.txt2, flexShrink: 0 }}>
+                {`${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`}
+              </span>
+            )}
           </div>
           {/* Map body */}
           <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
             {locLoading ? (
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.txt2, fontSize: 13 }}>
-                Locating…
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', color: T.txt2, fontSize: 13 }}>
+                Acquiring position…
               </div>
             ) : hasMapCoords ? (
               <MapView
@@ -380,18 +377,17 @@ export default function StickerDetail() {
                 zones={zones}
               />
             ) : (
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
-                <MapPin style={{ width: 30, height: 30, color: T.txt3 }} />
-                <div style={{ color: T.txt1, fontWeight: 600, fontSize: 14 }}>No GPS data</div>
-                <div style={{ color: T.txt2, fontSize: 12 }}>This device has no reported location yet.</div>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
+                <MapPin style={{ width: 28, height: 28, color: T.txt3 }} />
+                <div style={{ color: T.txt1, fontWeight: 600, fontSize: 13 }}>No position data</div>
+                <div style={{ color: T.txt2, fontSize: 12 }}>This device has not reported a position yet.</div>
               </div>
             )}
           </div>
         </div>
+
       </div>
-
-      </div>{/* end two-column row */}
-
     </div>
   )
 }

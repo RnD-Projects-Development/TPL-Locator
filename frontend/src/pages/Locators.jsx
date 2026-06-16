@@ -70,6 +70,79 @@ const BIND_CATS = [
   'laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other',
 ]
 
+function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg, inputSt, allowFreeText = false, onFreeTextChange }) {
+  const [q, setQ] = React.useState('')
+  const [open, setOpen] = React.useState(false)
+  const found = items.find(it => keyOf(it) === selectedValue)
+  const inputVal = open ? q : (allowFreeText ? (selectedValue || '') : (found ? labelOf(found) : ''))
+  const matches = q.trim()
+    ? items.filter(it => labelOf(it).toLowerCase().includes(q.toLowerCase())).slice(0, 10)
+    : items.slice(0, 10)
+
+  const toggleOpen = () => {
+    if (open) { setOpen(false); setQ('') }
+    else { setQ(allowFreeText ? (selectedValue || '') : ''); setOpen(true) }
+  }
+
+  return (
+    <div>
+      <div style={{ position: 'relative' }}>
+        {/* Search icon — left */}
+        <svg style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', width:13, height:13, color: open ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.35)', pointerEvents:'none', transition:'color 0.15s' }} viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd"/>
+        </svg>
+        <input
+          value={inputVal}
+          onChange={e => { setQ(e.target.value); setOpen(true); if (allowFreeText && onFreeTextChange) onFreeTextChange(e.target.value) }}
+          onFocus={() => { setQ(allowFreeText ? (selectedValue || '') : ''); setOpen(true) }}
+          onBlur={() => setTimeout(() => { setOpen(false); if (!allowFreeText) setQ('') }, 160)}
+          placeholder={placeholder}
+          autoComplete="off"
+          style={{
+            ...inputSt,
+            paddingLeft: 32,
+            paddingRight: 32,
+            border: open
+              ? '1px solid rgba(167,44,50,0.60)'
+              : (inputSt?.border || '1px solid rgba(255,255,255,0.08)'),
+            transition: 'border-color 0.15s',
+          }}
+        />
+        {/* Chevron — right, rotates when open */}
+        <svg
+          onMouseDown={e => { e.preventDefault(); toggleOpen() }}
+          style={{ position:'absolute', right:10, top:'50%', transform: open ? 'translateY(-50%) rotate(180deg)' : 'translateY(-50%)', width:13, height:13, color: open ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.28)', cursor:'pointer', transition:'transform 0.2s, color 0.15s' }}
+          viewBox="0 0 20 20" fill="currentColor"
+        >
+          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd"/>
+        </svg>
+      </div>
+      {open && (
+        <div style={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, maxHeight: 200, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.55)', marginTop: 4 }}>
+          {matches.length === 0
+            ? <div style={{ padding: '10px 12px', fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>{emptyMsg || 'No matches'}</div>
+            : matches.map(it => (
+                <div key={keyOf(it)}
+                  onMouseDown={e => { e.preventDefault(); onSelect(keyOf(it)); setOpen(false); setQ('') }}
+                  style={{ padding: '9px 12px', fontSize: 13, cursor: 'pointer', color: keyOf(it) === selectedValue ? '#fff' : '#d4d4d8', background: keyOf(it) === selectedValue ? 'rgba(167,44,50,0.22)' : 'transparent', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                  onMouseLeave={e => e.currentTarget.style.background = keyOf(it) === selectedValue ? 'rgba(167,44,50,0.22)' : 'transparent'}
+                >
+                  {labelOf(it)}
+                </div>
+              ))
+          }
+          {items.length > 10 && q.trim() === '' && (
+            <div style={{ padding: '6px 12px', fontSize: 11, color: 'rgba(255,255,255,0.28)', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              Showing top 10 — type to filter {items.length} total
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BattBar({ v, isLight }) {
   const color = v > 40 ? '#059669' : v > 20 ? '#D97706' : '#DC2626'
   const trackBg = isLight ? '#CACACA' : 'rgba(255,255,255,0.08)'
@@ -86,12 +159,14 @@ function BattBar({ v, isLight }) {
 function StatusBadge({ status, isLight }) {
   const mapLight = {
     Active:    { bg: '#ECFDF5', border: '#A7F3D0', color: '#059669' },
+    Offline:   { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' },
     'At Risk': { bg: '#FFFBEB', border: '#FDE68A', color: '#D97706' },
     Missing:   { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' },
     Lost:      { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' },
   }
   const mapDark = {
     Active:    { bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.25)',  color: '#6ee7b7' },
+    Offline:   { bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.25)',   color: '#fca5a5' },
     'At Risk': { bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.25)',  color: '#fbbf24' },
     Missing:   { bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.25)',   color: '#fca5a5' },
     Lost:      { bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.25)',   color: '#fca5a5' },
@@ -278,12 +353,8 @@ export default function Locators({ embedded = false, externalStatus = undefined 
 
   const openBindModal = (sn = '') => {
     setBindError(''); setBindClient(''); setBindName(''); setBindCategory('')
-    if (isAdmin) {
-      setBindSn(sn || (unboundDevices.length > 0 ? unboundDevices[0].sn : ''))
-      setBindUserId(users?.length > 0 ? users[0].id : '')
-    } else {
-      setBindSn(sn || '')
-    }
+    setBindSn(sn || '')
+    setBindUserId('')
     setShowBindModal(true)
   }
 
@@ -352,9 +423,7 @@ export default function Locators({ embedded = false, externalStatus = undefined 
   const locatorRows = useMemo(() => (locators || []).map(d => {
     const lastSeen = d.dataRetrievalTime || null
     const hoursAgo = lastSeen ? (Date.now() - new Date(lastSeen).getTime()) / 3600000 : 99
-    let status = 'Active'
-    if ((d.status || '') === 'offline' && hoursAgo > 24) status = 'Missing'
-    else if ((d.status || '') === 'offline' && hoursAgo > 12) status = 'At Risk'
+    const status = hoursAgo < 12 ? 'Active' : 'Offline'
     return {
       id: d.sn || d.local_id,
       displayName: deviceDisplayName(d),
@@ -792,13 +861,16 @@ export default function Locators({ embedded = false, externalStatus = undefined 
                     {unboundDevices.length === 0
                       ? <p style={{ color: 'rgba(255,255,255,0.32)', fontSize: 12, margin: 0 }}>No unbound locators available</p>
                       : (
-                        <select value={bindSn} onChange={e => setBindSn(e.target.value)} style={SELECT_STYLE}>
-                          {unboundDevices.map(d => (
-                            <option key={d.sn} value={d.sn} style={SELECT_OPT}>
-                              {d.sn}{d.client ? ` — ${d.client}` : ' — No client'}
-                            </option>
-                          ))}
-                        </select>
+                        <SearchSelect
+                          items={unboundDevices}
+                          selectedValue={bindSn}
+                          onSelect={setBindSn}
+                          labelOf={it => it.sn + (it.client ? ` — ${it.client}` : ' — No client')}
+                          keyOf={it => it.sn}
+                          placeholder="Type or select a serial number…"
+                          emptyMsg="No matching locators"
+                          inputSt={inputStyle}
+                        />
                       )}
                   </div>
 
@@ -809,13 +881,16 @@ export default function Locators({ embedded = false, externalStatus = undefined 
                     {(!users || users.length === 0)
                       ? <p style={{ color: 'rgba(255,255,255,0.32)', fontSize: 12, margin: 0 }}>No users available</p>
                       : (
-                        <select value={bindUserId} onChange={e => setBindUserId(e.target.value)} style={SELECT_STYLE}>
-                          {users.map(u => (
-                            <option key={u.id} value={u.id} style={SELECT_OPT}>
-                              {u.email}{u.name ? ` (${u.name})` : ''}
-                            </option>
-                          ))}
-                        </select>
+                        <SearchSelect
+                          items={users}
+                          selectedValue={bindUserId}
+                          onSelect={setBindUserId}
+                          labelOf={it => it.email + (it.name ? ` (${it.name})` : '')}
+                          keyOf={it => it.id}
+                          placeholder="Type or select a user…"
+                          emptyMsg="No matching users"
+                          inputSt={inputStyle}
+                        />
                       )}
                   </div>
 
@@ -851,22 +926,18 @@ export default function Locators({ embedded = false, externalStatus = undefined 
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.58)' }}>
                       Locator Serial Number <span style={{ color: '#C86068' }}>*</span>
                     </label>
-                    <input
-                      type="text"
-                      list="bind-sn-datalist"
+                    <SearchSelect
+                      items={availableDevices}
+                      selectedValue={bindSn}
+                      onSelect={setBindSn}
+                      labelOf={it => it.sn + ((it.name || it.client) ? ` — ${it.name || it.client}` : '')}
+                      keyOf={it => it.sn}
                       placeholder="Type or select a serial number…"
-                      value={bindSn}
-                      onChange={e => setBindSn(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleBind()}
-                      autoFocus
-                      autoComplete="off"
-                      style={{ ...inputStyle, border: `1px solid ${bindError ? 'rgba(127,29,29,0.60)' : 'rgba(255,255,255,0.08)'}` }}
+                      emptyMsg="No matching locators"
+                      inputSt={{ ...inputStyle, border: `1px solid ${bindError ? 'rgba(127,29,29,0.60)' : 'rgba(255,255,255,0.08)'}` }}
+                      allowFreeText
+                      onFreeTextChange={setBindSn}
                     />
-                    <datalist id="bind-sn-datalist">
-                      {availableDevices.map(d => (
-                        <option key={d.sn} value={d.sn}>{d.name || d.client || ''}</option>
-                      ))}
-                    </datalist>
                     <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.26)' }}>
                       {availableDevices.length > 0
                         ? `${availableDevices.length} locator${availableDevices.length !== 1 ? 's' : ''} available — click to browse or type to search`

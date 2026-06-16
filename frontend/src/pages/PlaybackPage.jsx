@@ -99,7 +99,6 @@ export default function PlaybackPage() {
   const [lastUpdated, setLastUpdated]       = useState(null);
   const [activeShortcut, setActiveShortcut] = useState(null);
 
-  const liveIntervalRef = useRef(null);
 
   const refreshLive = useCallback(async (target) => {
     const dev = target ?? sn;
@@ -119,11 +118,6 @@ export default function PlaybackPage() {
     } catch { /* silent */ }
   }, [sn, isLiveMode, getLatestLocation]);
 
-  useEffect(() => {
-    clearInterval(liveIntervalRef.current);
-    if (sn && isLiveMode) liveIntervalRef.current = setInterval(() => refreshLive(), 15000);
-    return () => clearInterval(liveIntervalRef.current);
-  }, [sn, isLiveMode, refreshLive]);
 
   useEffect(() => {
     if (sn) saveSidebarScopeState(PLAYBACK_SCOPE, { selectedSn: sn });

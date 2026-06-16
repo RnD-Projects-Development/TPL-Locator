@@ -118,7 +118,6 @@ export default function TrajectoryPage() {
   const [startLocation, setStartLocation] = useState(null);
   const [endLocation,   setEndLocation]   = useState(null);
 
-  const liveIntervalRef = useRef(null);
 
   const refreshLive = useCallback(async (target) => {
     const dev = target ?? sn;
@@ -153,14 +152,6 @@ export default function TrajectoryPage() {
     refreshLive(sn);
   }, [sn]); // intentionally omitting refreshLive — sn change is the trigger
 
-  useEffect(() => {
-    clearInterval(liveIntervalRef.current);
-    if (sn) liveIntervalRef.current = setInterval(() => {
-      console.log('[TrajectoryPage] interval refreshLive for', sn);
-      refreshLive();
-    }, 15000);
-    return () => clearInterval(liveIntervalRef.current);
-  }, [sn, refreshLive]);
 
   const handleSelectDevice = (device) => {
     const newSn    = typeof device === "string" ? device : (device?.sn ?? "");

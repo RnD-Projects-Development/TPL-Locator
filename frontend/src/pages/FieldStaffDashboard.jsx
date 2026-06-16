@@ -5,6 +5,7 @@ import { useZoneCache } from '../context/ZoneCacheContext.jsx';
 import { useFieldStaffCache } from '../context/FieldStaffCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import loadTPLMaps from '../components/loadTPLMaps.js';
+import { landmarkFromPoint, clientReverseGeocode } from '../utils/landmark.js';
 import './FieldStaffDashboard.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -120,11 +121,12 @@ function todayStr() {
 }
 
 // ─── Map Section ──────────────────────────────────────────────────────────────
-function MapSection({ devices, selectedZone, mapContainerRef }) {
+function MapSection({ devices, selectedZone, mapContainerRef, accessToken }) {
   const mapRef      = useRef(null);
   const markersRef  = useRef([]);
   const polygonRef  = useRef(null);
   const mapReadyRef = useRef(false);
+  const geoCacheRef = useRef({});
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -196,7 +198,43 @@ function MapSection({ devices, selectedZone, mapContainerRef }) {
       const iconHtml = `<div style="position:relative;display:flex;flex-direction:column;align-items:center;width:30px;height:48px;"><div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;background:${outerColor};display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,0.45);"><div style="width:16px;height:16px;border-radius:50%;background:${innerColor};"></div></div><div style="width:4px;height:18px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 3px 3px;"></div><div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:16px;height:6px;border-radius:50%;background:rgba(0,0,0,0.18);"></div></div>`;
       const icon = window.L.divIcon({ html: iconHtml, className: '', iconSize: [30, 48], iconAnchor: [15, 42], popupAnchor: [0, -44] });
       const marker = window.L.marker([device.latitude, device.longitude], { icon }).addTo(map);
-      marker.bindPopup(`<div style="font-family:sans-serif;padding:4px;min-width:140px;"><div style="font-weight:700;font-size:13px;color:#f9fafb;">${device.name || device.sn}</div><div style="font-size:11px;color:#9ca3af;margin-top:2px;">${device.assignedUser || 'Unassigned'}</div></div>`);
+
+      const buildPopup = (addr) =>
+        `<div style="font-family:sans-serif;padding:4px 2px;min-width:160px;max-width:220px;">` +
+        `<div style="font-weight:700;font-size:13px;color:#f9fafb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${device.name || device.sn}</div>` +
+        `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">${device.assignedUser || 'Unassigned'}</div>` +
+        (addr
+          ? `<div style="font-size:10px;color:#86efac;margin-top:4px;line-height:1.4;">${addr}</div>`
+          : `<div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:4px;">Loading address…</div>`) +
+        `</div>`;
+
+      marker.bindPopup(buildPopup(geoCacheRef.current[device.sn]));
+
+      marker.on('popupopen', async () => {
+        if (geoCacheRef.current[device.sn]) return;
+        try {
+          // 1. Stored landmark on the device record (set by backend on ingest)
+          let addr = landmarkFromPoint(device);
+          // 2. Client-side TPL Maps pipeline (landmark.js)
+          if (!addr) addr = await clientReverseGeocode(device.latitude, device.longitude);
+          // 3. Backend /api/geocode as last resort
+          if (!addr && accessToken) {
+            const res = await fetch(
+              `${API_BASE_URL}/api/geocode?lat=${device.latitude}&lng=${device.longitude}`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+            if (res.ok) {
+              const data = await res.json();
+              addr = data.landmark || null;
+            }
+          }
+          if (addr) {
+            geoCacheRef.current[device.sn] = addr;
+            marker.getPopup()?.setContent(buildPopup(addr));
+          }
+        } catch {}
+      });
+
       markersRef.current.push(marker);
     });
   }, [devices]);
@@ -533,6 +571,7 @@ export default function FieldStaffDashboard() {
             devices={zoneDevices}
             selectedZone={selectedZone}
             mapContainerRef={mapContainerRef}
+            accessToken={accessToken}
           />
         </div>
 
