@@ -593,8 +593,8 @@ export default function MissingDevices({ embedded = false, deviceType = undefine
               <Pagination
                 count={totalPages} page={page}
                 onChange={(_, p) => goToPagePersisted(p)}
-                color="primary" variant="outlined" shape="rounded" size="small"
-                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)', borderColor: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)', '&:hover': { background: 'rgba(167,44,50,0.08)', borderColor: 'rgba(167,44,50,0.40)' }, '&.Mui-selected': { background: isLight ? 'rgba(167,44,50,0.12)' : 'rgba(167,44,50,0.25)', color: isLight ? '#A72C32' : '#E87178', borderColor: isLight ? 'rgba(167,44,50,0.40)' : 'rgba(167,44,50,0.55)', fontWeight: 700, '&:hover': { background: isLight ? 'rgba(167,44,50,0.18)' : 'rgba(167,44,50,0.35)' } }, '&.MuiPaginationItem-ellipsis': { border: 'none', color: isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.30)' } } }}
+                color="primary" shape="rounded" size="medium"
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#374151' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: isLight ? '#A72C32' : '#3d3d3d', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: isLight ? '#8B2328' : '#4a4a4a' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
               />
             </Stack>
           </ThemeProvider>
