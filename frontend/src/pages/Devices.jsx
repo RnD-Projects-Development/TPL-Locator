@@ -1,4 +1,7 @@
 import React, { useState, useRef, useEffect, useContext, useCallback, useMemo } from 'react'
+import Pagination from '@mui/material/Pagination'
+import Stack from '@mui/material/Stack'
+import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil } from 'lucide-react'
@@ -381,6 +384,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const [page,         setPage]         = useState(1)
   const [localRefresh, setLocalRefresh] = useState(0)
 
+  const muiTheme = useMemo(() => createTheme({
+    palette: { mode: isLight ? 'light' : 'dark', primary: { main: '#A72C32', contrastText: '#FFFFFF' } },
+  }), [isLight])
+
   // Unbind state
   const [unbindTarget,  setUnbindTarget]  = useState(null)
   const [unbindLoading, setUnbindLoading] = useState(false)
@@ -559,12 +566,17 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
       })
     }
 
-    // Bound devices float to the top
+    // Sort: bound+online → bound+offline → unbound+online → unbound+offline
     list = list.slice().sort((a, b) => {
-      const ab = isBound(a), bb = isBound(b)
-      if (bb && !ab) return 1
-      if (ab && !bb) return -1
-      return 0
+      const rank = d => {
+        const bound  = isBound(d)
+        const online = d.status === 'online'
+        if (bound  && online)  return 0
+        if (bound  && !online) return 1
+        if (!bound && online)  return 2
+        return 3
+      }
+      return rank(a) - rank(b)
     })
 
     return list
@@ -703,42 +715,22 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         </div>
       )}
 
-      {/* Pagination — flexShrink:0 keeps it fully visible below the fixed grid */}
+      {/* Pagination */}
       {total > 0 && !fetching && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 6, padding: '4px 2px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, padding: '4px 2px', flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: T.txt3, marginRight: 4, fontWeight: isLight ? 500 : 400 }}>
             {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
           </span>
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={!hasPrev}
-            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
-              cursor: !hasPrev ? 'not-allowed' : 'pointer',
-              background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)',
-              border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.08)',
-              color: !hasPrev ? (isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)') : (isLight ? '#333333' : 'rgba(255,255,255,0.68)'),
-            }}>← Prev</button>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const p = totalPages <= 7 ? i + 1 : (safePage < 4 ? i + 1 : safePage - 3 + i)
-              if (p < 1 || p > totalPages) return null
-              return (
-                <button key={p} onClick={() => setPage(p)}
-                  style={{ width: 28, height: 28, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
-                    background: p === safePage ? (isLight ? '#000000' : '#B7B2A8') : (isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)'),
-                    border: p === safePage ? (isLight ? '1px solid #000000' : '1px solid #B7B2A8') : (isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.08)'),
-                    color: p === safePage ? (isLight ? '#FFFFFF' : '#000000') : (isLight ? '#333333' : 'rgba(255,255,255,0.45)'),
-                  }}>
-                  {p}
-                </button>
-              )
-            })}
-          </div>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={!hasNext}
-            style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
-              cursor: !hasNext ? 'not-allowed' : 'pointer',
-              background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.05)',
-              border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.08)',
-              color: !hasNext ? (isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)') : (isLight ? '#333333' : 'rgba(255,255,255,0.68)'),
-            }}>Next →</button>
+          <ThemeProvider theme={muiTheme}>
+            <Stack>
+              <Pagination
+                count={totalPages} page={safePage}
+                onChange={(_, p) => setPage(p)}
+                color="primary" variant="outlined" shape="rounded" size="small"
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)', borderColor: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)', '&:hover': { background: 'rgba(167,44,50,0.08)', borderColor: 'rgba(167,44,50,0.40)' }, '&.Mui-selected': { background: isLight ? 'rgba(167,44,50,0.12)' : 'rgba(167,44,50,0.25)', color: isLight ? '#A72C32' : '#E87178', borderColor: isLight ? 'rgba(167,44,50,0.40)' : 'rgba(167,44,50,0.55)', fontWeight: 700, '&:hover': { background: isLight ? 'rgba(167,44,50,0.18)' : 'rgba(167,44,50,0.35)' } }, '&.MuiPaginationItem-ellipsis': { border: 'none', color: isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.30)' } } }}
+              />
+            </Stack>
+          </ThemeProvider>
         </div>
       )}
 
@@ -919,6 +911,10 @@ export default function Devices() {
 
   const pageTheme = useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
+
+  const muiTheme = useMemo(() => createTheme({
+    palette: { mode: isLight ? 'light' : 'dark', primary: { main: '#A72C32', contrastText: '#FFFFFF' } },
+  }), [isLight])
 
   const { isAdmin } = useAuth()
   const { bindDevice, adminAssignDeviceToUser, getAvailableDevices, getDevices, getLatestLocationsBatch } = useCityTag()

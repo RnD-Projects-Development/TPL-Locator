@@ -13,6 +13,24 @@ from app.services.mongodb import MongoService
 from app.user_display import public_contact
 logger = logging.getLogger(__name__)
 
+
+def _dt_iso(dt) -> str | None:
+    """Serialize datetime to ISO 8601 with explicit UTC offset.
+
+    PyMongo strips tzinfo when reading back from MongoDB, turning aware UTC
+    datetimes into naive ones.  Calling .isoformat() on a naive datetime
+    produces a string without 'Z'/'+00:00', so JavaScript in non-UTC locales
+    (e.g. PKT = UTC+5) interprets it as local time and shows a stale age.
+    This helper reattaches UTC before serialising so the JS side is always correct.
+    """
+    if dt is None:
+        return None
+    if not isinstance(dt, datetime):
+        return str(dt)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
 router = APIRouter(prefix="/api/admin", tags=["admin_users"])
 
 
@@ -119,7 +137,7 @@ async def admin_create_user(
             "role":       updated.role or "user",
             "admin_id":   str(updated.admin_id) if updated.admin_id else None,
             "devices":    devices,
-            "created_at": created_at.isoformat(),
+            "created_at": _dt_iso(created_at),
         }
         logger.info("admin_create_user completed admin=%s user_id=%s", current_admin.email, response["id"])
         return response
@@ -156,14 +174,14 @@ async def admin_list_users(
             created_at = user_dict.get("created_at")
             if not created_at:
                 try:
-                    created_at = user_dict["_id"].generation_time.isoformat()
+                    created_at = _dt_iso(user_dict["_id"].generation_time)
                 except Exception:
                     created_at = None
             elif isinstance(created_at, datetime):
-                created_at = created_at.isoformat()
+                created_at = _dt_iso(created_at)
             last_logged_in = user_dict.get("last_logged_in")
             if isinstance(last_logged_in, datetime):
-                last_logged_in = last_logged_in.isoformat()
+                last_logged_in = _dt_iso(last_logged_in)
             raw_email = user_dict.get("email", "")
             raw_phone = user_dict.get("phone")
             result.append({
@@ -242,7 +260,7 @@ async def admin_update_user(
         "role":       updated.role or "user",
         "admin_id":   str(updated.admin_id) if updated.admin_id else None,
         "devices":    devices,
-        "created_at": updated.created_at.isoformat() if updated.created_at else None,
+        "created_at": _dt_iso(updated.created_at),
     }
     logger.info("admin_update_user completed admin=%s target_user_id=%s", current_admin.email, user_id)
     return response

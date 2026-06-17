@@ -184,8 +184,8 @@ function DeviceRow({ entry, onUnassign, statusLoading, trackInfo }) {
         </p>
       )}
 
-      {/* First seen / last seen / duration */}
-      {(firstSeen || lastSeen) && (
+      {/* First seen / last seen / duration — only when actual GPS points exist */}
+      {((insideCount ?? 0) > 0 || (outsideCount ?? 0) > 0) && (firstSeen || lastSeen) && (
         <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {firstSeen && <span style={{ fontSize: 10, color: '#9ca3af' }}>First seen: {firstSeen}</span>}
           {lastSeen && lastSeen !== firstSeen && <span style={{ fontSize: 10, color: '#9ca3af' }}>Last seen: {lastSeen}</span>}

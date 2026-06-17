@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import Pagination from '@mui/material/Pagination'
+import Stack from '@mui/material/Stack'
+import { ThemeProvider, createTheme } from '@mui/material/styles'
 import {
   Radio, Search, User, Key, PawPrint, Wallet,
   ChevronRight, Plus, X, Link2, Trash2, Download,
@@ -193,6 +196,10 @@ export default function Locators({ embedded = false, externalStatus = undefined 
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
+
+  const muiTheme = useMemo(() => createTheme({
+    palette: { mode: isLight ? 'light' : 'dark', primary: { main: '#A72C32', contrastText: '#FFFFFF' } },
+  }), [isLight])
 
   // ── Theme tokens ──────────────────────────────────────────────────────────
   const panel = isLight
@@ -722,107 +729,21 @@ export default function Locators({ embedded = false, externalStatus = undefined 
 
       {/* ── Pagination (LIGHT) ─────────────────────────────────────────────── */}
       {total > 0 && isLight && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, padding: '4px 2px', opacity: loading ? 0.45 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
-          <span style={{ fontSize: 11, color: '#333333', marginRight: 6, fontWeight: 500 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, padding: '4px 2px', opacity: loading ? 0.45 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
+          <span style={{ fontSize: 11, color: isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.38)', marginRight: 4, fontWeight: 500 }}>
             {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total}
-            {pendingPageRef.current && <span style={{ marginLeft: 6, color: '#A72C32', fontStyle: 'italic' }}>→ pg {pendingPageRef.current}</span>}
-          </span>
-
-          <button onClick={() => goToPagePersisted(page - 1)} disabled={!hasPreviousPage}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-              cursor: !hasPreviousPage ? 'not-allowed' : 'pointer', background: T.paginBg, border: `1px solid ${T.paginBorder}`,
-              color: !hasPreviousPage ? T.paginDisabled : T.paginColor, boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-              transition: 'all 0.18s ease, transform 0.15s ease' }}
-            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.borderColor='#000'; e.currentTarget.style.color='#000'; e.currentTarget.style.transform='translateX(-2px)' }}}
-            onMouseLeave={e => { e.currentTarget.style.borderColor=T.paginBorder; e.currentTarget.style.color=!hasPreviousPage?T.paginDisabled:T.paginColor; e.currentTarget.style.transform='translateX(0)' }}>
-            ← Prev
-          </button>
-
-          <div style={{ display: 'flex', gap: 4 }}>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const p = totalPages <= 7 ? i + 1 : (page < 4 ? i + 1 : page - 3 + i)
-              if (p > totalPages) return null
-              const isPending = pendingPageRef.current === p
-              return (
-                <button key={p} onClick={() => goToPagePersisted(p)}
-                  style={{ width: 28, height: 28, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    background: p === page ? '#000000' : T.paginBg,
-                    border: isPending ? '1px solid #A72C32' : p === page ? '1px solid #000000' : `1px solid ${T.paginBorder}`,
-                    color: p === page ? '#FFFFFF' : isPending ? '#A72C32' : T.paginColor,
-                    boxShadow: isPending ? '0 0 0 2px rgba(167,44,50,0.20)' : '0 1px 2px rgba(0,0,0,0.04)',
-                    transition: 'all 0.18s ease, transform 0.15s ease' }}
-                  onMouseEnter={e => { if (p !== page) { e.currentTarget.style.transform='scale(1.18)'; e.currentTarget.style.background=isLight?'#E0E0E0':'rgba(255,255,255,0.10)'; e.currentTarget.style.borderColor='#000' }}}
-                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; e.currentTarget.style.background=p===page?'#000':T.paginBg; e.currentTarget.style.borderColor=isPending?'#A72C32':p===page?'#000':T.paginBorder }}>
-                  {p}
-                </button>
-              )
-            })}
-          </div>
-
-          <button onClick={() => goToPagePersisted(page + 1)} disabled={!hasNextPage}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-              cursor: !hasNextPage ? 'not-allowed' : 'pointer', background: T.paginBg, border: `1px solid ${T.paginBorder}`,
-              color: !hasNextPage ? T.paginDisabled : T.paginColor, boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-              transition: 'all 0.18s ease, transform 0.15s ease' }}
-            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.borderColor='#000'; e.currentTarget.style.color='#000'; e.currentTarget.style.transform='translateX(2px)' }}}
-            onMouseLeave={e => { e.currentTarget.style.borderColor=T.paginBorder; e.currentTarget.style.color=!hasNextPage?T.paginDisabled:T.paginColor; e.currentTarget.style.transform='translateX(0)' }}>
-            Next →
-          </button>
-        </div>
-      )}
-
-      {/* ── Pagination (DARK) ────────────────────────────────────────────────── */}
-      {total > 0 && !isLight && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: '4px 2px', opacity: loading ? 0.45 : 1, pointerEvents: loading ? 'none' : 'auto', transition: 'opacity 0.2s' }}>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.30)', marginRight: 4 }}>
-            {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total} device{total !== 1 ? 's' : ''}
             {pendingPageRef.current && <span style={{ marginLeft: 6, color: '#C86068', fontStyle: 'italic' }}>→ pg {pendingPageRef.current}</span>}
           </span>
-
-          <div style={{ display: 'flex', gap: 4 }}>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const p = totalPages <= 7 ? i + 1 : (page < 4 ? i + 1 : page - 3 + i)
-              if (p > totalPages) return null
-              const isPending = pendingPageRef.current === p
-              return (
-                <button key={p} onClick={() => goToPagePersisted(p)}
-                  style={{ width: 26, height: 26, borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    background: p === page ? '#B7B2A8' : 'rgba(255,255,255,0.05)',
-                    border: isPending ? '1px solid #C86068' : p === page ? '1px solid #B7B2A8' : '1px solid rgba(255,255,255,0.08)',
-                    color: p === page ? '#000000' : isPending ? '#C86068' : 'rgba(255,255,255,0.45)',
-                    boxShadow: isPending ? '0 0 0 2px rgba(200,96,104,0.20)' : 'none',
-                    transition: 'all 0.18s ease, transform 0.15s ease' }}
-                  onMouseEnter={e => { if (p !== page) { e.currentTarget.style.transform='scale(1.18)'; e.currentTarget.style.background='rgba(255,255,255,0.14)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.60)' }}}
-                  onMouseLeave={e => { e.currentTarget.style.transform='scale(1)'; e.currentTarget.style.background=p===page?'#B7B2A8':'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor=isPending?'#C86068':p===page?'#B7B2A8':'rgba(255,255,255,0.08)' }}>
-                  {p}
-                </button>
-              )
-            })}
-          </div>
-
-          <button onClick={() => goToPagePersisted(page - 1)} disabled={!hasPreviousPage}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-              cursor: !hasPreviousPage ? 'not-allowed' : 'pointer',
-              background: !hasPreviousPage ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.10)',
-              color: !hasPreviousPage ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.65)',
-              transition: 'all 0.18s ease, transform 0.15s ease' }}
-            onMouseEnter={e => { if (hasPreviousPage) { e.currentTarget.style.background='rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.45)'; e.currentTarget.style.color='#B7B2A8'; e.currentTarget.style.transform='translateX(-2px)' }}}
-            onMouseLeave={e => { e.currentTarget.style.background=!hasPreviousPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color=!hasPreviousPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)'; e.currentTarget.style.transform='translateX(0)' }}>
-            ← Prev
-          </button>
-
-          <button onClick={() => goToPagePersisted(page + 1)} disabled={!hasNextPage}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-              cursor: !hasNextPage ? 'not-allowed' : 'pointer',
-              background: !hasNextPage ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.10)',
-              color: !hasNextPage ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.65)',
-              transition: 'all 0.18s ease, transform 0.15s ease' }}
-            onMouseEnter={e => { if (hasNextPage) { e.currentTarget.style.background='rgba(183,178,168,0.18)'; e.currentTarget.style.borderColor='rgba(183,178,168,0.45)'; e.currentTarget.style.color='#B7B2A8'; e.currentTarget.style.transform='translateX(2px)' }}}
-            onMouseLeave={e => { e.currentTarget.style.background=!hasNextPage?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.10)'; e.currentTarget.style.color=!hasNextPage?'rgba(255,255,255,0.20)':'rgba(255,255,255,0.65)'; e.currentTarget.style.transform='translateX(0)' }}>
-            Next →
-          </button>
+          <ThemeProvider theme={muiTheme}>
+            <Stack>
+              <Pagination
+                count={totalPages} page={page}
+                onChange={(_, p) => goToPagePersisted(p)}
+                color="primary" variant="outlined" shape="rounded" size="small"
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)', borderColor: isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)', '&:hover': { background: 'rgba(167,44,50,0.08)', borderColor: 'rgba(167,44,50,0.40)' }, '&.Mui-selected': { background: isLight ? 'rgba(167,44,50,0.12)' : 'rgba(167,44,50,0.25)', color: isLight ? '#A72C32' : '#E87178', borderColor: isLight ? 'rgba(167,44,50,0.40)' : 'rgba(167,44,50,0.55)', fontWeight: 700, '&:hover': { background: isLight ? 'rgba(167,44,50,0.18)' : 'rgba(167,44,50,0.35)' } }, '&.MuiPaginationItem-ellipsis': { border: 'none', color: isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.30)' } } }}
+              />
+            </Stack>
+          </ThemeProvider>
         </div>
       )}
 

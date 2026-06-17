@@ -26,13 +26,13 @@ export default function KPICard({ title, value, sub, icon: Icon, trend, trendVal
         background: c.gradient,
         border: `1px solid ${c.border}`,
         borderRadius: '18px',
-        padding: '22px',
+        padding: '16px 20px',
         position: 'relative',
         overflow: 'hidden',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'box-shadow 0.22s ease, transform 0.22s ease',
         boxShadow: c.shadow,
-        minHeight: '130px',
+        minHeight: '100px',
       }}
       onMouseEnter={e => {
         e.currentTarget.style.boxShadow = c.shadowHover
@@ -74,7 +74,7 @@ export default function KPICard({ title, value, sub, icon: Icon, trend, trendVal
 
       <div style={{ position: 'relative', zIndex: 1 }}>
         {/* Header: icon + trend pill */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
           <div style={{
             padding: '8px',
             background: c.iconBg,
@@ -97,9 +97,9 @@ export default function KPICard({ title, value, sub, icon: Icon, trend, trendVal
           )}
         </div>
 
-        <div style={{ fontSize: '36px', fontWeight: 800, color: c.valueColor, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</div>
-        <div style={{ fontSize: '13px', fontWeight: 600, color: c.titleColor, marginTop: '6px', letterSpacing: '0.01em' }}>{title}</div>
-        {sub && <div style={{ fontSize: '11px', color: c.subColor, marginTop: '5px' }}>{sub}</div>}
+        <div style={{ fontSize: '30px', fontWeight: 800, color: c.valueColor, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</div>
+        <div style={{ fontSize: '12px', fontWeight: 600, color: c.titleColor, marginTop: '5px', letterSpacing: '0.01em' }}>{title}</div>
+        {sub && <div style={{ fontSize: '11px', color: c.subColor, marginTop: '3px' }}>{sub}</div>}
       </div>
     </div>
   )

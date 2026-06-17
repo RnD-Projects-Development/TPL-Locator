@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
+import { clientReverseGeocode } from "../utils/landmark.js";
 import "./ReportPage.css";
 import * as XLSX from "xlsx";
 
@@ -18,8 +19,14 @@ function toPktTime(utcDateStr, timeStr) {
 function formatTs(point) {
   const ts = point?.timestamp ?? point?.time ?? point?.locTime;
   if (!ts) return "—";
-  try { const d = new Date(ts); return isNaN(d.getTime()) ? String(ts) : d.toLocaleString(); }
-  catch { return "—"; }
+  try {
+    // Handle both "2026-06-14T14:07:37" (no Z) and proper ISO strings
+    const raw = typeof ts === 'string' && !ts.endsWith('Z') && !ts.includes('+') ? ts + 'Z' : ts;
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return String(ts);
+    const p = n => String(n).padStart(2, '0');
+    return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  } catch { return "—"; }
 }
 
 function extractCoords(p) {
@@ -118,6 +125,62 @@ export default function Reports() {
   const [error,          setError]          = useState("");
   const [activeShortcut, setActiveShortcut] = useState(null);
   const [queryRange,     setQueryRange]     = useState({ start: null, end: null });
+  const [geoOverrides,   setGeoOverrides]   = useState({});  // coordKey -> landmark
+  const [geocodingLeft,  setGeocodingLeft]  = useState(0);
+  const geoAbortRef = useRef(false);
+
+  // Round coords to ~100m grid for deduplication
+  const coordKey = (p) => {
+    const c = extractCoords(p);
+    if (!c) return null;
+    return `${c.lat.toFixed(3)},${c.lng.toFixed(3)}`;
+  };
+
+  // Background geocoding pass after a report loads
+  useEffect(() => {
+    geoAbortRef.current = true; // cancel any prior run
+    setGeoOverrides({});
+    setGeocodingLeft(0);
+
+    if (points.length === 0) return;
+
+    const seen = new Set();
+    const toFetch = [];
+    for (const p of points) {
+      if (p.landmark?.trim()) continue;
+      const c = extractCoords(p);
+      if (!c) continue;
+      const k = `${c.lat.toFixed(3)},${c.lng.toFixed(3)}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      toFetch.push({ k, lat: c.lat, lng: c.lng });
+      if (toFetch.length >= 100) break; // cap at 100 unique locations
+    }
+
+    if (toFetch.length === 0) return;
+
+    geoAbortRef.current = false;
+    setGeocodingLeft(toFetch.length);
+
+    (async () => {
+      const overrides = {};
+      for (const { k, lat, lng } of toFetch) {
+        if (geoAbortRef.current) break;
+        try {
+          const lm = await clientReverseGeocode(lat, lng);
+          if (lm) overrides[k] = lm;
+        } catch {}
+        setGeocodingLeft(n => Math.max(0, n - 1));
+        await new Promise(r => setTimeout(r, 80));
+      }
+      if (!geoAbortRef.current && Object.keys(overrides).length > 0) {
+        setGeoOverrides(overrides);
+      }
+      setGeocodingLeft(0);
+    })();
+
+    return () => { geoAbortRef.current = true; };
+  }, [points]);
 
   const handleSelectDevice = (device) => {
     const newSn    = typeof device === "string" ? device : (device?.sn ?? "");
@@ -132,6 +195,7 @@ export default function Reports() {
   const loadReport = async (overrideStart, overrideEnd) => {
     if (!sn) return;
     setError("");
+    setGeoOverrides({});
     setLoading(true);
     try {
       const start = overrideStart ?? toPktTime(startDate, `${startTime}:00`);
@@ -165,6 +229,8 @@ export default function Reports() {
 
   const getLocationLabel = (point) => {
     if (point?.landmark?.trim()) return point.landmark.trim();
+    const k = coordKey(point);
+    if (k && geoOverrides[k]) return geoOverrides[k];
     const c = extractCoords(point);
     if (!c) return "—";
     return `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
@@ -180,7 +246,7 @@ export default function Reports() {
       const c        = extractCoords(p);
       const loc      = getLocationLabel(p);
       const sec      = getLocationSecondary(p);
-      const ts       = p.timestamp ?? p.time ?? p.locTime ?? "";
+      const ts       = formatTs(p);
       const coords   = c ? `${c.lat}, ${c.lng}` : "";
       const landmark = sec ? `${loc} — ${sec}` : loc;
       return [i + 1, ts, coords, landmark];
@@ -237,6 +303,7 @@ export default function Reports() {
           <span className="rp-topbar-label">Report</span>
           {sn && <span className="rp-topbar-sn">{label || sn}</span>}
           {points.length > 0 && <span className="rp-pill rp-pill-count">{points.length} records</span>}
+          {geocodingLeft > 0 && <span className="rp-pill" style={{ background: 'rgba(167,44,50,0.15)', color: '#C44E54', border: '1px solid rgba(167,44,50,0.30)', fontSize: 11 }}>Geocoding {geocodingLeft}…</span>}
         </div>
 
         <div className="rp-topbar-right">

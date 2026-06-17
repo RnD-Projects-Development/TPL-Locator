@@ -27,7 +27,7 @@ const getCrumbs = path => {
   if (crumbs[path]) return crumbs[path]
   if (path.startsWith('/locators/')) return ['Devices', 'Locators', path.split('/')[2]]
   if (path.startsWith('/stickers/')) return ['Devices', 'Smart Stickers', path.split('/')[2]]
-  return ['Page']
+  return ['Devices']
 }
 
 const crumbRouteMap = {
