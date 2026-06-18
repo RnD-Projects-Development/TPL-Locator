@@ -401,7 +401,6 @@ export default function ZoneSidebar({
                     ) : null}
                   </div>
                   <div className="fp-area-meta">
-                    <span className="fp-zone-points-badge">{zone.beat}</span>
                     {isActive && (
                       <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
                         {zone.uc_name} · {zone.tehsil}

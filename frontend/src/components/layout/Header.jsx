@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronRight, Bell, Moon, Sun, BatteryLow, WifiOff, MapPin, ArrowRight, CheckCheck } from 'lucide-react'
+import { ChevronRight, Bell, Moon, Sun, BatteryLow, WifiOff, MapPin, ArrowRight, CheckCheck, LogOut, Settings } from 'lucide-react'
 import FieldStaffPill from '../FieldStaffPill.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -86,7 +86,18 @@ export default function Header({ pageTheme, setPageTheme }) {
   const markAllRead = alertsCtx?.markAllRead
 
   const { user } = useApp()
-  const { updateProfile } = useAuth()
+  const { updateProfile, logout } = useAuth()
+
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showProfileMenu,   setShowProfileMenu]   = useState(false)
+  const profileMenuRef = useRef(null)
+
+  useEffect(() => {
+    if (!showProfileMenu) return
+    const handler = e => { if (profileMenuRef.current && !profileMenuRef.current.contains(e.target)) setShowProfileMenu(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showProfileMenu])
 
   // Alerts drawer
   const [showAlerts, setShowAlerts] = useState(false)
@@ -155,7 +166,7 @@ export default function Header({ pageTheme, setPageTheme }) {
 
   return (
     <>
-      <header className="h-[60px] flex items-center px-5 gap-4 bg-black border-b border-gray-800 flex-shrink-0">
+      <header className="h-[60px] flex items-center px-5 gap-5 bg-black flex-shrink-0">
 
         {/* Breadcrumb */}
         {pathname === '/dashboard' ? (
@@ -192,13 +203,6 @@ export default function Header({ pageTheme, setPageTheme }) {
           </div>
         )}
 
-        {/* Theme toggle */}
-        <div className="flex items-center gap-1.5" title={pageTheme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
-          <Moon className="w-3.5 h-3.5 text-gray-500" />
-          <Switch checked={pageTheme === 'light'} onChange={v => setPageTheme(v ? 'light' : null)} />
-          <Sun className="w-3.5 h-3.5 text-gray-500" />
-        </div>
-
         {/* Alerts bell + drawer */}
         <div style={{ position: 'relative' }} ref={drawerRef}>
           <button
@@ -211,7 +215,7 @@ export default function Header({ pageTheme, setPageTheme }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'color 0.2s, background 0.2s, border-color 0.2s' }}
             title={unreadCount > 0 ? `${unreadCount} unread alert${unreadCount !== 1 ? 's' : ''}` : 'Alerts'}>
-            <Bell style={{ width: 18, height: 18, strokeWidth: 2.4, fill: unreadCount > 0 ? 'rgba(255,255,255,0.16)' : 'none' }} />
+            <Bell style={{ width: 22, height: 22, strokeWidth: 2.2, fill: unreadCount > 0 ? 'rgba(255,255,255,0.16)' : 'none' }} />
             {unreadCount > 0 && (
               <span style={{
                 position: 'absolute', top: 2, right: 2,
@@ -322,20 +326,97 @@ export default function Header({ pageTheme, setPageTheme }) {
           )}
         </div>
 
-        {/* Profile avatar button */}
-        <button
-          onClick={() => setShowProfile(true)}
-          title="Profile settings"
-          style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
-            background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
-            border: '2px solid rgba(167,44,50,0.40)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontSize: 12, fontWeight: 700, letterSpacing: '0.02em',
-            transition: 'border-color 0.2s, box-shadow 0.2s' }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(167,44,50,0.80)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.20)' }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(167,44,50,0.40)'; e.currentTarget.style.boxShadow = 'none' }}>
-          {initials}
-        </button>
+        {/* Profile dropdown */}
+        <div ref={profileMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            onClick={() => setShowProfileMenu(v => !v)}
+            title="Account"
+            style={{ width: 38, height: 38, borderRadius: '50%', cursor: 'pointer',
+              background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+              border: `2px solid ${showProfileMenu ? 'rgba(167,44,50,0.90)' : 'rgba(167,44,50,0.40)'}`,
+              boxShadow: showProfileMenu ? '0 0 0 3px rgba(167,44,50,0.22)' : 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', fontSize: 13, fontWeight: 700, letterSpacing: '0.02em',
+              transition: 'border-color 0.2s, box-shadow 0.2s' }}
+            onMouseEnter={e => { if (!showProfileMenu) { e.currentTarget.style.borderColor = 'rgba(167,44,50,0.80)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.20)' } }}
+            onMouseLeave={e => { if (!showProfileMenu) { e.currentTarget.style.borderColor = 'rgba(167,44,50,0.40)'; e.currentTarget.style.boxShadow = 'none' } }}>
+            {initials}
+          </button>
+
+          {showProfileMenu && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 10px)', right: 0,
+              width: 270,
+              background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: 14, boxShadow: '0 20px 60px rgba(0,0,0,0.80)',
+              overflow: 'hidden', zIndex: 500,
+            }}>
+              {/* Section label */}
+              <div style={{ padding: '12px 16px 6px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.30)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>
+                Account
+              </div>
+
+              {/* User card */}
+              <div style={{ padding: '8px 16px 12px', display: 'flex', alignItems: 'center', gap: 12,
+                borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                  background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+                  border: '2px solid rgba(167,44,50,0.40)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontSize: 15, fontWeight: 700 }}>
+                  {initials}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user?.name || 'User'}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.42)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                    {user?.email}
+                  </div>
+                </div>
+              </div>
+
+              {/* Profile Settings */}
+              <button
+                onClick={() => { setShowProfileMenu(false); setShowProfile(true) }}
+                style={{ width: '100%', padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 12,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: 500,
+                  borderBottom: '1px solid rgba(255,255,255,0.07)', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                <Settings style={{ width: 18, height: 18, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }} />
+                Profile Settings
+              </button>
+
+              {/* Theme toggle */}
+              <div style={{ padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 12,
+                borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                {pageTheme === 'light'
+                  ? <Sun style={{ width: 18, height: 18, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }} />
+                  : <Moon style={{ width: 18, height: 18, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }} />
+                }
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.72)', textAlign: 'left' }}>
+                  {pageTheme === 'light' ? 'Light Mode' : 'Dark Mode'}
+                </span>
+                <Switch checked={pageTheme === 'light'} onChange={v => setPageTheme(v ? 'light' : null)} />
+              </div>
+
+              {/* Log out */}
+              <button
+                onClick={() => { setShowProfileMenu(false); setShowLogoutConfirm(true) }}
+                style={{ width: '100%', padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 12,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: 500,
+                  transition: 'background 0.15s, color 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.color = '#f87171' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'rgba(255,255,255,0.72)' }}>
+                <LogOut style={{ width: 18, height: 18, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }} />
+                Log out
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Profile modal */}
@@ -420,6 +501,47 @@ export default function Header({ pageTheme, setPageTheme }) {
                     background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
                     border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: profileLoading ? 0.7 : 1 }}>
                   {profileLoading ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+      {/* Logout confirmation */}
+      {showLogoutConfirm && (
+        <ModalPortal>
+          <div onClick={() => setShowLogoutConfirm(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
+              backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16,
+                boxShadow: '0 24px 64px rgba(0,0,0,0.80)', width: '100%', maxWidth: 360, padding: 28 }}>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                  background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <LogOut style={{ width: 17, height: 17, color: '#f87171' }} />
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Log Out</div>
+              </div>
+
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, marginBottom: 24 }}>
+                Are you sure you want to log out? Any unsaved changes will be lost.
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button onClick={() => setShowLogoutConfirm(false)}
+                  style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                  Cancel
+                </button>
+                <button onClick={() => { setShowLogoutConfirm(false); logout() }}
+                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff' }}>
+                  Log Out
                 </button>
               </div>
             </div>

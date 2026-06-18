@@ -157,7 +157,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
         {/* ── Section 1: Uptime ── */}
         <div style={{ padding: '4px 24px 4px 20px', ...DIVIDER }}>
           <div style={SECTION_HDR}>Fleet Uptime</div>
-          <div style={{ fontSize: 52, fontWeight: 800, color: upColor, lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
+          <div style={{ fontSize: 52, fontWeight: 800, color: '#4ade80', lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
           <div style={{ fontSize: 12, color: '#C0C0C0', marginTop: 6 }}>{onlineNow} of {total} online</div>
           <div style={{ marginTop: 14, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${onlineRate}%`, background: upColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
@@ -495,15 +495,16 @@ function BatteryStatusPanel({ batteryTiers }) {
       <div style={{ fontSize:'11px', color:'#E0E0E0', marginBottom:'10px' }}>
         {batteryTiers.noData ? 'No location data yet' : `${batteryTiers.total} devices reporting`}
       </div>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'center', gap:'10px' }}>
       {batteryTiers.noData ? (
-        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', height:'130px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
           <div style={{ textAlign:'center' }}>
             <Battery style={{ width:'28px', height:'28px', color:'#A0A0A0', margin:'0 auto 8px' }} />
             <div style={{ fontSize:'12px', color:'#B8B8B8' }}>Awaiting location data</div>
           </div>
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={130}>
+        <ResponsiveContainer width="100%" height={210}>
           <PieChart>
             <Pie
               data={[
@@ -512,7 +513,7 @@ function BatteryStatusPanel({ batteryTiers }) {
                 { name: 'Low (<20%)',      value: batteryTiers.low },
               ]}
               cx="50%" cy="50%"
-              innerRadius={38} outerRadius={60}
+              innerRadius={52} outerRadius={82}
               paddingAngle={3} dataKey="value" strokeWidth={0}
             >
               {BATT_COLORS.map((color, i) => <Cell key={i} fill={color} />)}
@@ -521,7 +522,7 @@ function BatteryStatusPanel({ batteryTiers }) {
           </PieChart>
         </ResponsiveContainer>
       )}
-      <div style={{ display:'flex', flexDirection:'column', gap:'7px', marginTop:'10px' }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
         {[
           { name: 'High',   range: 'atleast 60%',  value: batteryTiers.high,   color: BATT_COLORS[0] },
           { name: 'Medium', range: '20 to 50%', value: batteryTiers.medium, color: BATT_COLORS[1] },
@@ -538,6 +539,7 @@ function BatteryStatusPanel({ batteryTiers }) {
             </span>
           </div>
         ))}
+      </div>
       </div>
     </div>
   )
@@ -919,7 +921,7 @@ export default function Dashboard() {
   }, [activePage])
 
   return (
-    <div ref={dashboardRef} style={{ position:'relative', height:'100%', overflow:'hidden' }}>
+    <div ref={dashboardRef} style={{ position:'relative', height:'100%', overflow:'hidden', fontWeight: 400, letterSpacing: '0.04em' }}>
       {/* ══════════════════════════════ PAGE 1 ══════════════════════════════ */}
       {/* Outer wrapper owns the slide transform */}
       <div style={{

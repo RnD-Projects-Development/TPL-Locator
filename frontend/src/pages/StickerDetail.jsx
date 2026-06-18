@@ -1,12 +1,15 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Tag, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText } from 'lucide-react'
+import { Tag, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText, UserCog } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
+import { useAuth } from '../context/AuthContext.jsx'
+import { useUserCache } from '../context/Usercachecontext.jsx'
 import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay } from '../utils/landmark.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
+import AssignUserModal from '../components/AssignUserModal.jsx'
 
 const statusStyle = (s, isLight) => {
   if (isLight) {
@@ -23,7 +26,9 @@ export default function StickerDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
   const { zones }            = useZoneCache()
-  const { getLatestLocation, getDeviceBySn, getGeocode } = useCityTag()
+  const { getLatestLocation, getDeviceBySn, getGeocode, adminAssignDeviceToUser } = useCityTag()
+  const { isAdmin }          = useAuth()
+  const { users }            = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
@@ -66,6 +71,7 @@ export default function StickerDetail() {
 
   const [sticker, setSticker] = useState(null)
   const [devLoading, setDevLoading] = useState(true)
+  const [assignModalOpen, setAssignModalOpen] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -257,7 +263,40 @@ export default function StickerDetail() {
           borderRadius: 20, letterSpacing: '0.05em', flexShrink: 0 }}>
           {displayStatus.toUpperCase()}
         </span>
+
+        {isAdmin && (
+          <button
+            onClick={() => setAssignModalOpen(true)}
+            style={{
+              marginLeft: 'auto', flexShrink: 0,
+              display: 'flex', alignItems: 'center', gap: 5,
+              fontSize: 12, fontWeight: 600,
+              padding: '5px 11px', borderRadius: 8, cursor: 'pointer',
+              background: T.primBtnBg, border: `1px solid ${T.primBtnBdr}`,
+              color: isLight ? '#FFFFFF' : '#C86068',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.primBtnBgHov; e.currentTarget.style.borderColor = T.primBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.primBtnBg;    e.currentTarget.style.borderColor = T.primBtnBdr }}
+          >
+            <UserCog style={{ width: 13, height: 13 }} /> Assign User
+          </button>
+        )}
       </div>
+
+      {assignModalOpen && (
+        <AssignUserModal
+          sn={sticker.id}
+          currentUserName={sticker.userName !== sticker.id ? sticker.userName : null}
+          users={users}
+          onAssign={async (userId) => {
+            await adminAssignDeviceToUser(userId, id)
+            const d = await getDeviceBySn(id)
+            if (d) setSticker(prev => ({ ...prev, userName: d.assigned_user_name || d.name || d.sn || '—' }))
+          }}
+          onClose={() => setAssignModalOpen(false)}
+        />
+      )}
 
       {/* Body */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start', gap: 10, padding: 10, overflowY: 'auto' }}>

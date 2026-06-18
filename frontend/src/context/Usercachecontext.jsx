@@ -30,6 +30,16 @@ export function UserCacheProvider({ children }) {
     }
   }, []);
 
+  // Silent variant — updates data without touching the loading flag so the UI
+  // doesn't flash a spinner during background auto-refresh.
+  const silentRefresh = useCallback(async () => {
+    try {
+      const data = await adminGetUsersRef.current();
+      setUsers(Array.isArray(data) ? data : []);
+      setLastFetched(Date.now());
+    } catch {}
+  }, []);
+
   // Prefetch as soon as admin is authenticated; clear on logout
   useEffect(() => {
     if (user && isAdmin) fetchUsers();
@@ -38,7 +48,7 @@ export function UserCacheProvider({ children }) {
   }, [!!user, isAdmin]);
 
   return (
-    <UserCacheContext.Provider value={{ users, loading, error, refresh: fetchUsers, lastFetched }}>
+    <UserCacheContext.Provider value={{ users, loading, error, refresh: fetchUsers, silentRefresh, lastFetched }}>
       {children}
     </UserCacheContext.Provider>
   );

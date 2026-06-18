@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
-import MapInfoPanel from "../components/MapInfoPanel.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
+import { landmarkDisplayFromPoint, landmarkFromPoint, parseLandmarkDisplay, clientReverseGeocode } from "../utils/landmark.js";
 import "./PlaybackPage.css";
 
 const PLAYBACK_SCOPE = "playback";
@@ -50,12 +50,12 @@ function normalisePlayback(data) {
 }
 
 const SPEEDS = [
-  { label: "Slow",   value: 6000 },
-  { label: "Normal", value: 3000 },
-  { label: "Fast",   value: 1200 },
-  { label: "2×",     value: 600  },
-  { label: "4×",     value: 300  },
-  { label: "8×",     value: 150  },
+  { label: "0.5×",  value: 10000 },
+  { label: "1×",    value: 5000  },
+  { label: "1.5×",  value: 2500  },
+  { label: "2×",    value: 1200  },
+  { label: "4×",    value: 600   },
+  { label: "8×",    value: 300   },
 ];
 
 const TIME_SHORTCUTS = [
@@ -92,13 +92,59 @@ export default function PlaybackPage() {
 
   const [playbackIndex, setPlaybackIndex]   = useState(0);
   const [playing, setPlaying]               = useState(false);
-  const [speed, setSpeed]                   = useState(3000);
+  const [speed, setSpeed]                   = useState(5000);
 
   const [histLoading, setHistLoading]       = useState(false);
   const [histError, setHistError]           = useState("");
   const [lastUpdated, setLastUpdated]       = useState(null);
   const [activeShortcut, setActiveShortcut] = useState(null);
 
+
+  const visitLogRef    = useRef(null);
+  const pendingGeoRef  = useRef(new Set());
+  const [geocodeCache, setGeocodeCache] = useState({});
+
+  // Stable staticDots ref so MapView only re-renders dots when data actually changes
+  const staticDots = useMemo(
+    () => dataSource === "historical" ? historicalTraj : [],
+    [dataSource, historicalTraj]
+  );
+
+  // Visited points for the sidebar log (chronological, up to current playback position)
+  const visitedPoints = useMemo(() => {
+    if (isLiveMode) return [];
+    const traj = dataSource === "historical" ? historicalTraj : sessionTraj;
+    return traj.slice(0, playbackIndex + 1);
+  }, [isLiveMode, dataSource, historicalTraj, sessionTraj, playbackIndex]);
+
+  // Auto-scroll visit log to the latest entry
+  useEffect(() => {
+    if (visitLogRef.current) {
+      visitLogRef.current.scrollTop = visitLogRef.current.scrollHeight;
+    }
+  }, [playbackIndex]);
+
+  // Client-side reverse geocode for the current active point when backend landmark is missing
+  useEffect(() => {
+    if (isLiveMode || visitedPoints.length === 0) return;
+    const pt = visitedPoints[visitedPoints.length - 1];
+    if (!pt || landmarkFromPoint(pt)) return; // already has backend landmark
+
+    const lat = Number(pt.lat ?? pt.latitude ?? pt.gpsLat ?? pt.wgLat);
+    const lng = Number(pt.lng ?? pt.lon ?? pt.longitude ?? pt.gpsLng ?? pt.wgLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+    if (key in geocodeCache || pendingGeoRef.current.has(key)) return;
+
+    pendingGeoRef.current.add(key);
+    clientReverseGeocode(lat, lng)
+      .then(result => {
+        pendingGeoRef.current.delete(key);
+        setGeocodeCache(prev => ({ ...prev, [key]: result ? parseLandmarkDisplay(result) : null }));
+      })
+      .catch(() => pendingGeoRef.current.delete(key));
+  }, [visitedPoints, isLiveMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshLive = useCallback(async (target) => {
     const dev = target ?? sn;
@@ -142,6 +188,8 @@ export default function PlaybackPage() {
     setDataSource("session");
     setHistError("");
     setActiveShortcut(null);
+    setGeocodeCache({});
+    pendingGeoRef.current.clear();
     refreshLive(newSn);
   };
 
@@ -341,6 +389,7 @@ export default function PlaybackPage() {
               playbackSpeed={speed}
               isPlaybackPage={true}
               playbackIndex={playbackIndex}
+              staticDots={staticDots}
             />
             {histLoading && <TPLLoader overlay label="Loading playback…" />}
           </div>
@@ -399,15 +448,68 @@ export default function PlaybackPage() {
           </div>
         </div>
 
-        <MapInfoPanel
-          sn={sn}
-          deviceName={label}
-          point={infoPoint}
-          detections={trajectory.length}
-          online={sn ? (isLiveMode ? latest != null : true) : null}
-          detectionsLabel={dataSource === "historical" ? "Playback points" : "Session points"}
-          emptyHint="Select a device to view its playback details"
-        />
+        {/* Visit log sidebar */}
+        <aside className="pb-visit-log">
+          {!sn ? (
+            <div className="pb-vl-empty">
+              <div className="pb-vl-empty-icon">▶</div>
+              <div>Select a device to begin playback</div>
+            </div>
+          ) : (
+            <>
+              <div className="pb-vl-header">
+                <div className="pb-vl-title">{label || sn}</div>
+                {label && <div className="pb-vl-sn">{sn}</div>}
+                <div className="pb-vl-meta">
+                  {isLiveMode
+                    ? <span className="pb-vl-badge-live">● Live</span>
+                    : <span className="pb-vl-badge-pb">▶ Playback · {visitedPoints.length}/{trajectory.length}</span>
+                  }
+                </div>
+              </div>
+
+              <div className="pb-vl-list" ref={visitLogRef}>
+                {visitedPoints.length === 0 ? (
+                  <div className="pb-vl-hint">
+                    {dataSource === "historical"
+                      ? "Press Play or scrub the slider to see visited locations"
+                      : isLiveMode
+                        ? "Live mode — load a date range to replay history"
+                        : "Waiting for points…"}
+                  </div>
+                ) : (
+                  visitedPoints.map((pt, i) => {
+                    // Use backend landmark if present, else fall back to client geocode cache
+                    const geo = (() => {
+                      const backend = landmarkDisplayFromPoint(pt);
+                      if (backend) return backend;
+                      const lat = Number(pt?.lat ?? pt?.latitude ?? pt?.gpsLat ?? pt?.wgLat);
+                      const lng = Number(pt?.lng ?? pt?.lon ?? pt?.longitude ?? pt?.gpsLng ?? pt?.wgLng);
+                      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+                      return geocodeCache[`${lat.toFixed(5)},${lng.toFixed(5)}`] ?? null;
+                    })();
+                    const ts  = formatTs(pt);
+                    const isLatest = i === visitedPoints.length - 1;
+                    return (
+                      <div key={i} className={`pb-vl-item${isLatest ? " pb-vl-item-active" : ""}`}>
+                        <div className="pb-vl-item-num">{i + 1}</div>
+                        <div className="pb-vl-item-body">
+                          <div className="pb-vl-item-loc">
+                            {geo?.primary
+                              ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
+                              : <span className="pb-vl-muted">No landmark</span>}
+                          </div>
+                          {geo?.secondary && <div className="pb-vl-item-area">{geo.secondary}</div>}
+                          <div className="pb-vl-item-ts">{ts}</div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </aside>
       </div>
     </div>
   );

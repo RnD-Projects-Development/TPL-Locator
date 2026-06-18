@@ -1,16 +1,17 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react'
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import {
   Users, Search, X, RefreshCw, Shield, UserCog,
-  Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown, Pencil,
+  Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown, Pencil, Link2,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
+import AddDeviceToUserModal from '../components/AddDeviceToUserModal.jsx'
 import { displayContact, isValidIdentifier } from '../utils/userContact.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
@@ -202,7 +203,7 @@ function DeviceCard({ device, navigate, isAdmin, onUnbind, isLight }) {
 }
 
 /* ── User row ─────────────────────────────────────────────────────────────── */
-function UserRow({ u, idx, isAdmin, onDelete, onEdit, expanded, onToggle, boundDevices, navigate, onUnbindDevice, isLight }) {
+function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onToggle, boundDevices, navigate, onUnbindDevice, isLight }) {
   const [hov, setHov] = useState(false)
   const contact = displayContact(u)
   const initials = (u.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
@@ -304,6 +305,22 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, expanded, onToggle, boundD
             )}
             {isAdmin && (
               <button
+                onClick={() => onAddDevice(u)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  background: isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)',
+                  border: `1px solid ${isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)'}`,
+                  color: isLight ? '#1D4ED8' : '#60A5FA', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.13)' : 'rgba(59,130,246,0.18)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.35)' : 'rgba(59,130,246,0.40)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)' }}
+              >
+                <Link2 style={{ width: 11, height: 11 }} /> Add Device
+              </button>
+            )}
+            {isAdmin && (
+              <button
                 onClick={() => onDelete(u)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 4,
@@ -349,10 +366,17 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, expanded, onToggle, boundD
    ════════════════════════════════════════════════════════════════════════════ */
 export default function UsersPage() {
   const navigate = useNavigate()
-  const { users, loading, error, refresh, lastFetched } = useUserCache()
+  const { users, loading, error, refresh, silentRefresh, lastFetched } = useUserCache()
   const { isAdmin } = useAuth()
-  const { devices, refresh: refreshDevices } = useDeviceCache()
-  const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice } = useCityTag()
+  const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache()
+
+  useEffect(() => {
+    const id = setInterval(() => { silentRefresh(); silentRefreshDevices() }, 60_000)
+    return () => clearInterval(id)
+  }, [silentRefresh, silentRefreshDevices])
+  const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser } = useCityTag()
+  const [addDeviceTarget, setAddDeviceTarget] = useState(null)
+  const unboundDevices = useMemo(() => devices.filter(d => !(d.user_id || d.assigned_user_name)), [devices])
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
@@ -714,6 +738,7 @@ export default function UsersPage() {
                         key={uid || i}
                         u={u} idx={i} isAdmin={isAdmin}
                         onDelete={setDeleteTarget} onEdit={openEdit}
+                        onAddDevice={setAddDeviceTarget}
                         expanded={expanded.has(uid)} onToggle={() => toggleExpand(uid)}
                         boundDevices={bound} navigate={navigate}
                         onUnbindDevice={setUnbindTarget} isLight={isLight}
@@ -745,7 +770,7 @@ export default function UsersPage() {
                         fontFamily: 'inherit',
                         fontSize: 13,
                         fontWeight: 600,
-                        color: isLight ? '#374151' : 'rgba(255,255,255,0.70)',
+                        color: isLight ? '#000000' : 'rgba(255,255,255,0.70)',
                         border: 'none',
                         '&:hover': {
                           background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)',
@@ -932,6 +957,20 @@ export default function UsersPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {addDeviceTarget && (
+        <AddDeviceToUserModal
+          user={addDeviceTarget}
+          devices={unboundDevices}
+          onAssign={async (sn) => {
+            const userId = addDeviceTarget._id ?? addDeviceTarget.id
+            await adminAssignDeviceToUser(userId, sn)
+            await silentRefresh()
+            await silentRefreshDevices()
+          }}
+          onClose={() => setAddDeviceTarget(null)}
+        />
       )}
     </div>
   )

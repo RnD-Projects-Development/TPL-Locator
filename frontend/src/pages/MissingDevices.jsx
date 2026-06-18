@@ -594,7 +594,7 @@ export default function MissingDevices({ embedded = false, deviceType = undefine
                 count={totalPages} page={page}
                 onChange={(_, p) => goToPagePersisted(p)}
                 color="primary" shape="rounded" size="medium"
-                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#374151' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: isLight ? '#A72C32' : '#3d3d3d', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: isLight ? '#8B2328' : '#4a4a4a' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: isLight ? '#A72C32' : '#3d3d3d', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: isLight ? '#8B2328' : '#4a4a4a' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
               />
             </Stack>
           </ThemeProvider>

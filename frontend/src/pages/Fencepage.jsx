@@ -406,7 +406,7 @@ function FencePageInner() {
       {/* Top bar */}
       <div className="fp-topbar">
         <div className="fp-topbar-left">
-          <span className="fp-topbar-label">Geofencing</span>
+          <span className="fp-topbar-label">Fencing</span>
         </div>
         <div className="fp-topbar-right">
           {/* Date-range shortcuts */}

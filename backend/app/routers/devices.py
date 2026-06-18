@@ -386,15 +386,27 @@ async def _list_devices_page(
     query = await _build_admin_device_query(mongo, admin_oid, term, sn_name_only=sn_name_only)
     query = _apply_device_type_filter(query, device_type)
     query = await _apply_status_filter_to_query(mongo, query, status_filter)
-    total = await mongo.devices.count_documents(query)
-    docs = await mongo.devices.find(query).sort("sn", 1).skip(offset).limit(limit).to_list(limit)
-    if not docs:
+
+    # Fetch all matching SNs so we can sort online devices first across pages
+    all_sn_docs = await mongo.devices.find(query, {"sn": 1}).sort("sn", 1).to_list(None)
+    all_sns = [str(d.get("sn")) for d in all_sn_docs if d.get("sn")]
+    total = len(all_sns)
+    if not all_sns:
         return _paged_response([], page, limit, total)
 
-    latest_by_sn = await _load_latest_location_map(
-        mongo,
-        [str(doc.get("sn")) for doc in docs if doc.get("sn")],
-    )
+    # Load all timestamps once; sort online devices first, then alphabetically
+    latest_by_sn = await _load_latest_location_map(mongo, all_sns)
+    all_sns.sort(key=lambda sn: (0 if _get_device_status(latest_by_sn.get(sn)) == "online" else 1, sn))
+
+    page_sns = all_sns[offset:offset + limit]
+    if not page_sns:
+        return _paged_response([], page, limit, total)
+
+    sn_order = {sn: i for i, sn in enumerate(page_sns)}
+    raw_docs = await mongo.devices.find({"$and": [query, {"sn": {"$in": page_sns}}]}).to_list(len(page_sns))
+    docs = sorted(raw_docs, key=lambda d: sn_order.get(str(d.get("sn")), len(page_sns)))
+    if not docs:
+        return _paged_response([], page, limit, total)
     user_oids = []
     seen_user_ids: set[str] = set()
     for doc in docs:

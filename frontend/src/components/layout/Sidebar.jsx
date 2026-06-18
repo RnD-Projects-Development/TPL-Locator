@@ -5,7 +5,7 @@ import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
   LayoutDashboard, Map,
   FileText, Layers,
-  LogOut, Navigation, PlayCircle, Shield, UserCog,
+  LogOut, PlayCircle, Shield, UserCog,
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
@@ -18,10 +18,9 @@ const nav = [
     { to: '/devices', icon: Layers, label: 'Devices' },
   ]},
   { section: 'INTELLIGENCE', links: [
-    { to: '/map',        icon: Map,        label: 'Map View' },
-    { to: '/trajectory', icon: Navigation, label: 'Trajectory' },
-    { to: '/playback',   icon: PlayCircle, label: 'Playback' },
-    { to: '/fence',      icon: Shield,     label: 'Fence' },
+    { to: '/map',      icon: Map,        label: 'Map View' },
+    { to: '/playback', icon: PlayCircle, label: 'Playback' },
+    { to: '/fence',    icon: Shield,     label: 'Fence' },
   ]},
   { section: 'REPORTS & ADMIN', links: [
     { to: '/users',   icon: UserCog,  label: 'Users' },
@@ -49,10 +48,10 @@ export default function Sidebar() {
       <aside
         onMouseEnter={() => { if (!sidebarOpen) setSidebarOpen(true) }}
         onMouseLeave={() => { if (sidebarOpen) setSidebarOpen(false) }}
-        className={`flex flex-col flex-shrink-0 h-screen bg-black border-r border-gray-800 transition-all duration-300 ${sidebarOpen ? 'w-56' : 'w-14'}`}>
+        className={`flex flex-col flex-shrink-0 h-screen bg-black transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-14'}`}>
 
         {/* Brand */}
-        <div className="flex items-center gap-3 px-3 py-4 border-b border-gray-800 min-h-[60px] overflow-hidden">
+        <div className="flex items-center gap-3 px-3 h-[60px] overflow-hidden">
           <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center flex-shrink-0 shadow-lg">
             <img src={tplLogo} alt="TPL" className="w-6 h-6 object-contain" />
           </div>
@@ -69,11 +68,11 @@ export default function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-2 px-1.5">
+        <nav className="flex-1 overflow-y-auto py-2 px-2">
           {nav.map(({ section, links }) => (
-            <div key={section} className="mb-1">
-              <div className="px-2 py-1.5 text-[9px] font-bold text-gray-600 tracking-widest uppercase overflow-hidden" style={{
-                maxHeight: sidebarOpen ? 28 : 0,
+            <div key={section} className="mb-3">
+              <div className="px-2 py-1.5 text-[11px] font-bold text-gray-600 tracking-widest uppercase overflow-hidden" style={{
+                maxHeight: sidebarOpen ? 32 : 0,
                 opacity: sidebarOpen ? 1 : 0,
                 transform: sidebarOpen ? 'translateX(0)' : 'translateX(-6px)',
                 transition: sidebarOpen
@@ -88,28 +87,60 @@ export default function Sidebar() {
                   <NavLink key={to} to={to} title={!sidebarOpen ? label : undefined}
                     onClick={() => setSidebarOpen(false)}
                     className={({ isActive }) =>
-                      `flex items-center gap-2.5 px-2 py-2 rounded-xl text-xs font-medium transition-all duration-150 mb-0.5 relative overflow-hidden
-                       ${isActive ? 'bg-[#A72C32]/20 text-[#C44E54]' : 'text-white hover:text-white hover:bg-[#1a1a1a]'}`}>
-                    <Icon className="w-4 h-4 flex-shrink-0" />
-                    <span className="flex-1 truncate" style={{
-                      opacity: sidebarOpen ? 1 : 0,
-                      transform: sidebarOpen ? 'translateX(0)' : 'translateX(-8px)',
-                      transition: sidebarOpen
-                        ? 'opacity 220ms ease 140ms, transform 220ms ease 140ms'
-                        : 'opacity 100ms ease, transform 100ms ease',
-                      pointerEvents: 'none',
-                    }}>{label}</span>
-                    <span style={{
-                      opacity: sidebarOpen && count > 0 ? 1 : 0,
-                      transform: sidebarOpen && count > 0 ? 'scale(1)' : 'scale(0.6)',
-                      transition: sidebarOpen
-                        ? 'opacity 200ms ease 180ms, transform 200ms ease 180ms'
-                        : 'opacity 80ms ease, transform 80ms ease',
-                      pointerEvents: 'none',
-                    }} className="text-[10px] bg-[#A72C32] text-white rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 font-bold flex-shrink-0">
-                      {count > 0 ? count : ''}
-                    </span>
-                    {!sidebarOpen && count > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-[#A72C32] rounded-full" />}
+                      `relative w-full mb-1 block ${isActive ? 'text-[#C44E54]' : 'text-white'}`}
+                    style={{ height: 46 }}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {/* Collapsed icon pill — fades out when sidebar opens */}
+                        <div style={{
+                          position: 'absolute', inset: 0,
+                          display: 'flex', justifyContent: 'center', alignItems: 'center',
+                          opacity: sidebarOpen ? 0 : 1,
+                          transition: sidebarOpen
+                            ? 'opacity 100ms ease 0ms'
+                            : 'opacity 200ms ease 150ms',
+                          pointerEvents: sidebarOpen ? 'none' : 'auto',
+                        }}>
+                          <div className={`w-[38px] h-[38px] rounded-xl flex items-center justify-center ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}>
+                            <Icon className="w-5 h-5 flex-shrink-0" />
+                          </div>
+                          {count > 0 && (
+                            <span className="absolute top-1 right-1 w-2 h-2 bg-[#A72C32] rounded-full" />
+                          )}
+                        </div>
+
+                        {/* Expanded row — fades in after icon fades out */}
+                        <div style={{
+                          position: 'absolute', inset: 0,
+                          display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px',
+                          overflow: 'hidden',
+                          opacity: sidebarOpen ? 1 : 0,
+                          transition: sidebarOpen
+                            ? 'opacity 220ms ease 150ms'
+                            : 'opacity 100ms ease 0ms',
+                          pointerEvents: sidebarOpen ? 'auto' : 'none',
+                        }}>
+                          <div className={`absolute inset-0 rounded-xl ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}
+                            style={{ transition: 'background 0.15s' }} />
+                          <Icon className="w-[18px] h-[18px] flex-shrink-0 relative z-10" />
+                          <span style={{
+                            flex: '1 1 0%', overflow: 'hidden', whiteSpace: 'nowrap',
+                            fontSize: 13, fontWeight: 500,
+                            position: 'relative', zIndex: 10,
+                          }}>{label}</span>
+                          <span style={{
+                            flexShrink: 0,
+                            opacity: count > 0 ? 1 : 0,
+                            transform: count > 0 ? 'scale(1)' : 'scale(0.6)',
+                            transition: 'opacity 200ms ease, transform 200ms ease',
+                            pointerEvents: 'none', position: 'relative', zIndex: 10,
+                          }} className="text-[10px] bg-[#A72C32] text-white rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 font-bold">
+                            {count > 0 ? count : ''}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </NavLink>
                 )
               })}
@@ -118,7 +149,7 @@ export default function Sidebar() {
         </nav>
 
         {/* User footer */}
-        <div className="border-t border-gray-800 p-2 overflow-hidden">
+        <div className="p-2 overflow-hidden">
           <div className="flex items-center gap-2 px-1">
             <div className="w-7 h-7 rounded-full bg-[#A72C32] flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">{initials}</div>
             <div className="flex-1 min-w-0 overflow-hidden" style={{

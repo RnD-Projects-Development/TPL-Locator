@@ -72,7 +72,7 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
           <Route path="/stickers/:id" element={<StickerDetail />} />
           <Route path="/missing"      element={<Navigate to="/devices" replace />} />
           <Route path="/map"          element={<MapViewPage />} />
-          <Route path="/trajectory"   element={<TrajectoryPage />} />
+          <Route path="/trajectory"   element={<Navigate to="/dashboard" replace />} />
           <Route path="/playback"     element={<PlaybackPage />} />
           <Route path="/fence"        element={<FencePage />} />
           <Route path="/users"        element={<UsersPage />} />

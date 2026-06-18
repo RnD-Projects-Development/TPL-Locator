@@ -1,7 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import ModalPortal from './common/ModalPortal.jsx';
 
-/* ── SearchSelect — mirrors the one in Devices.jsx exactly ────────────────── */
 function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -75,34 +74,23 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
 
 /**
  * Props:
- *   zone        — { zone_id, name } the zone being assigned to
- *   devices     — full device list from DeviceCache
- *   assignments — { zone_id: [{sn}] } — to filter already-assigned devices
- *   onAssign    — async (sn: string) => void
- *   onClose     — () => void
+ *   sn              — device serial number
+ *   currentUserName — name currently assigned (shown as subtitle), or null
+ *   users           — array from UserCacheContext
+ *   onAssign        — async (userId: string) => void
+ *   onClose         — () => void
  */
-export default function AssignDeviceModal({ zone, devices, assignments, onAssign, onClose }) {
-  const alreadyInZone = useMemo(
-    () => new Set((assignments[zone.zone_id] || []).map((e) => e.sn)),
-    [assignments, zone.zone_id]
-  );
-  const available = useMemo(() => {
-    const list = devices.filter((d) => !alreadyInZone.has(d.sn));
-    console.log('[AssignModal] zone=%s total=%d excluded=%d available=%d',
-      zone.zone_id, devices.length, alreadyInZone.size, list.length);
-    return list;
-  }, [devices, alreadyInZone, zone.zone_id]);
-
-  const [selectedSn, setSelectedSn] = useState(available[0]?.sn ?? null);
+export default function AssignUserModal({ sn, currentUserName, users, onAssign, onClose }) {
+  const [selectedId, setSelectedId] = useState(users[0]?._id ?? users[0]?.id ?? null);
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
 
   async function handleConfirm() {
-    if (!selectedSn) { setError('Select a device first'); return; }
+    if (!selectedId) { setError('Select a user first'); return; }
     setLoading(true);
     setError('');
     try {
-      await onAssign(selectedSn);
+      await onAssign(selectedId);
       onClose();
     } catch (e) {
       setError(e?.message || 'Assignment failed');
@@ -111,7 +99,7 @@ export default function AssignDeviceModal({ zone, devices, assignments, onAssign
     }
   }
 
-  const isDisabled = loading || available.length === 0 || selectedSn == null;
+  const isDisabled = loading || users.length === 0 || !selectedId;
 
   return (
     <ModalPortal>
@@ -136,65 +124,60 @@ export default function AssignDeviceModal({ zone, devices, assignments, onAssign
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg style={{ width: 16, height: 16, color: '#C86068' }} viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                <svg style={{ width: 16, height: 16, color: '#C86068' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
                 </svg>
               </div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Assign Device to Zone</div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Assign User</div>
+                {currentUserName && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', marginTop: 1 }}>
+                    Currently: {currentUserName}
+                  </div>
+                )}
+              </div>
             </div>
-            <button
-              onClick={onClose}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.40)', padding: 4, lineHeight: 1, fontSize: 16 }}
-            >✕</button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.40)', padding: 4, fontSize: 16, lineHeight: 1 }}>✕</button>
           </div>
 
-          {/* Zone name */}
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.40)', marginBottom: 16 }}>
-            Zone: <strong style={{ color: '#f4f4f5', fontWeight: 600 }}>{zone.name}</strong>
+          {/* Device pill */}
+          <div style={{ marginBottom: 16, padding: '7px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 7 }}>
+            <svg style={{ width: 12, height: 12, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/>
+            </svg>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace' }}>{sn}</span>
           </div>
 
           {/* Error */}
           {error && (
-            <div style={{
-              padding: '8px 12px', marginBottom: 12,
-              background: 'rgba(127,29,29,0.2)', border: '1px solid rgba(127,29,29,0.4)',
-              borderRadius: 6, color: '#fca5a5', fontSize: 12,
-            }}>
+            <div style={{ padding: '8px 12px', marginBottom: 12, background: 'rgba(127,29,29,0.2)', border: '1px solid rgba(127,29,29,0.4)', borderRadius: 6, color: '#fca5a5', fontSize: 12 }}>
               {error}
             </div>
           )}
 
-          {/* Device select */}
+          {/* User select */}
           <div style={{ marginBottom: 20 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
-              Select Device <span style={{ color: '#C86068' }}>*</span>
+              Select User <span style={{ color: '#C86068' }}>*</span>
             </label>
-            {available.length === 0 ? (
-              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>
-                All devices are already assigned to this zone
-              </p>
+            {users.length === 0 ? (
+              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No users available</p>
             ) : (
               <SearchSelect
-                items={available}
-                selectedValue={selectedSn}
-                onSelect={setSelectedSn}
-                labelOf={d =>
-                  (d.assigned_user_name || d.assignedUser || d.sn) +
-                  (d.name && d.name !== d.sn ? ` — ${d.name}` : '')
-                }
-                keyOf={d => d.sn}
-                placeholder="Type to search or select a device…"
-                emptyMsg="No matching devices"
+                items={users}
+                selectedValue={selectedId}
+                onSelect={setSelectedId}
+                labelOf={u => (u.name || u.email || 'Unknown') + (u.email && u.name ? ` (${u.email})` : '')}
+                keyOf={u => u._id ?? u.id}
+                placeholder="Type to search or select a user…"
+                emptyMsg="No matching users"
               />
             )}
           </div>
 
           {/* Footer */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button
-              onClick={onClose}
-              style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}
-            >
+            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
               Cancel
             </button>
             <button
@@ -202,7 +185,7 @@ export default function AssignDeviceModal({ zone, devices, assignments, onAssign
               disabled={isDisabled}
               style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isDisabled ? 'not-allowed' : 'pointer', background: isDisabled ? 'rgba(167,44,50,0.35)' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: isDisabled ? 0.6 : 1, transition: 'opacity 0.15s' }}
             >
-              {loading ? 'Assigning…' : 'Assign Device'}
+              {loading ? 'Assigning…' : 'Assign User'}
             </button>
           </div>
         </div>

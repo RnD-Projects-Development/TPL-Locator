@@ -413,8 +413,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   useEffect(() => () => clearTimeout(toastTimer.current), [])
 
   const PAGE_SIZE  = 20
-  const debRef     = useRef(null)
-  const prevSignal = useRef(refreshSignal)
+  const debRef      = useRef(null)
+  const prevSignal  = useRef(refreshSignal)
+  const isSilentRef = useRef(false)
 
   // Debounce search
   useEffect(() => {
@@ -425,6 +426,18 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
 
   // Reset page on filter/search change
   useEffect(() => { setPage(1) }, [deviceType, externalStatus, debQ])
+
+  // Auto-refresh every 60s when Online filter is active — silently (no loader)
+  useEffect(() => {
+    if (externalStatus !== 'online') return
+    const id = setInterval(() => {
+      isSilentRef.current = true
+      _fleetCache = null
+      _fleetFetchedAt = null
+      setLocalRefresh(k => k + 1)
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [externalStatus])
 
   // Fetch all devices — one call; re-fetches on refreshSignal or localRefresh change
   useEffect(() => {
@@ -444,7 +457,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
       _fleetFetchedAt = null
     }
 
-    setFetching(true)
+    const silent = isSilentRef.current
+    isSilentRef.current = false
+    if (!silent) setFetching(true)
     ;(async () => {
       try {
         const FETCH_LIMIT = 200
@@ -466,7 +481,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
       } catch (err) {
         console.error('Fleet fetch failed:', err)
       } finally {
-        setFetching(false)
+        if (!silent) setFetching(false)
       }
     })()
   }, [user, getDevices, refreshSignal, localRefresh]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -727,7 +742,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                 count={totalPages} page={safePage}
                 onChange={(_, p) => setPage(p)}
                 color="primary" shape="rounded" size="medium"
-                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#374151' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: isLight ? '#A72C32' : '#3d3d3d', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: isLight ? '#8B2328' : '#4a4a4a' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: isLight ? '#A72C32' : '#3d3d3d', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: isLight ? '#8B2328' : '#4a4a4a' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
               />
             </Stack>
           </ThemeProvider>
