@@ -68,6 +68,19 @@ def get_settings():
         "tpl_maps_rgeocode_url": _env_strip(
             "TPL_MAPS_RGEOCODE_URL", "https://api1.tplmaps.com:8888/search/rgeocode"
         ),
+        # Password reset email (Exchange / OWA mailbox)
+        "smtp_host": _env_strip("SMTP_HOST", "email.trakker.com.pk"),
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_user": _env_strip("SMTP_USER") or _env_strip("SMTP_EMAIL", ""),
+        "smtp_email": _env_strip("SMTP_EMAIL", ""),
+        "smtp_password": _env_strip("SMTP_PASSWORD", ""),
+        "smtp_use_tls": os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes"),
+        "smtp_tls_insecure": os.getenv("SMTP_TLS_INSECURE", "false").lower() in ("1", "true", "yes"),
+        "owa_url": _env_strip(
+            "OWA_URL",
+            "https://email.trakker.com.pk/owa/auth/logon.aspx?replaceCurrent=1&url=https%3a%2f%2femail.trakker.com.pk%2fowa%2f",
+        ),
+        "otp_expire_minutes": int(os.getenv("OTP_EXPIRE_MINUTES", "10")),
     }
 
 

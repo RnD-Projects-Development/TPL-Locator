@@ -120,6 +120,97 @@ export function invalidatePaginatedCache() {
   moduleCache.clear();
 }
 
+/** Warm paginated device list cache in the background. */
+export function prefetchPaginatedDevicesBulk(
+  getDevices,
+  {
+    search = "",
+    status = "all",
+    device_type = null,
+    search_scope = null,
+  } = {},
+) {
+  if (!getDevices) return;
+
+  const searchTerm = (search || "").trim();
+  const statusFilter = status || "all";
+  const devType = device_type ?? null;
+  const scope = search_scope ?? null;
+  const key = filtersKey(searchTerm, statusFilter, devType, scope);
+
+  if (getValidBulkEntry(searchTerm, statusFilter, devType, scope)) return;
+
+  const inflightKey = `bulk:${key}`;
+  if (inflightRequests.has(inflightKey)) return;
+
+  const request = (async () => {
+    const payload = await getDevices({
+      page: 1,
+      limit: BULK_DEVICE_LIMIT,
+      search: searchTerm,
+      status: statusFilter,
+      device_type: devType,
+      search_scope: scope,
+    });
+    const list = Array.isArray(payload) ? payload : payload?.devices ?? [];
+    const entry = {
+      devices: list,
+      total: Number(payload?.total ?? list.length) || list.length,
+      fetchedAt: Date.now(),
+    };
+    bulkDeviceCache.set(key, entry);
+    seedPageCacheFromBulk(entry, searchTerm, statusFilter, devType, DEFAULT_LIMIT, scope);
+    return entry;
+  })();
+
+  inflightRequests.set(inflightKey, request);
+  void request.finally(() => {
+    inflightRequests.delete(inflightKey);
+  });
+}
+
+export const PAGINATED_PREFETCH_PRESETS = [
+  { status: "all", search: "", search_scope: null },
+  { status: "offline", search: "", search_scope: "sn_name" },
+];
+
+export function prefetchAllPaginatedDeviceCaches(getDevices) {
+  PAGINATED_PREFETCH_PRESETS.forEach((preset) => {
+    prefetchPaginatedDevicesBulk(getDevices, preset);
+  });
+}
+
+function peekCachedPageSnapshot(initialLimit, search, status, device_type, search_scope, initialPage) {
+  const searchTerm = (search || "").trim();
+  const statusFilter = status || "all";
+  const devType = device_type ?? null;
+  const scope = search_scope ?? null;
+
+  let targetPage = readPersistedPage(searchTerm, statusFilter, devType);
+  const fromOption = Number(initialPage);
+  if (Number.isFinite(fromOption) && fromOption >= 1) {
+    targetPage = Math.floor(fromOption);
+  }
+
+  const cacheKey = pageCacheKey(targetPage, initialLimit, searchTerm, statusFilter, devType, scope);
+  const modCached = getModuleCached(cacheKey);
+  if (modCached) return modCached;
+
+  if (pageDataCache.has(cacheKey)) {
+    return pageDataCache.get(cacheKey);
+  }
+
+  const bulkEntry = getValidBulkEntry(searchTerm, statusFilter, devType, scope);
+  if (bulkEntry) {
+    const bulkOffset = (targetPage - 1) * initialLimit;
+    if (bulkOffset < bulkEntry.devices.length) {
+      return sliceBulkPage(bulkEntry, targetPage, initialLimit);
+    }
+  }
+
+  return null;
+}
+
 export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) {
   const { search = "", status = "all", device_type = null, search_scope = null, initialPage } = options;
   const { getDevices } = useCityTag();
@@ -135,13 +226,22 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
     );
   };
 
-  const [devices, setDevices] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const bootSnapshot = peekCachedPageSnapshot(
+    initialLimit,
+    search,
+    status,
+    device_type,
+    search_scope,
+    initialPage,
+  );
+
+  const [devices, setDevices] = useState(() => bootSnapshot?.devices ?? []);
+  const [loading, setLoading] = useState(() => !bootSnapshot);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(resolveInitialPage);
-  const [limit, setLimit] = useState(initialLimit);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  const [page, setPage] = useState(() => bootSnapshot?.page ?? resolveInitialPage());
+  const [limit, setLimit] = useState(() => bootSnapshot?.limit ?? initialLimit);
+  const [total, setTotal] = useState(() => bootSnapshot?.total ?? 0);
+  const [totalPages, setTotalPages] = useState(() => bootSnapshot?.totalPages ?? 1);
 
   const getDevicesRef = useRef(getDevices);
   const loadPageRef = useRef(null);

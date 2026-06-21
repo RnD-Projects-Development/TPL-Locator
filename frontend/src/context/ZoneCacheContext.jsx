@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { UC_ZONE } from '../data/kmlZones.js';
 import { useAuth } from './AuthContext.jsx';
+import { registerCacheResetListener } from '../utils/clearAppCaches.js';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
 
@@ -45,6 +46,15 @@ export function ZoneCacheProvider({ children }) {
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
 
   const [userZonesLoading, setUserZonesLoading] = useState(false);
+
+  const resetZoneCache = useCallback(() => {
+    setKmlZones(SOURCE_ZONES);
+    setUserZones([]);
+    setLoading(true);
+    setUserZonesLoading(false);
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetZoneCache), [resetZoneCache]);
 
   // ── Fetch user zones from MongoDB ─────────────────────────────────────────────
   const refreshZones = useCallback(async () => {

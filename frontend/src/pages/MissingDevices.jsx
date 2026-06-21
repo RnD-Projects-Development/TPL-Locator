@@ -554,7 +554,7 @@ export default function MissingDevices({ embedded = false, deviceType = undefine
       </div>
 
       {/* ── Device list ─────────────────────────────────────────────────────── */}
-      {loading ? (
+      {loading && offlineDocs.length === 0 ? (
         <TPLLoader label={debouncedQ ? 'Searching…' : 'Loading devices…'} />
       ) : filtered.length === 0 ? (
         <div style={{ ...panel, padding: '64px 20px', textAlign: 'center' }}>

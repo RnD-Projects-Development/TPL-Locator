@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.routers.auth import router as auth_router
+from app.routers.forgot_password import router as forgot_password_router
 from app.routers.devices import router as devices_router
 from app.routers.location import router as location_router
 from app.routers.history import router as history_router
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth_router)
+    app.include_router(forgot_password_router)
     app.include_router(devices_router)
     # admin-specific endpoints
     from app.routers.admin_devices import router as admin_devices_router

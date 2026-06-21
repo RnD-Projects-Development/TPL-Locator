@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
+import { registerCacheResetListener } from "../utils/clearAppCaches.js";
 
 const UserCacheContext = createContext(null);
 
@@ -40,10 +41,19 @@ export function UserCacheProvider({ children }) {
     } catch {}
   }, []);
 
+  const resetUserCache = useCallback(() => {
+    setUsers([]);
+    setLoading(false);
+    setError("");
+    setLastFetched(null);
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetUserCache), [resetUserCache]);
+
   // Prefetch as soon as admin is authenticated; clear on logout
   useEffect(() => {
     if (user && isAdmin) fetchUsers();
-    else { setUsers([]); setLastFetched(null); setError(""); }
+    else resetUserCache();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!user, isAdmin]);
 

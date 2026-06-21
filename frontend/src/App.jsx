@@ -9,6 +9,7 @@ import { FieldStaffCacheProvider } from './context/FieldStaffCacheContext.jsx'
 import { SidebarDevicesProvider } from './context/SidebarDevicesContext.jsx'
 import Login from './pages/Login.jsx'
 import Layout from './components/layout/Layout.jsx'
+import AppCachePrefetch from './components/AppCachePrefetch.jsx'
 import { detectionEvents } from './data/mockData.js'
 
 import Dashboard        from './pages/Dashboard.jsx'
@@ -62,6 +63,7 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
       <ZoneCacheProvider>
       <FieldStaffCacheProvider>
       <SidebarDevicesProvider>
+      <AppCachePrefetch />
       <Layout>
         <Routes>
           <Route path="/dashboard"    element={<Dashboard />} />

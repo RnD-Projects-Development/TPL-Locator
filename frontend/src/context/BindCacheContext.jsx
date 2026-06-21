@@ -35,6 +35,9 @@ export function BindCacheProvider({ children }) {
 
   const resetBindCache = useCallback(() => {
     setHistory({});
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
   }, []);
 
   useEffect(() => registerCacheResetListener(resetBindCache), [resetBindCache]);

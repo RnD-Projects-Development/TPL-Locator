@@ -13,6 +13,12 @@ import { useBindCache } from '../context/BindCacheContext.jsx'
 import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { deviceDisplayName } from '../utils/deviceDisplayName.js'
+import {
+  fetchFleetDevices,
+  getFleetCache,
+  invalidateFleetCache,
+  isFleetCacheValid,
+} from '../utils/fleetCache.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
@@ -128,11 +134,6 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
     </div>
   )
 }
-
-// ── Module-level fleet cache — survives remounts, invalidated on bind/unbind ──
-let _fleetCache     = null
-let _fleetFetchedAt = null
-const FLEET_TTL     = 5 * 60 * 1000   // 5 min
 
 function fmtLastSeen(device) {
   const raw = device.dataRetrievalTime ?? device.last_seen ?? device.lastSeen ?? null
@@ -374,10 +375,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const { user, isAdmin } = useAuth()
   const { users, loading: usersLoading } = useUserCache()
 
-  const cacheValid = () =>
-    Boolean(_fleetCache && _fleetFetchedAt && Date.now() - _fleetFetchedAt < FLEET_TTL)
+  const cacheValid = () => isFleetCacheValid()
 
-  const [allDevices,   setAllDevices]   = useState(() => cacheValid() ? _fleetCache : [])
+  const [allDevices,   setAllDevices]   = useState(() => getFleetCache() ?? [])
   const [fetching,     setFetching]     = useState(() => !cacheValid())
   const [rawQ,         setRawQ]         = useState('')
   const [debQ,         setDebQ]         = useState('')
@@ -432,8 +432,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if (externalStatus !== 'online') return
     const id = setInterval(() => {
       isSilentRef.current = true
-      _fleetCache = null
-      _fleetFetchedAt = null
+      invalidateFleetCache()
       setLocalRefresh(k => k + 1)
     }, 60_000)
     return () => clearInterval(id)
@@ -447,14 +446,13 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     prevSignal.current = refreshSignal
 
     if (!forced && cacheValid()) {
-      setAllDevices(_fleetCache)
+      setAllDevices(getFleetCache() ?? [])
       setFetching(false)
       return
     }
 
     if (forced) {
-      _fleetCache     = null
-      _fleetFetchedAt = null
+      invalidateFleetCache()
     }
 
     const silent = isSilentRef.current
@@ -462,21 +460,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if (!silent) setFetching(true)
     ;(async () => {
       try {
-        const FETCH_LIMIT = 200
-        let all = [], p = 1
-        while (true) {
-          const data  = await getDevices({ page: p, limit: FETCH_LIMIT, status: 'all' })
-          const list  = Array.isArray(data) ? data : data?.devices ?? []
-          const total = Number(data?.total ?? list.length) || 0
-          all = [...all, ...list]
-          if (all.length >= total || list.length < FETCH_LIMIT || p >= 10) break
-          p++
-        }
-        // Deduplicate by SN (API can return duplicates across pages)
-        const seen = new Set()
-        all = all.filter(d => { const k = String(d.sn); if (seen.has(k)) return false; seen.add(k); return true })
-        _fleetCache     = all
-        _fleetFetchedAt = Date.now()
+        const all = await fetchFleetDevices(getDevices, { force: forced })
         setAllDevices(all)
       } catch (err) {
         console.error('Fleet fetch failed:', err)
@@ -492,8 +476,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     setUnbindLoading(true)
     try {
       await unbindDevice(unbindTarget.sn)
-      _fleetCache     = null
-      _fleetFetchedAt = null
+      invalidateFleetCache()
       setUnbindTarget(null)
       setPage(1)
       setLocalRefresh(k => k + 1)
@@ -545,8 +528,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         // user and binds it to the new one in a single request.
         await adminAssignDeviceToUser(editUserId, editTarget.sn)
       }
-      _fleetCache     = null
-      _fleetFetchedAt = null
+      invalidateFleetCache()
       const newUser = users.find(u => String(u.id) === String(editUserId))
       setEditTarget(null)
       setLocalRefresh(k => k + 1)
@@ -985,7 +967,7 @@ export default function Devices() {
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory })
         recordBind(bindSn)
-        _fleetCache = null; _fleetFetchedAt = null
+        invalidateFleetCache()
         setRefreshKey(k => k + 1)
         closeBindModal()
       } catch (err) { setBindError(err.message || 'Failed to bind device.') }
@@ -998,7 +980,7 @@ export default function Devices() {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory })
         recordBind(bindSn.trim())
         getAvailableDevices().then(setAvailableDevices).catch(() => {})
-        _fleetCache = null; _fleetFetchedAt = null
+        invalidateFleetCache()
         setRefreshKey(k => k + 1)
         closeBindModal()
       } catch (err) { setBindError(err.message || 'Failed to bind device.') }
@@ -1110,33 +1092,39 @@ export default function Devices() {
       </div>
 
       {/* ── Content — fills remaining height ─────────────────────────────────── */}
-      <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        {statusTab === 'Offline' ? (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ position: 'relative' }}>
-                <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
-                <input
-                  value={offlineRaw}
-                  onChange={e => setOfflineRaw(e.target.value)}
-                  placeholder="Search offline devices…"
-                  style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220, boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
-                  onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
-                  onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
-                />
-                {offlineRaw && (
-                  <button onClick={() => setOfflineRaw('')}
-                    style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}>
-                    <X style={{ width: 12, height: 12 }} />
-                  </button>
-                )}
-              </div>
-            </div>
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
-              <MissingDevices embedded deviceType={offlineDeviceType} externalSearch={offlineSearch} />
+      <div style={{ flex: 1, overflow: 'hidden', minHeight: 0, position: 'relative' }}>
+        {/* Offline tab — kept mounted (hidden) so data loads before the tab is opened */}
+        <div style={{
+          height: '100%',
+          display: statusTab === 'Offline' ? 'flex' : 'none',
+          flexDirection: 'column',
+          gap: 12,
+        }}>
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ position: 'relative' }}>
+              <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
+              <input
+                value={offlineRaw}
+                onChange={e => setOfflineRaw(e.target.value)}
+                placeholder="Search offline devices…"
+                style={{ background: T.inputBg, border: `1px solid ${T.inputBorder}`, borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220, boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
+                onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
+                onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
+              />
+              {offlineRaw && (
+                <button onClick={() => setOfflineRaw('')}
+                  style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}>
+                  <X style={{ width: 12, height: 12 }} />
+                </button>
+              )}
             </div>
           </div>
-        ) : (
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+            <MissingDevices embedded deviceType={offlineDeviceType} externalSearch={offlineSearch} />
+          </div>
+        </div>
+
+        <div style={{ height: '100%', display: statusTab !== 'Offline' ? 'block' : 'none' }}>
           <AllDevices
             deviceType={activeTab}
             externalStatus={externalStatus}
@@ -1144,7 +1132,7 @@ export default function Devices() {
             T={T}
             refreshSignal={refreshKey}
           />
-        )}
+        </div>
       </div>
 
       {/* ── Bind Device modal ────────────────────────────────────────────── */}

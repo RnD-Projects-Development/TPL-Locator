@@ -10,6 +10,11 @@ const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_U
 // This eliminates redundant concurrent calls from multiple context providers.
 const _inflight = new Map();
 
+/** Drop in-flight GET dedupe entries (call on logout). */
+export function clearInflightApiCache() {
+  _inflight.clear();
+}
+
 async function apiFetch(path, { method = "GET", body } = {}, accessToken, onUnauthorized) {
   const headers = { "Content-Type": "application/json" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -88,6 +93,18 @@ export function useCityTag() {
   const signup = useCallback(
     async ({ identifier, password, name }) =>
       apiFetch("/api/register", { method: "POST", body: { identifier, password, name: name || "" } }, null), []
+  );
+
+  const requestPasswordReset = useCallback(
+    async ({ email }) =>
+      apiFetch("/api/forgot-password/request", { method: "POST", body: { email } }, null),
+    []
+  );
+
+  const resetPasswordWithOtp = useCallback(
+    async ({ reset_token, otp, new_password }) =>
+      apiFetch("/api/forgot-password/reset", { method: "POST", body: { reset_token, otp, new_password } }, null),
+    []
   );
 
   const getDevices = useCallback(
@@ -309,7 +326,7 @@ export function useCityTag() {
   );
 
   return {
-    login, adminLogin, signup,
+    login, adminLogin, signup, requestPasswordReset, resetPasswordWithOtp,
     getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,

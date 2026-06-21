@@ -17,6 +17,7 @@ import React, {
   useState, useEffect, useCallback, useRef,
 } from 'react'
 import { useAuth } from './AuthContext.jsx'
+import { registerCacheResetListener } from '../utils/clearAppCaches.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,17 @@ export function AlertsProvider({ children }) {
 
   const seenAlertIdsRef = useRef(null) // null until first fetch — avoids a notification burst on load
 
+  const resetAlertsCache = useCallback(() => {
+    setAlerts([]);
+    setLoading(false);
+    setLastFetched(null);
+    setError(null);
+    readIdsRef.current = new Set();
+    seenAlertIdsRef.current = null;
+  }, []);
+
+  useEffect(() => registerCacheResetListener(resetAlertsCache), [resetAlertsCache]);
+
   // Ask for web-notification permission once the user is authenticated
   useEffect(() => {
     if (accessToken && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
@@ -249,15 +261,11 @@ export function AlertsProvider({ children }) {
 
   useEffect(() => {
     if (!accessToken) {
-      setAlerts([])
-      setLastFetched(null)
-      setError('')
-      readIdsRef.current = new Set()
-      seenAlertIdsRef.current = null
-      return
+      resetAlertsCache();
+      return;
     }
     fetchAlerts()
-  }, [accessToken, fetchAlerts])
+  }, [accessToken, fetchAlerts, resetAlertsCache])
 
   // ── Actions ────────────────────────────────────────────────────────────────
 

@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import ForgotPasswordForm from "./ForgotPasswordForm.jsx";
 
-const MODE = { LOGIN: "login", SIGNUP: "signup" };
+const MODE = { LOGIN: "login", SIGNUP: "signup", FORGOT: "forgot" };
 
 // ── Phone validation helpers ───────────────────────────────────────────────────
 function normalizePhone(raw) {
@@ -37,6 +38,7 @@ export default function LoginForm() {
 
   const isSignup = mode === MODE.SIGNUP;
   const isLogin  = mode === MODE.LOGIN;
+  const isForgot = mode === MODE.FORGOT;
 
   const identifierError = identifier && !isValidIdentifier(identifier);
 
@@ -100,6 +102,10 @@ export default function LoginForm() {
   const buttonLabel = isSignup
     ? loading ? "Creating Account..." : "Sign Up"
     : loading ? "Logging in..." : "Login";
+
+  if (isForgot) {
+    return <ForgotPasswordForm onBack={() => switchMode(MODE.LOGIN)} />;
+  }
 
   return (
     <div>
@@ -171,7 +177,28 @@ export default function LoginForm() {
 
         {/* Password */}
         <div>
-          <label className="block text-sm font-medium text-white">Password</label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <label className="block text-sm font-medium text-white">Password</label>
+            {isLogin && (
+              <button
+                type="button"
+                onClick={() => switchMode(MODE.FORGOT)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "rgba(255,255,255,0.55)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: 0,
+                  textDecoration: "underline",
+                  textUnderlineOffset: 2,
+                }}
+              >
+                Forgot password?
+              </button>
+            )}
+          </div>
           <input
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
             value={password}

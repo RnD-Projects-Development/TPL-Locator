@@ -51,10 +51,9 @@ export function DeviceCacheProvider({ children }) {
   }, []);
 
   // Load on demand when user is authenticated (for bind modals); clear on logout.
-  // Does NOT auto-load on mount — pages use usePaginatedDevices instead.
   useEffect(() => {
     if (user) fetchDevices();
-    else { setDevices([]); setLastFetched(null); setError(""); }
+    else resetDeviceCache();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!user]);
 
