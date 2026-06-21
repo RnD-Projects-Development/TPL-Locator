@@ -91,6 +91,35 @@ function buildPopupHtml({ displayName, sn, label, coords, point, geocode }) {
     </div>`;
 }
 
+// ── Top-down car icon — rotates to face direction of travel ──────────────────
+function buildCarIconHtml(bearing = 0) {
+  return `<div style="transform:rotate(${bearing}deg);transform-origin:center center;width:28px;height:46px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.55));">
+    <svg viewBox="0 0 60 100" xmlns="http://www.w3.org/2000/svg" width="28" height="46">
+      <rect x="8"  y="12" width="44" height="76" rx="10" fill="#dc2626"/>
+      <rect x="12" y="22" width="36" height="24" rx="4"  fill="rgba(15,15,25,0.88)"/>
+      <rect x="12" y="60" width="36" height="16" rx="3"  fill="rgba(15,15,25,0.72)"/>
+      <rect x="10" y="13" width="12" height="7"  rx="2"  fill="#fde68a"/>
+      <rect x="38" y="13" width="12" height="7"  rx="2"  fill="#fde68a"/>
+      <rect x="10" y="80" width="12" height="7"  rx="2"  fill="#f87171"/>
+      <rect x="38" y="80" width="12" height="7"  rx="2"  fill="#f87171"/>
+      <rect x="2"  y="18" width="10" height="18" rx="3"  fill="#111827"/>
+      <rect x="48" y="18" width="10" height="18" rx="3"  fill="#111827"/>
+      <rect x="2"  y="64" width="10" height="18" rx="3"  fill="#111827"/>
+      <rect x="48" y="64" width="10" height="18" rx="3"  fill="#111827"/>
+    </svg>
+  </div>`;
+}
+
+// ── Compute compass bearing (0° = north, clockwise) between two coordinates ──
+function getBearing(fromLat, fromLng, toLat, toLng) {
+  const dLng = (toLng - fromLng) * Math.PI / 180;
+  const lat1 = fromLat * Math.PI / 180;
+  const lat2 = toLat   * Math.PI / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
 // ── Lollipop pin — outer ring + bright inner circle + slim stem + ground shadow ─
 function buildPinIconHtml(innerColor = '#E8192C', outerColor = '#8B0000') {
   return `
@@ -219,7 +248,9 @@ function smoothMoveTo(marker, fromLat, fromLng, toLat, toLng, duration, onTick) 
 
   function frame(now) {
     const elapsed = now - start;
-    const t = Math.min(elapsed / duration, 1);
+    const rawT = Math.min(elapsed / duration, 1);
+    // Cubic ease-in-out: slow start, fast middle, slow stop
+    const t = rawT < 0.5 ? 2 * rawT * rawT : -1 + (4 - 2 * rawT) * rawT;
 
     const lat = fromLat + (toLat - fromLat) * t;
     const lng = fromLng + (toLng - fromLng) * t;
@@ -227,7 +258,7 @@ function smoothMoveTo(marker, fromLat, fromLng, toLat, toLng, duration, onTick) 
     try { marker.setLatLng([lat, lng]); } catch {}
     if (onTick) onTick(lat, lng);
 
-    if (t < 1) {
+    if (rawT < 1) {
       rafId = requestAnimationFrame(frame);
     }
   }
@@ -247,6 +278,8 @@ export default function MapView({
   isPlaybackPage = false,
   playbackIndex = 0,
   onFocusDevice = null,
+  // All trajectory points rendered immediately as dim background dots (playback page only).
+  staticDots = [],
 }) {
   const onFocusRef     = useRef(onFocusDevice);
   useEffect(() => { onFocusRef.current = onFocusDevice; }, [onFocusDevice]);
@@ -284,6 +317,10 @@ export default function MapView({
   const pbCommittedIdxRef  = useRef(-1);   // index of last committed waypoint
   const pbCanvasRef        = useRef(null);
   const pbActiveRef        = useRef(false); // true while playback tween is running
+
+  // Static preview dots refs (playback page — all points shown immediately on load)
+  const staticDotsRef   = useRef([]);
+  const staticCanvasRef = useRef(null);
 
   // Fence overlay refs
   const fenceLayersRef = useRef([]);
@@ -437,6 +474,8 @@ export default function MapView({
         if (markerRef.current && _cachedMap) { _cachedMap.removeLayer(markerRef.current);    markerRef.current = null; }
         clearTrajectoryLayers(_cachedMap);
         clearPlaybackLayers(_cachedMap);
+        staticDotsRef.current.forEach(d => { try { _cachedMap.removeLayer(d); } catch {} });
+        staticDotsRef.current = [];
         fenceLayersRef.current.forEach(p => { try { _cachedMap.removeLayer(p); } catch {} });
         multiMarkersRef.current.forEach(({ marker }) => { try { _cachedMap.removeLayer(marker); } catch {} });
       } catch {}
@@ -479,15 +518,58 @@ export default function MapView({
       if (distSq < 1e-14) {
         markerRef.current?.setLatLng([to.lat, to.lng]);
         animFromRef.current = to;
+        if (isPlaybackPage) {
+          try {
+            markerRef.current?.setIcon(window.L.divIcon({
+              html: buildCarIconHtml(0), className: '', iconSize: [28, 46], iconAnchor: [14, 23],
+            }));
+          } catch {}
+        }
         return;
       }
 
+      const dist = Math.sqrt(distSq);
+      const bearing = getBearing(from.lat, from.lng, to.lat, to.lng);
+
+      // Very large jump (GPS gap / error): snap instantly so the pin doesn't
+      // race across the screen.
+      const SNAP_DEG = 0.006; // ≈ 600 m
+      if (dist > SNAP_DEG) {
+        markerRef.current?.setLatLng([to.lat, to.lng]);
+        animFromRef.current = to;
+        if (isPlaybackPage) {
+          try {
+            markerRef.current?.setIcon(window.L.divIcon({
+              html: buildCarIconHtml(bearing), className: '', iconSize: [28, 46], iconAnchor: [14, 23],
+            }));
+          } catch {}
+          if (pbTipLineRef.current) {
+            try { pbTipLineRef.current.setLatLngs([[to.lat, to.lng], [to.lat, to.lng]]); } catch {}
+          }
+          try {
+            const bds = window.L.latLngBounds([[to.lat, to.lng]]);
+            const cb = pbCommittedLineRef.current?.getBounds();
+            if (cb?.isValid()) bds.extend(cb);
+            if (bds.isValid()) map.fitBounds(bds, { padding: [60, 60], animate: false, maxZoom: 16 });
+          } catch {}
+        }
+        return;
+      }
+
+      // Use the full step interval for every segment so the pin is always in
+      // motion — never sits still between waypoints (Google Maps-style glide).
       const tweenDuration = Math.max(playbackSpeed * 0.98, 100);
 
+      // Rotate car icon to face the direction of travel
+      if (isPlaybackPage) {
+        try {
+          markerRef.current?.setIcon(window.L.divIcon({
+            html: buildCarIconHtml(bearing), className: '', iconSize: [28, 46], iconAnchor: [14, 23],
+          }));
+        } catch {}
+      }
+
       // ── Playback page: update the animated tip polyline each frame ────────
-      // This is the key fix: instead of calling setLatLngs on the full committed
-      // polyline every frame, we only move the second vertex of the 2-point tip
-      // line. The committed polyline is never touched during the tween.
       let onTickFn = null;
       if (isPlaybackPage && pbTipLineRef.current) {
         onTickFn = (lat, lng) => {
@@ -522,11 +604,22 @@ export default function MapView({
         }
       }, tweenDuration);
 
-      const targetZoom = Math.max(map.getZoom(), 15);
-      let inView = false;
-      try { inView = map.getBounds().contains([to.lat, to.lng]); } catch {}
-      if (!inView) {
-        map.setView([to.lat, to.lng], targetZoom, { animate: true, duration: 0.5 });
+      if (isPlaybackPage) {
+        // fitBounds on the committed trajectory + current destination so the
+        // full drawn path stays visible as the car moves.
+        try {
+          const bds = window.L.latLngBounds([[from.lat, from.lng], [to.lat, to.lng]]);
+          const cb = pbCommittedLineRef.current?.getBounds();
+          if (cb?.isValid()) bds.extend(cb);
+          map.fitBounds(bds, { padding: [60, 60], animate: true, duration: tweenDuration / 1000, maxZoom: 16 });
+        } catch {}
+      } else {
+        const targetZoom = Math.max(map.getZoom(), 15);
+        let inView = false;
+        try { inView = map.getBounds().contains([to.lat, to.lng]); } catch {}
+        if (!inView) {
+          map.setView([to.lat, to.lng], targetZoom, { animate: true, duration: 0.5 });
+        }
       }
 
       const originalCancel = cancelTweenRef.current;
@@ -608,8 +701,8 @@ export default function MapView({
       if (absIdx % stepSize !== 0 && absIdx !== items.length - 1) return;
 
       const dot = window.L.circleMarker([c.lat, c.lng], {
-        radius: 4, color: '#7f1d1d', fillColor: '#fca5a5',
-        fillOpacity: 0.8, weight: 1,
+        radius: 4, color: '#7f1d1d', fillColor: '#dc2626',
+        fillOpacity: 0.9, weight: 1,
         interactive: false,
         renderer: canvasRef.current,
       }).addTo(map);
@@ -700,12 +793,11 @@ export default function MapView({
     }
 
     // ── Commit exactly one new waypoint ───────────────────────────────────
-    // The committed line ends at pbCommittedIdxRef.current.
-    // playbackIndex is the marker's current logical position.
-    // We extend by one: commit up to playbackIndex (the just-reached waypoint).
-    // The *next* segment (playbackIndex → playbackIndex+1) is left to the tip.
     const prevCommitted = pbCommittedIdxRef.current;
-    const nextCommitted = playbackIndex; // advance to current position
+    // Commit up to the waypoint the pin just LEFT (playbackIndex-1), not the
+    // target. The current segment (playbackIndex-1 → playbackIndex) is drawn
+    // live by the tip line via onTick, keeping the line in sync with the pin.
+    const nextCommitted = playbackIndex - 1;
 
     if (nextCommitted > prevCommitted && nextCommitted < items.length) {
       // Extend committed line by the one new waypoint
@@ -746,8 +838,8 @@ export default function MapView({
     function _addPbDot(map, c, p) {
       if (!window.L) return;
       const dot = window.L.circleMarker([c.lat, c.lng], {
-        radius: 4, color: '#7f1d1d', fillColor: '#fca5a5',
-        fillOpacity: 0.8, weight: 1,
+        radius: 4, color: '#7f1d1d', fillColor: '#dc2626',
+        fillOpacity: 0.9, weight: 1,
         interactive: false,
         renderer: pbCanvasRef.current,
       }).addTo(map);
@@ -756,6 +848,51 @@ export default function MapView({
     }
 
   }, [playbackIndex, trajectory, mapLoaded, isPlayback, isPlaybackPage, clearPlaybackLayers]);
+
+  /* ── STATIC PREVIEW DOTS (playback page — full trajectory shown immediately) ── */
+  useEffect(() => {
+    if (!isPlaybackPage) return;
+    const map = mapRef.current;
+    if (!map || !window.L) return;
+
+    staticDotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
+    staticDotsRef.current = [];
+
+    const items = (staticDots ?? [])
+      .map(p => { const c = extractCoords(p); return c ? c : null; })
+      .filter(Boolean);
+
+    if (items.length === 0) return;
+
+    if (!staticCanvasRef.current) staticCanvasRef.current = window.L.canvas({ padding: 0.5 });
+
+    const MAX_STATIC = 500;
+    const step = items.length > MAX_STATIC ? Math.ceil(items.length / MAX_STATIC) : 1;
+
+    items.forEach((c, i) => {
+      if (i % step !== 0 && i !== items.length - 1) return;
+      const dot = window.L.circleMarker([c.lat, c.lng], {
+        radius: 3.5,
+        color: 'rgba(127,29,29,0.8)',
+        fillColor: 'rgba(185,28,28,0.65)',
+        fillOpacity: 0.9,
+        weight: 1,
+        interactive: false,
+        renderer: staticCanvasRef.current,
+      }).addTo(map);
+      staticDotsRef.current.push(dot);
+    });
+
+    // Fit map to show all points on load
+    if (items.length > 1) {
+      try {
+        const bounds = window.L.latLngBounds(items.map(c => [c.lat, c.lng]));
+        if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      } catch {}
+    } else if (items.length === 1) {
+      try { map.setView([items[0].lat, items[0].lng], Math.max(map.getZoom(), 15)); } catch {}
+    }
+  }, [staticDots, mapLoaded, isPlaybackPage]);
 
   /* ── FENCE OVERLAY ── */
   useEffect(() => {

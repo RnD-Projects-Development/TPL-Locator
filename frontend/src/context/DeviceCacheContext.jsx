@@ -41,6 +41,15 @@ export function DeviceCacheProvider({ children }) {
     }
   }, []);
 
+  const silentRefresh = useCallback(async () => {
+    try {
+      const data = await getDevicesRef.current({ page: 1, limit: 100 });
+      const list = Array.isArray(data) ? data : data?.devices ?? [];
+      setDevices(list);
+      setLastFetched(Date.now());
+    } catch {}
+  }, []);
+
   // Load on demand when user is authenticated (for bind modals); clear on logout.
   // Does NOT auto-load on mount — pages use usePaginatedDevices instead.
   useEffect(() => {
@@ -50,7 +59,7 @@ export function DeviceCacheProvider({ children }) {
   }, [!!user]);
 
   return (
-    <DeviceCacheContext.Provider value={{ devices, loading, error, refresh: fetchDevices, lastFetched }}>
+    <DeviceCacheContext.Provider value={{ devices, loading, error, refresh: fetchDevices, silentRefresh, lastFetched }}>
       {children}
     </DeviceCacheContext.Provider>
   );

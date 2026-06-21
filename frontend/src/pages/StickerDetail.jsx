@@ -1,12 +1,15 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Tag, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText } from 'lucide-react'
+import { Tag, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText, UserCog } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
+import { useAuth } from '../context/AuthContext.jsx'
+import { useUserCache } from '../context/Usercachecontext.jsx'
 import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay } from '../utils/landmark.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
+import AssignUserModal from '../components/AssignUserModal.jsx'
 
 const statusStyle = (s, isLight) => {
   if (isLight) {
@@ -23,13 +26,15 @@ export default function StickerDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
   const { zones }            = useZoneCache()
-  const { getLatestLocation, getDeviceBySn, getGeocode } = useCityTag()
+  const { getLatestLocation, getDeviceBySn, getGeocode, adminAssignDeviceToUser } = useCityTag()
+  const { isAdmin }          = useAuth()
+  const { users }            = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
 
   const panel = isLight
-    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
+    ? { border: '1.5px solid transparent', background: 'linear-gradient(145deg, #FFFFFF 0%, #FAFAFA 100%) padding-box, linear-gradient(135deg, rgba(167,44,50,0.28) 0%, rgba(255,255,255,0) 55%) border-box', borderRadius: 14, boxShadow: '0 4px 28px rgba(167,44,50,0.07)' }
     : { background: '#161616', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 14 }
 
   const T = {
@@ -54,16 +59,19 @@ export default function StickerDetail() {
     ghostBtnBgHov: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)',
     ghostBtnBdrHov:isLight ? '#A0A0A0' : 'rgba(255,255,255,0.18)',
     ghostIcon:     isLight ? '#555555' : '#94a3b8',
-    btnTxt:        isLight ? '#FFFFFF' : '#FFFFFF',
-    btnSub:        isLight ? 'rgba(255,255,255,0.70)' : 'rgba(255,255,255,0.60)',
+    primBtnTxt:    '#FFFFFF',
+    primBtnSub:    isLight ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.60)',
+    ghostBtnTxt:   isLight ? '#111111' : '#FFFFFF',
+    ghostBtnSub:   isLight ? 'rgba(0,0,0,0.50)'      : 'rgba(255,255,255,0.60)',
     notFoundIcon:  isLight ? '#DC2626' : 'rgba(255,255,255,0.18)',
     topBarBg:      isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.02)',
   }
 
-  const cardAccent = isLight ? { borderLeft: '3px solid #A72C32', borderRadius: 0, borderTopRightRadius: 14, borderBottomRightRadius: 14 } : null
+  const cardAccent = null
 
   const [sticker, setSticker] = useState(null)
   const [devLoading, setDevLoading] = useState(true)
+  const [assignModalOpen, setAssignModalOpen] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -199,6 +207,12 @@ export default function StickerDetail() {
   const mapLng = livePoint?.lng ?? livePoint?.lon ?? livePoint?.longitude ?? livePoint?.gpsLng ?? livePoint?.wgLng
   const hasMapCoords = mapLat != null && mapLng != null && !isNaN(Number(mapLat)) && !isNaN(Number(mapLng))
 
+  const fullMapAddress = locLoading
+    ? 'Acquiring position…'
+    : !hasMapCoords
+    ? 'No position data'
+    : ([geoDisplay?.primary, geoDisplay?.secondary].filter(Boolean).join(', ') || geoLabel || `${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`)
+
   const infoFields = [
     { l: 'Device ID',     v: sticker.id },
     { l: 'Registered',    v: bindDateStr },
@@ -218,7 +232,7 @@ export default function StickerDetail() {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', letterSpacing: '1px', WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale' }}>
 
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px',
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 10px', padding: '9px 14px',
         flexShrink: 0, borderBottom: `1px solid ${T.fieldBdr}`, background: T.topBarBg }}>
         <button onClick={() => navigate('/stickers')}
           style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: T.txt2,
@@ -249,23 +263,57 @@ export default function StickerDetail() {
           borderRadius: 20, letterSpacing: '0.05em', flexShrink: 0 }}>
           {displayStatus.toUpperCase()}
         </span>
+
+        {isAdmin && (
+          <button
+            onClick={() => setAssignModalOpen(true)}
+            style={{
+              marginLeft: 'auto', flexShrink: 0,
+              display: 'flex', alignItems: 'center', gap: 5,
+              fontSize: 12, fontWeight: 600,
+              padding: '5px 11px', borderRadius: 8, cursor: 'pointer',
+              background: T.primBtnBg, border: `1px solid ${T.primBtnBdr}`,
+              color: isLight ? '#FFFFFF' : '#C86068',
+              transition: 'background 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.primBtnBgHov; e.currentTarget.style.borderColor = T.primBtnBdrHov }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.primBtnBg;    e.currentTarget.style.borderColor = T.primBtnBdr }}
+          >
+            <UserCog style={{ width: 13, height: 13 }} /> Assign User
+          </button>
+        )}
       </div>
 
+      {assignModalOpen && (
+        <AssignUserModal
+          sn={sticker.id}
+          currentUserName={sticker.userName !== sticker.id ? sticker.userName : null}
+          users={users}
+          onAssign={async (userId) => {
+            await adminAssignDeviceToUser(userId, id)
+            const d = await getDeviceBySn(id)
+            if (d) setSticker(prev => ({ ...prev, userName: d.assigned_user_name || d.name || d.sn || '—' }))
+          }}
+          onClose={() => setAssignModalOpen(false)}
+        />
+      )}
+
       {/* Body */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 10, padding: 10, overflow: 'hidden' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start', gap: 10, padding: 10, overflowY: 'auto' }}>
 
         {/* Left column */}
-        <div style={{ width: '38%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
+        <div style={{ flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
 
           {/* Stat strip */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, flexShrink: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 6, flexShrink: 0 }}>
             <div style={{ ...panel, ...(cardAccent || {}), padding: '13px 12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
                 <MapPin style={{ width: 11, height: 11, color: T.txt2 }} />
                 <span style={{ color: T.txt2, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>Last Position</span>
               </div>
-              <div style={{ color: T.txt1, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={liveLocation}>{liveLocation}</div>
+              <div style={{ color: T.txt1, fontSize: 13, fontWeight: 600, wordBreak: 'break-word', lineHeight: 1.4 }}>
+                {liveLocation}
+              </div>
             </div>
 
             <div style={{ ...panel, ...(cardAccent || {}), padding: '13px 12px' }}>
@@ -273,8 +321,9 @@ export default function StickerDetail() {
                 <Clock style={{ width: 11, height: 11, color: T.txt2 }} />
                 <span style={{ color: T.txt2, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600 }}>Last Report</span>
               </div>
-              <div style={{ color: T.txt1, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                title={liveLastSeen}>{liveLastSeen}</div>
+              <div style={{ color: T.txt1, fontSize: 13, fontWeight: 600, wordBreak: 'break-word', lineHeight: 1.4 }}>
+                {liveLastSeen}
+              </div>
             </div>
 
             <div style={{ ...panel, ...(cardAccent || {}), padding: '13px 12px' }}>
@@ -294,24 +343,25 @@ export default function StickerDetail() {
           </div>
 
           {/* Device details */}
-          <div style={{ ...panel, ...(cardAccent || {}), padding: '8px 13px 2px 13px', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ ...panel, ...(cardAccent || {}), padding: '8px 13px 13px 13px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
               <Tag style={{ width: 12, height: 12, color: T.accent }} />
               <span style={{ color: T.txt1, fontWeight: 600, fontSize: 12 }}>Device Details</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
               {infoFields.map(f => (
                 <div key={f.l} style={{ background: T.fieldBg, borderRadius: 9, padding: '11px 10px', border: `1px solid ${T.fieldBdr}` }}>
                   <div style={{ color: T.fieldLabel, fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>{f.l}</div>
-                  <div style={{ color: T.fieldVal, fontSize: 13, fontWeight: 400, letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    title={String(f.v)}>{f.v}</div>
+                  <div style={{ color: T.fieldVal, fontSize: 13, fontWeight: 400, letterSpacing: '0.04em', wordBreak: 'break-word', lineHeight: 1.4 }}>
+                    {f.v}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Actions */}
-          <div style={{ ...panel, ...(cardAccent || {}), padding: '28px 13px 18px 13px', flexShrink: 0 }}>
+          <div style={{ ...panel, ...(cardAccent || {}), padding: '13px', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
               <Navigation style={{ width: 12, height: 12, color: T.accent }} />
               <span style={{ color: T.txt1, fontWeight: 600, fontSize: 12 }}>Actions</span>
@@ -323,7 +373,7 @@ export default function StickerDetail() {
                     borderRadius: 9, cursor: 'pointer', width: '100%', textAlign: 'left',
                     background: btn.primary ? T.primBtnBg : T.ghostBtnBg,
                     border: `1px solid ${btn.primary ? T.primBtnBdr : T.ghostBtnBdr}`,
-                    color: T.btnTxt, fontSize: 13, fontWeight: 600,
+                    color: btn.primary ? T.primBtnTxt : T.ghostBtnTxt, fontSize: 13, fontWeight: 600,
                     transition: 'background 0.15s, border-color 0.15s' }}
                   onMouseEnter={e => { e.currentTarget.style.background = btn.primary ? T.primBtnBgHov : T.ghostBtnBgHov; e.currentTarget.style.borderColor = btn.primary ? T.primBtnBdrHov : T.ghostBtnBdrHov }}
                   onMouseLeave={e => { e.currentTarget.style.background = btn.primary ? T.primBtnBg : T.ghostBtnBg; e.currentTarget.style.borderColor = btn.primary ? T.primBtnBdr : T.ghostBtnBdr }}
@@ -331,7 +381,7 @@ export default function StickerDetail() {
                   <btn.icon style={{ width: 13, height: 13, color: btn.primary ? (isLight ? '#FFFFFF' : T.accent) : T.ghostIcon, flexShrink: 0 }} />
                   <div>
                     <div style={{ letterSpacing: '0.04em' }}>{btn.label}</div>
-                    <div style={{ fontSize: 11, color: T.btnSub, fontWeight: 400, marginTop: 1, letterSpacing: '0.04em' }}>{btn.sub}</div>
+                    <div style={{ fontSize: 11, color: btn.primary ? T.primBtnSub : T.ghostBtnSub, fontWeight: 400, marginTop: 1, letterSpacing: '0.04em' }}>{btn.sub}</div>
                   </div>
                 </button>
               ))}
@@ -341,23 +391,23 @@ export default function StickerDetail() {
         </div>{/* end left */}
 
         {/* Right column — map */}
-        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column',
+        <div style={{ flex: '2 1 280px', minWidth: 0, minHeight: '300px', display: 'flex', flexDirection: 'column',
           ...panel, ...(cardAccent || {}), overflow: 'hidden' }}>
           {/* Map header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
-            borderBottom: `1px solid ${T.fieldBdr}`, flexShrink: 0 }}>
-            <MapPin style={{ width: 13, height: 13, color: T.locColor, flexShrink: 0 }} />
-            <span style={{ color: T.txt1, fontWeight: 600, fontSize: 14, flex: 1,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {locLoading ? 'Acquiring position…'
-                : hasMapCoords ? (geoDisplay?.primary || geoLabel || `${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`)
-                : 'No position data'}
-            </span>
-            {hasMapCoords && (
-              <span style={{ fontSize: 12, fontFamily: 'monospace', color: T.txt2, flexShrink: 0 }}>
-                {`${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`}
-              </span>
-            )}
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${T.fieldBdr}`, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <MapPin style={{ width: 13, height: 13, color: T.locColor, flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: T.txt1, fontWeight: 600, fontSize: 13, wordBreak: 'break-word', lineHeight: 1.4 }}>
+                  {fullMapAddress}
+                </div>
+                {hasMapCoords && (
+                  <div style={{ fontSize: 11, fontFamily: 'monospace', color: T.txt2, marginTop: 3 }}>
+                    {`${Number(mapLat).toFixed(5)}, ${Number(mapLng).toFixed(5)}`}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           {/* Map body */}
           <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>

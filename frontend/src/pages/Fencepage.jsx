@@ -75,6 +75,7 @@ function FencePageInner() {
   const zoneStatusesRef    = useRef({});
   const accessTokenRef     = useRef(accessToken);
   const devicesRef         = useRef(devices);
+  const zonesRef           = useRef(zones);
   const [mapReady,       setMapReady]       = useState(false);
   const [toolboxMode,    setToolboxMode]    = useState(null);  // null | 'create' | 'edit'
   const [editingZone,    setEditingZone]    = useState(null);
@@ -93,6 +94,7 @@ function FencePageInner() {
   // Keep refs in sync
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
   useEffect(() => { devicesRef.current = devices; }, [devices]);
+  useEffect(() => { zonesRef.current = zones; }, [zones]);
   useEffect(() => { zoneStatusesRef.current = zoneStatuses; }, [zoneStatuses]);
 
   // Stable auth headers
@@ -235,7 +237,7 @@ function FencePageInner() {
 
     if (!selectedZoneId || !accessToken) return;
 
-    const selectedZone = zones.find((z) => z.zone_id === selectedZoneId);
+    const selectedZone = zonesRef.current.find((z) => z.zone_id === selectedZoneId);
     if (!selectedZone?.polygon && !selectedZone?.polygons?.length) return;
 
     const end   = new Date();
@@ -285,7 +287,7 @@ function FencePageInner() {
               tracks.forEach((t) => {
                 (t.events || []).forEach((ev) => {
                   try {
-                    new Notification('TPL Geofence Alert', {
+                    new Notification('TPL fence Alert', {
                       body: `${t.user_name} ${ev.type === 'ENTER' ? 'entered' : 'exited'} zone ${zoneName}`,
                       tag: `GEO-${t.sn}-${(ev.timestamp || '').replace(/\D/g, '')}`,
                     });
@@ -294,7 +296,7 @@ function FencePageInner() {
               });
             } else {
               try {
-                new Notification('TPL Geofence Alert', {
+                new Notification('TPL fence Alert', {
                   body: `${totalEvents} entry/exit events detected in zone ${zoneName}`,
                   tag: `GEO-SUMMARY-${selectedZoneId}`,
                 });
@@ -311,7 +313,7 @@ function FencePageInner() {
       .catch(() => setTracksLoading(false));
 
     return () => { if (tracksFetchZoneRef.current === fetchTag) tracksFetchZoneRef.current = null; };
-  }, [selectedZoneId, mapReady, accessToken, zones, authHeaders, tracksFetchKey, tracksRangeDays]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedZoneId, mapReady, accessToken, authHeaders, tracksFetchKey, tracksRangeDays]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Assign device ─────────────────────────────────────────────────────────────
   async function handleAssign(zone_id, sn) {
@@ -404,7 +406,7 @@ function FencePageInner() {
       {/* Top bar */}
       <div className="fp-topbar">
         <div className="fp-topbar-left">
-          <span className="fp-topbar-label">Geofencing</span>
+          <span className="fp-topbar-label">Fencing</span>
         </div>
         <div className="fp-topbar-right">
           {/* Date-range shortcuts */}

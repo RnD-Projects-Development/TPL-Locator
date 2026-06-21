@@ -9,7 +9,7 @@ import '../../styles/light-theme.css'
 export const ThemeContext = React.createContext(null)
 
 const MAP_ROUTES       = ['/map', '/trajectory', '/playback', '/fence', '/field-staff', '/reports']
-const DARK_ONLY_ROUTES = ['/dashboard', '/users', '/map', '/trajectory', '/playback', '/fence', '/field-staff', '/reports']
+const DARK_ONLY_ROUTES = ['/dashboard', '/map', '/trajectory', '/playback', '/fence', '/field-staff', '/reports']
 
 export default function Layout({ children }) {
   const { pathname } = useLocation()
@@ -39,13 +39,14 @@ export default function Layout({ children }) {
   return (
     <BindCacheProvider>
       <HomePageCacheProvider>
-        <div className="flex h-screen overflow-hidden" style={{ background: '#0d0d0d' }}>
+        <div className="flex h-screen overflow-hidden" style={{ background: '#000000' }}>
           <Sidebar />
           <div className="flex flex-col flex-1 overflow-hidden">
             <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
             <main
               key={pathname}
               className={`page-anim flex-1 ${isMapPage ? 'overflow-hidden p-0' : isDevicesPage ? 'overflow-hidden p-5' : 'overflow-y-auto p-5'} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
+            style={{ borderTopLeftRadius: 28 }}
             >
               <ThemeContext.Provider value={pageTheme}>
                 {children}

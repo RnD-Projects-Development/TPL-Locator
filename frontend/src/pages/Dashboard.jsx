@@ -121,12 +121,17 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
   const locPct       = Math.round((locatorCount / typeTotal) * 100)
 
   const { topZones, extraZones } = useMemo(() => {
-    const active = [...zones]
-      .map(z => ({ name: z.name || 'Unnamed', count: z.device_sns?.length || 0 }))
-      .sort((a, b) => b.count - a.count)
+    const zoneCount = {}
+    devices.forEach(d => {
+      const dzones = d.fence_zone_ids?.length ? d.fence_zone_ids : (d.zone ? [d.zone] : [])
+      dzones.forEach(zid => { zoneCount[zid] = (zoneCount[zid] || 0) + 1 })
+    })
+    const active = zones
+      .map(z => ({ name: z.name || z.beat || 'Unnamed', count: zoneCount[z.zone_id] || 0 }))
       .filter(z => z.count > 0)
+      .sort((a, b) => b.count - a.count)
     return { topZones: active.slice(0, 4), extraZones: Math.max(0, active.length - 4) }
-  }, [zones])
+  }, [zones, devices])
 
   const topDevices = useMemo(() =>
     [...devices]
@@ -152,7 +157,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
         {/* ── Section 1: Uptime ── */}
         <div style={{ padding: '4px 24px 4px 20px', ...DIVIDER }}>
           <div style={SECTION_HDR}>Fleet Uptime</div>
-          <div style={{ fontSize: 52, fontWeight: 800, color: upColor, lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
+          <div style={{ fontSize: 52, fontWeight: 800, color: '#4ade80', lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
           <div style={{ fontSize: 12, color: '#C0C0C0', marginTop: 6 }}>{onlineNow} of {total} online</div>
           <div style={{ marginTop: 14, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${onlineRate}%`, background: upColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
@@ -169,7 +174,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
             {[
               { label: 'Battery (Less than 20%)',  value: batteryWarn,  warn: batteryWarn > 0,  color: batteryWarn > 0 ? '#F59E0B' : '#4ade80' },
               { label: 'Offline (More than 7 days)', value: longOffline, warn: longOffline > 0,  color: longOffline > 0  ? '#f87171' : '#4ade80' },
-              { label: 'fence',  value: inZone,        warn: false,            color: '#22D3EE' },
+              { label: 'Fences',  value: inZone,        warn: false,            color: '#22D3EE' },
             ].map(item => (
               <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -490,15 +495,16 @@ function BatteryStatusPanel({ batteryTiers }) {
       <div style={{ fontSize:'11px', color:'#E0E0E0', marginBottom:'10px' }}>
         {batteryTiers.noData ? 'No location data yet' : `${batteryTiers.total} devices reporting`}
       </div>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'center', gap:'10px' }}>
       {batteryTiers.noData ? (
-        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', height:'130px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
           <div style={{ textAlign:'center' }}>
             <Battery style={{ width:'28px', height:'28px', color:'#A0A0A0', margin:'0 auto 8px' }} />
             <div style={{ fontSize:'12px', color:'#B8B8B8' }}>Awaiting location data</div>
           </div>
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={130}>
+        <ResponsiveContainer width="100%" height={210}>
           <PieChart>
             <Pie
               data={[
@@ -507,7 +513,7 @@ function BatteryStatusPanel({ batteryTiers }) {
                 { name: 'Low (<20%)',      value: batteryTiers.low },
               ]}
               cx="50%" cy="50%"
-              innerRadius={38} outerRadius={60}
+              innerRadius={52} outerRadius={82}
               paddingAngle={3} dataKey="value" strokeWidth={0}
             >
               {BATT_COLORS.map((color, i) => <Cell key={i} fill={color} />)}
@@ -516,7 +522,7 @@ function BatteryStatusPanel({ batteryTiers }) {
           </PieChart>
         </ResponsiveContainer>
       )}
-      <div style={{ display:'flex', flexDirection:'column', gap:'7px', marginTop:'10px' }}>
+      <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
         {[
           { name: 'High',   range: 'atleast 60%',  value: batteryTiers.high,   color: BATT_COLORS[0] },
           { name: 'Medium', range: '20 to 50%', value: batteryTiers.medium, color: BATT_COLORS[1] },
@@ -533,6 +539,7 @@ function BatteryStatusPanel({ batteryTiers }) {
             </span>
           </div>
         ))}
+      </div>
       </div>
     </div>
   )
@@ -885,8 +892,36 @@ export default function Dashboard() {
     }
   }
 
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        if (activePage === 1 && !p1TransLock.current) {
+          e.preventDefault()
+          p1TransLock.current = true
+          goToPage2()
+          setTimeout(() => { p1TransLock.current = false }, 600)
+        } else if (activePage === 2) {
+          page2Ref.current?.scrollBy({ top: 120, behavior: 'smooth' })
+        }
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        if (activePage === 2 && page2Ref.current?.scrollTop === 0 && !p2TransLock.current) {
+          e.preventDefault()
+          p2TransLock.current = true
+          goToPage1()
+          setTimeout(() => { p2TransLock.current = false }, 600)
+        } else if (activePage === 2) {
+          page2Ref.current?.scrollBy({ top: -120, behavior: 'smooth' })
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [activePage])
+
   return (
-    <div ref={dashboardRef} style={{ position:'relative', height:'100%', overflow:'hidden' }}>
+    <div ref={dashboardRef} style={{ position:'relative', height:'100%', overflow:'hidden', fontWeight: 400, letterSpacing: '0.04em' }}>
       {/* ══════════════════════════════ PAGE 1 ══════════════════════════════ */}
       {/* Outer wrapper owns the slide transform */}
       <div style={{
@@ -964,7 +999,7 @@ export default function Dashboard() {
           <KPICard
             title="Active Devices"
             value={activeNow}
-            sub="last 30 min"
+            sub=""
             icon={Activity}
             trend="up"
             trendVal="Online now"
@@ -985,7 +1020,7 @@ export default function Dashboard() {
           <KPICard
             title="Offline Devices"
             value={offlineDevices}
-            sub="requires attention"
+            sub=""
             icon={WifiOff}
             trend={offlineDevices > 0 ? 'down' : 'up'}
             trendVal={offlineDevices > 0 ? 'Needs review' : 'All online'}
@@ -1010,7 +1045,7 @@ export default function Dashboard() {
           {[
             { label:'Total Devices',  value: totalDevices,     icon: Layers, color:'#00B4D8', sub:`${summary.locators ?? 0} locators · ${summary.stickers ?? 0} stickers`, onClick: () => navigate('/devices') },
             { label:'Users',          value: users.length,     icon: Users,  color:'#22D3EE', sub:'under your account' },
-            { label:'fences',     value: zones.length,     icon: Shield, color:'#F59E0B', sub:'active fence zones', onClick: () => navigate('/geofence') },
+            { label:'Fences',     value: zones.length,     icon: Shield, color:'#F59E0B', sub:'active Fence zones', onClick: () => navigate('/geofence') },
             { label:'Smart Stickers', value: summary.stickers, icon: Tag,    color:'#FFB703', sub: weeklyStickers > 0 ? `+${weeklyStickers} this week` : '', onClick: () => navigate('/stickers') },
           ].map(m => <MetricCard key={m.label} m={m} />)}
         </div>

@@ -84,11 +84,9 @@ def get_citytag_client() -> CityTagClient:
 def create_access_token(subject: str) -> str:
     settings = get_settings()
     now = datetime.utcnow()
-    expire = now + timedelta(minutes=settings["jwt_expire_minutes"])
     payload = {
         "sub": subject,
         "iat": now.timestamp(),
-        "exp": expire.timestamp(),
     }
     token = jwt.encode(payload, settings["jwt_secret_key"], algorithm=settings["jwt_algorithm"])
     return token
@@ -151,9 +149,8 @@ def _decode_jwt_from_request(request: Request) -> dict[str, Any]:
             token,
             settings["jwt_secret_key"],
             algorithms=[settings["jwt_algorithm"]],
+            options={"verify_exp": False},
         )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 

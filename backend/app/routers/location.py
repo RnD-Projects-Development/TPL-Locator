@@ -28,9 +28,7 @@ async def get_current_token_payload(request: Request):
     token = auth_header.split(" ", 1)[1].strip()
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings["jwt_secret_key"], algorithms=[settings["jwt_algorithm"]])
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
+        payload = jwt.decode(token, settings["jwt_secret_key"], algorithms=[settings["jwt_algorithm"]], options={"verify_exp": False})
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
