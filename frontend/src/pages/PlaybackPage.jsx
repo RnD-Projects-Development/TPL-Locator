@@ -390,6 +390,7 @@ export default function PlaybackPage() {
               isPlaybackPage={true}
               playbackIndex={playbackIndex}
               staticDots={staticDots}
+              isPlaying={playing}
             />
             {histLoading && <TPLLoader overlay label="Loading playback…" />}
           </div>
