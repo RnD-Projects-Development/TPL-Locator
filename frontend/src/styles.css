@@ -72,6 +72,22 @@ html { color-scheme: light; }
 .mv-popup .leaflet-popup-tip { background: #A72C32; }
 .mv-popup .leaflet-popup-tip-container { margin-top: -1px; }
 
+/* ── Global scrollbars — minimal strip ──────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(167,44,50,0.45) transparent;
+}
+*::-webkit-scrollbar { width: 3px; height: 3px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-button { display: none; height: 0; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(167,44,50,0.45);
+  border-radius: 999px;
+  transition: background 0.25s ease;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(167,44,50,0.80); }
+*::-webkit-scrollbar-corner { background: transparent; }
+
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -159,11 +175,6 @@ input[type="time"] {
   background: transparent !important;
 }
 
-/* ── Global scrollbar ──────────────────────────── */
-::-webkit-scrollbar       { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #BBBBBB; border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: #888888; }
 
 /* ── Hide scrollbar (keep scroll behaviour) ─────── */
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

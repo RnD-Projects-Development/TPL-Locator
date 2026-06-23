@@ -1,7 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import loadTPLMaps from "./loadTPLMaps.js";
-import { landmarkDisplayFromPoint } from "../utils/landmark.js";
+import { landmarkDisplayFromPoint, mapboxReverseGeocode } from "../utils/landmark.js";
 import { deviceColor } from "../utils/zonePolygonManager.js";
+
+// ── Mapbox fallback — used for devices outside Pakistan ───────────────────────
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? '';
+const MAPBOX_TILE  = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
+const PAK          = { minLat: 23.5, maxLat: 37.5, minLng: 60.5, maxLng: 77.5 };
+const insidePakistan = (lat, lng) =>
+  lat >= PAK.minLat && lat <= PAK.maxLat && lng >= PAK.minLng && lng <= PAK.maxLng;
 
 function safe(v) { return v == null || v === '' ? '—' : String(v); }
 
@@ -322,6 +329,9 @@ export default function MapView({
   const staticDotsRef   = useRef([]);
   const staticCanvasRef = useRef(null);
 
+  // Tile-swap — we add our own Mapbox layer on top when outside Pakistan
+  const mapboxLayerRef = useRef(null);
+
   // Fence overlay refs
   const fenceLayersRef = useRef([]);
 
@@ -399,18 +409,36 @@ export default function MapView({
   useEffect(() => { snRef.current          = sn;          }, [sn]);
   useEffect(() => { labelRef.current       = label;       }, [label]);
 
-  // Landmark from backend-stored location point
+  // Landmark — backend-stored first, Mapbox fallback for outside-Pakistan
   useEffect(() => {
+    let cancelled = false;
+
+    const updatePopup = (geocode) => {
+      geocodeRef.current = geocode;
+      if (popupRef.current && mapRef.current) {
+        popupRef.current.setContent(buildPopupHtml({
+          displayName: displayNameRef.current,
+          sn: snRef.current, label: labelRef.current,
+          coords: coordsRef.current, point: latestRef.current,
+          geocode,
+        }));
+      }
+    };
+
     const display = landmarkDisplayFromPoint(activePoint);
-    geocodeRef.current = display;
-    if (popupRef.current && mapRef.current) {
-      popupRef.current.setContent(buildPopupHtml({
-        displayName: displayNameRef.current,
-        sn: snRef.current, label: labelRef.current,
-        coords: coordsRef.current, point: latestRef.current,
-        geocode: display,
-      }));
+    if (display) { updatePopup(display); return; }
+
+    // No backend landmark — use Mapbox for outside-Pakistan devices
+    if (!coords || insidePakistan(coords.lat, coords.lng)) {
+      updatePopup(null);
+      return;
     }
+
+    mapboxReverseGeocode(coords.lat, coords.lng, MAPBOX_TOKEN).then(mbx => {
+      if (!cancelled) updatePopup(mbx ?? null);
+    });
+
+    return () => { cancelled = true; };
   }, [activePoint?.landmark, coords?.lat, coords?.lng]);
 
   /* ── INVALIDATE SIZE ── */
@@ -432,6 +460,23 @@ export default function MapView({
     });
     return () => cancelAnimationFrame(raf);
   }, [mapLoaded]);
+
+  /* ── TILE SWAP — overlay a Mapbox layer when any visible device is outside Pakistan ── */
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current || !window.L) return;
+    // Single-device mode: check `coords`; multi-device mode: check any device in multiDevices
+    const outside = coords
+      ? !insidePakistan(coords.lat, coords.lng)
+      : multiDevices.some(d => { const c = extractCoords(d.latest); return c && !insidePakistan(c.lat, c.lng); });
+    if (outside && !mapboxLayerRef.current) {
+      try {
+        mapboxLayerRef.current = window.L.tileLayer(MAPBOX_TILE, { maxZoom: 19 }).addTo(mapRef.current);
+      } catch {}
+    } else if (!outside && mapboxLayerRef.current) {
+      try { mapRef.current.removeLayer(mapboxLayerRef.current); } catch {}
+      mapboxLayerRef.current = null;
+    }
+  }, [coords?.lat, coords?.lng, mapLoaded, multiDevices]);
 
   /* ── RESIZE OBSERVER ── */
   useEffect(() => {
@@ -484,7 +529,11 @@ export default function MapView({
       multiGeocodeRef.current.clear();
       multiSnsRef.current  = new Set();
       pannedSnsRef.current = new Set();
-      animFromRef.current = null;
+      animFromRef.current  = null;
+      if (mapboxLayerRef.current) {
+        try { _cachedMap?.removeLayer(mapboxLayerRef.current); } catch {}
+        mapboxLayerRef.current = null;
+      }
       detachMap();
       mapRef.current = null;
     };

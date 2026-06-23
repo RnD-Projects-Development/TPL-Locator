@@ -26,6 +26,73 @@ export function landmarkDisplayFromPoint(point) {
   return parseLandmarkDisplay(landmarkFromPoint(point));
 }
 
+// ── External reverse geocoding via Nominatim/OSM (free, no key, worldwide) ────
+const _extCache = {};
+
+/**
+ * Reverse geocode using Nominatim (OpenStreetMap).
+ * Returns { primary, secondary, isSpecific }.
+ * Hierarchy: POI/amenity → neighbourhood → city.
+ * Token param is accepted but ignored (kept for call-site compatibility).
+ */
+export async function mapboxReverseGeocode(lat, lng, _token) {
+  if (lat == null || lng == null) return null;
+  const cacheKey = `nom:${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
+  if (cacheKey in _extCache) return _extCache[cacheKey];
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/reverse` +
+      `?format=json&lat=${Number(lat).toFixed(6)}&lon=${Number(lng).toFixed(6)}&zoom=16&addressdetails=1`;
+    const res = await fetch(url, {
+      headers: { 'Accept-Language': 'en', 'User-Agent': 'TPL-Locator/1.0' },
+    });
+    if (!res.ok) { _extCache[cacheKey] = null; return null; }
+    const data = await res.json();
+    const addr = data?.address ?? {};
+
+    // Most-specific name first — POI/amenity → neighbourhood → city
+    const poi  = addr.amenity || addr.tourism || addr.leisure || addr.shop
+              || addr.office  || addr.historic || addr.building;
+    const area = addr.neighbourhood || addr.suburb || addr.quarter;
+    const city = addr.city || addr.town || addr.village || addr.municipality || addr.county;
+    const country = addr.country;
+
+    let primary, secondary, isSpecific;
+    if (poi) {
+      primary    = poi;
+      isSpecific = true;
+      secondary  = area
+        ? `${area}, ${city ?? country ?? ''}`.replace(/,\s*$/, '')
+        : (city ? `${city}, ${country ?? ''}`.trim() : (country ?? null));
+    } else if (area) {
+      primary    = area;
+      isSpecific = false;
+      secondary  = city ? `${city}, ${country ?? ''}`.trim().replace(/,\s*$/, '') : (country ?? null);
+    } else if (city) {
+      primary    = city;
+      isSpecific = false;
+      secondary  = country ?? null;
+    } else {
+      _extCache[cacheKey] = null;
+      return null;
+    }
+
+    const result = { primary, secondary: secondary || null, isSpecific };
+    _extCache[cacheKey] = result;
+    return result;
+  } catch {
+    _extCache[cacheKey] = null;
+    return null;
+  }
+}
+
+/** Format a geocode result as a landmark string (for geoLabel state in detail pages). */
+export function mapboxGeoLabelString(geo) {
+  if (!geo?.primary) return null;
+  return geo.secondary ? `${geo.primary} — ${geo.secondary}` : geo.primary;
+}
+
+// ── TPL Maps reverse geocoding (Pakistan only) ────────────────────────────────
 /** Client-side reverse geocode using the TPL Maps REST API directly. */
 const _TPL_RGEO_URL = 'https://api1.tplmaps.com:8888/search/rgeocode';
 const _TPL_KEY = '$2a$10$RNdeMDBGrOwbnh81N3RzTDGUxKVId3cLscU3V3HkGdRLKhwI0oOQe';

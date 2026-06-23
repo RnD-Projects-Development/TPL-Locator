@@ -1,11 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { Radio, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText, UserCog } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
-import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay } from '../utils/landmark.js'
+import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay, mapboxReverseGeocode, mapboxGeoLabelString } from '../utils/landmark.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
@@ -25,6 +25,8 @@ const statusStyle = (s, isLight) => {
 export default function LocatorDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
+  const { state: navState } = useLocation()
+  const backTo = navState?.from || '/locators'
   const { zones }            = useZoneCache()
   const { getLatestLocation, getDeviceBySn, getGeocode, adminAssignDeviceToUser } = useCityTag()
   const { isAdmin }          = useAuth()
@@ -126,13 +128,23 @@ export default function LocatorDetail() {
           const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
           const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
           if (ptLat != null && ptLng != null) {
-            clientReverseGeocode(ptLat, ptLng)
-              .then(lm => {
-                if (lm) { if (!cancelled) setGeoLabel(lm); return; }
-                return getGeocode(ptLat, ptLng)
-                  .then(geo => { if (!cancelled && geo?.landmark) setGeoLabel(geo.landmark) })
-              })
-              .catch(() => {})
+            ;(async () => {
+              try {
+                const lm = await clientReverseGeocode(ptLat, ptLng)
+                if (cancelled) return
+                if (lm) { setGeoLabel(lm); return }
+              } catch {}
+              try {
+                const geo = await getGeocode(ptLat, ptLng)
+                if (cancelled) return
+                if (geo?.landmark) { setGeoLabel(geo.landmark); return }
+              } catch {}
+              try {
+                const mbx = await mapboxReverseGeocode(ptLat, ptLng, import.meta.env.VITE_MAPBOX_TOKEN)
+                if (cancelled) return
+                if (mbx) setGeoLabel(mapboxGeoLabelString(mbx) ?? '')
+              } catch {}
+            })()
           }
         }
       })
@@ -154,9 +166,9 @@ export default function LocatorDetail() {
     <div style={{ ...panel, padding: '80px 24px', textAlign: 'center', margin: '20px auto', maxWidth: 480 }}>
       <Radio style={{ width: 40, height: 40, color: T.notFoundIcon, margin: '0 auto 12px' }} />
       <p style={{ color: T.txt1, fontWeight: 600, marginBottom: 16 }}>Locator not found</p>
-      <button onClick={() => navigate('/locators')}
+      <button onClick={() => navigate(backTo)}
         style={{ color: T.accent, fontSize: 15, background: 'none', border: 'none', cursor: 'pointer' }}>
-        ← Back to Locators
+        ← Back
       </button>
     </div>
   )
@@ -234,13 +246,13 @@ export default function LocatorDetail() {
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 10px', padding: '9px 14px',
         flexShrink: 0, borderBottom: `1px solid ${T.fieldBdr}`, background: T.topBarBg }}>
-        <button onClick={() => navigate('/locators')}
+        <button onClick={() => navigate(backTo)}
           style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: T.txt2,
             background: T.fieldBg, border: `1px solid ${T.fieldBdr}`, borderRadius: 7,
             padding: '4px 9px', cursor: 'pointer', flexShrink: 0 }}
           onMouseEnter={e => e.currentTarget.style.color = T.txt1}
           onMouseLeave={e => e.currentTarget.style.color = T.txt2}>
-          <ArrowLeft style={{ width: 12, height: 12 }} /> Locators
+          <ArrowLeft style={{ width: 12, height: 12 }} /> Back
         </button>
 
         <div style={{ width: 1, height: 18, background: T.fieldBdr, flexShrink: 0 }} />

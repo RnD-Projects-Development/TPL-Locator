@@ -3,7 +3,7 @@ import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { createPortal } from 'react-dom'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil } from 'lucide-react'
 import MissingDevices from './MissingDevices.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
@@ -62,6 +62,13 @@ const BIND_CATS = [
   'wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus',
   'laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack',
   'pallet','carton','container','parcel','equipment','other',
+]
+
+const STICKER_CATS = [
+  'Mobile Phone','Tablet','Laptop','Camera','Drone','Gaming Console',
+  'Power Bank','Headphones','Portable Speaker','Monitor','Printer',
+  'Projector','Router','POS Terminal','Toolbox','Equipment',
+  'Asset','Inventory Item','Package','Other',
 ]
 
 // ── Search + dropdown combo for bind modal ────────────────────────────────────
@@ -342,7 +349,7 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
                     width: '100%', padding: '8px 10px', borderRadius: 6, border: 'none',
                     background: isSel ? 'rgba(167,44,50,0.16)' : 'none', cursor: 'pointer',
                     fontSize: 12, fontWeight: isSel ? 700 : 500, textAlign: 'left',
-                    color: isSel ? '#C86068' : '#f4f4f5', transition: 'background 0.12s',
+                    color: isSel ? '#C86A6A' : '#f4f4f5', transition: 'background 0.12s',
                   }}
                   onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
                   onMouseLeave={e => { e.currentTarget.style.background = isSel ? 'rgba(167,44,50,0.16)' : 'none' }}
@@ -371,6 +378,7 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
 ────────────────────────────────────────────────────────────────────────────── */
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser } = useCityTag()
   const { user, isAdmin } = useAuth()
   const { users, loading: usersLoading } = useUserCache()
@@ -630,10 +638,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         </div>
       ) : (
         <div style={{
-          flex: 1, minHeight: 0, overflow: 'hidden',
+          flex: 1, minHeight: 0, overflow: 'auto',
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gridTemplateRows: 'repeat(5, minmax(0, 1fr))',
+          gridTemplateColumns: 'repeat(4, minmax(200px, 1fr))',
+          gridTemplateRows: 'repeat(5, minmax(88px, 1fr))',
           gap: 10,
         }}>
           {pageDevices.length === 0 ? (
@@ -656,7 +664,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               return (
                 <div
                   key={d.sn}
-                  onClick={() => navigate(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`)}
+                  onClick={() => navigate(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + location.search } })}
                   style={{
                     ...panel, height: '100%', padding: '12px 14px', cursor: 'pointer', boxSizing: 'border-box',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
@@ -694,8 +702,6 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    {/* Actions only when Status filter = All; device-type tabs never affect this.
-                        Only bound devices get the menu. */}
                     {externalStatus === 'all' && isAdmin && isBound(d) && (
                       <ActionsDropdown
                         isLight={isLight}
@@ -724,7 +730,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                 count={totalPages} page={safePage}
                 onChange={(_, p) => setPage(p)}
                 color="primary" shape="rounded" size="medium"
-                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: isLight ? '#A72C32' : '#3d3d3d', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: isLight ? '#8B2328' : '#4a4a4a' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: '#A72C32', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: '#8B2328' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
               />
             </Stack>
           </ThemeProvider>
@@ -739,7 +745,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Pencil style={{ width: 16, height: 16, color: '#C86068' }} />
+                    <Pencil style={{ width: 16, height: 16, color: '#C86A6A' }} />
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Edit Device</div>
                 </div>
@@ -759,7 +765,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
                     Assigned To
-                    {editUserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86068', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will be reassigned</span>}
+                    {editUserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86A6A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will be reassigned</span>}
                   </label>
                   <UserSelect
                     users={users}
@@ -851,7 +857,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   Cancel
                 </button>
                 <button onClick={handleUnbind} disabled={unbindLoading}
-                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: unbindLoading ? 'wait' : 'pointer', background: 'linear-gradient(135deg, #DC2626 0%, #B91C1C 100%)', border: '1px solid rgba(220,38,38,0.40)', color: '#fff', opacity: unbindLoading ? 0.7 : 1 }}>
+                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: unbindLoading ? 'wait' : 'pointer', background: '#A72C32', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: unbindLoading ? 0.7 : 1 }}>
                   {unbindLoading ? 'Unbinding…' : 'Unbind'}
                 </button>
               </div>
@@ -922,6 +928,7 @@ export default function Devices() {
   // ── Bind modal state ───────────────────────────────────────────────────────
   const [availableDevices, setAvailableDevices] = useState([])
   const [showBindModal,    setShowBindModal]     = useState(false)
+  const [bindDeviceType,   setBindDeviceType]    = useState('locator')
   const [bindSn,           setBindSn]            = useState('')
   const [bindName,         setBindName]          = useState('')
   const [bindClient,       setBindClient]        = useState('')
@@ -939,7 +946,8 @@ export default function Devices() {
 
   const unboundDevices = (cacheDevices || []).filter(d => !d.assigned_user_name && !d.user_id)
 
-  const openBindModal = () => {
+  const openBindModal = (type = 'locator') => {
+    setBindDeviceType(type)
     setBindError('')
     setBindClient('')
     setBindName('')
@@ -997,7 +1005,11 @@ export default function Devices() {
     finally { setExporting(false) }
   }, [exporting, getDevices, getLatestLocationsBatch])
 
-  const setTab = (key) => setSearchParams({ tab: key }, { replace: true })
+  const setTab = (key) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('tab', key); return p }, { replace: true })
+  const setStatus = (s) => {
+    setStatusTab(s)
+    setSearchParams(prev => { const p = new URLSearchParams(prev); if (s === 'All') p.delete('status'); else p.set('status', s.toLowerCase()); return p }, { replace: true })
+  }
 
   const T = {
     tabBg:       isLight ? '#DCDCDC' : 'rgba(255,255,255,0.05)',
@@ -1011,7 +1023,7 @@ export default function Devices() {
 
   const externalStatus = STATUS_TO_FILTER[statusTab] ?? 'all'
   const offlineDeviceType = activeTab !== 'all' ? activeTab : undefined
-  const showActionButtons = activeTab === 'all' && statusTab !== 'Offline'
+  const isOfflineView = statusTab === 'Offline'
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 24px' }}>
@@ -1025,7 +1037,7 @@ export default function Devices() {
             </div>
           ) : (
             <div style={{ padding: 9, background: 'rgba(167,44,50,0.14)', borderRadius: 12, border: '1px solid rgba(167,44,50,0.24)', display: 'flex' }}>
-              <Layers style={{ width: 18, height: 18, color: '#C86068' }} />
+              <Layers style={{ width: 18, height: 18, color: '#C86A6A' }} />
             </div>
           )}
           <h1 style={{ fontSize: 22, fontWeight: 800, color: T.txt1, margin: 0, letterSpacing: isLight ? '-0.02em' : '-0.03em' }}>
@@ -1033,28 +1045,48 @@ export default function Devices() {
           </h1>
         </div>
 
-        {showActionButtons && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {isLight ? (
-              <button onClick={openBindModal}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Bind Locator — Locator tab only */}
+          {activeTab === 'locator' && !isOfflineView && (
+            isLight ? (
+              <button onClick={() => openBindModal('locator')}
                 style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: '#A72C32', border: '1px solid #8B2328', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(167,44,50,0.25)', transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.background = '#8B2328'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(167,44,50,0.35)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = '#A72C32'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(167,44,50,0.25)' }}
-              ><Plus style={{ width: 15, height: 15 }} /> Bind Device</button>
+              ><Plus style={{ width: 15, height: 15 }} /> Bind Locator</button>
             ) : (
-              <button onClick={openBindModal}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: 'linear-gradient(135deg, #BF3840 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.45)', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 14px rgba(167,44,50,0.28)', transition: 'box-shadow 0.2s, transform 0.2s' }}
+              <button onClick={() => openBindModal('locator')}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.45)', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 14px rgba(167,44,50,0.28)', transition: 'box-shadow 0.2s, transform 0.2s' }}
                 onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(167,44,50,0.28)'; e.currentTarget.style.transform = 'translateY(0)' }}
-              ><Plus style={{ width: 14, height: 14 }} /> Bind Device</button>
-            )}
+              ><Plus style={{ width: 14, height: 14 }} /> Bind Locator</button>
+            )
+          )}
+          {/* Bind Sticker — Sticker tab only */}
+          {activeTab === 'sticker' && !isOfflineView && (
+            isLight ? (
+              <button onClick={() => openBindModal('sticker')}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: '#A72C32', border: '1px solid #8B2328', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(167,44,50,0.25)', transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#8B2328'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(167,44,50,0.35)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = '#A72C32'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(167,44,50,0.25)' }}
+              ><Plus style={{ width: 15, height: 15 }} /> Bind Sticker</button>
+            ) : (
+              <button onClick={() => openBindModal('sticker')}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.45)', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 14px rgba(167,44,50,0.28)', transition: 'box-shadow 0.2s, transform 0.2s' }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(167,44,50,0.28)'; e.currentTarget.style.transform = 'translateY(0)' }}
+              ><Plus style={{ width: 14, height: 14 }} /> Bind Sticker</button>
+            )
+          )}
+          {/* Export CSV — All tab only */}
+          {activeTab === 'all' && !isOfflineView && (
             <button onClick={handleExportCSV} disabled={exporting}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 10, cursor: exporting ? 'wait' : 'pointer', background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)', border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)', color: isLight ? '#333333' : 'rgba(255,255,255,0.70)', fontSize: 13, fontWeight: 600, opacity: exporting ? 0.6 : 1, transition: 'all 0.15s' }}
               onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = isLight ? '#000' : '#FFFFFF' }}}
               onMouseLeave={e => { e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = isLight ? '#333333' : 'rgba(255,255,255,0.70)' }}
             ><Download style={{ width: 13, height: 13 }} /> {exporting ? 'Exporting…' : 'Export CSV'}</button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ── Type tabs (left) + status filters (right), single row ────────── */}
@@ -1079,7 +1111,7 @@ export default function Devices() {
           {STATUS_FILTER_TABS.map(s => {
             const active = statusTab === s
             return (
-              <button key={s} onClick={() => setStatusTab(s)}
+              <button key={s} onClick={() => setStatus(s)}
                 style={{ padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
                   background: active ? '#A72C32' : 'transparent',
                   color:      active ? '#FFFFFF' : T.txt2,
@@ -1143,9 +1175,9 @@ export default function Devices() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Link2 style={{ width: 16, height: 16, color: '#C86068' }} />
+                    <Link2 style={{ width: 16, height: 16, color: '#C86A6A' }} />
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Bind Device</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>{bindDeviceType === 'sticker' ? 'Bind Sticker' : 'Bind Locator'}</div>
                 </div>
                 <button onClick={closeBindModal} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4, display: 'flex' }}>
                   <X style={{ width: 18, height: 18 }} />
@@ -1155,7 +1187,7 @@ export default function Devices() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
-                    Device SN <span style={{ color: '#C86068' }}>*</span>
+                    Device SN <span style={{ color: '#C86A6A' }}>*</span>
                   </label>
                   {isAdmin ? (
                     unboundDevices.length === 0
@@ -1187,7 +1219,7 @@ export default function Devices() {
                 {isAdmin && (
                   <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
-                      Assign to User <span style={{ color: '#C86068' }}>*</span>
+                      Assign to User <span style={{ color: '#C86A6A' }}>*</span>
                     </label>
                     {(!users || users.length === 0)
                       ? <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No users available</p>
@@ -1213,10 +1245,12 @@ export default function Devices() {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Category</label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                    Category <span style={{ color: '#C86A6A' }}>*</span>
+                  </label>
                   <select value={bindCategory} onChange={e => setBindCategory(e.target.value)} style={SELECT_STYLE}>
                     <option value="" disabled style={SELECT_OPT}>Select a category…</option>
-                    {BIND_CATS.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                    {(bindDeviceType === 'sticker' ? STICKER_CATS : BIND_CATS).map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
                   </select>
                 </div>
 
