@@ -1,11 +1,10 @@
-"""Zoqin HTTP helpers (login, bind list) with optional session cache."""
+"""Zoqin location history API (no login required)."""
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import httpx
 
@@ -24,235 +23,124 @@ _ZOQIN_REQUEST_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
 }
 
-SESSION_PATH = Path(__file__).resolve().parents[1] / "data" / "zoqin_session.json"
-
-_LOGIN_BODY_VARIANTS = (
-    ("json", {"email": None, "pwd": None}),
-    ("form", {"email": None, "pwd": None}),
-    ("json", {"username": None, "password": None}),
-    ("form", {"username": None, "password": None}),
-)
-
-
-def invalidate_zoqin_session() -> None:
-    try:
-        if SESSION_PATH.exists():
-            SESSION_PATH.unlink()
-    except Exception:
-        logger.exception("zoqin session delete failed")
-
-
-def _read_session() -> Optional[str]:
-    if not SESSION_PATH.exists():
-        return None
-    try:
-        with SESSION_PATH.open("r", encoding="utf-8") as fp:
-            data = json.load(fp)
-        code = data.get("user_code") or data.get("code")
-        return str(code).strip() if code else None
-    except Exception:
-        logger.exception("zoqin session read failed")
-        return None
-
-
-def _write_session(user_code: str) -> None:
-    SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with SESSION_PATH.open("w", encoding="utf-8") as fp:
-        json.dump({"user_code": user_code}, fp, indent=2)
+LOCATION_API_PAGE_CAP = 100
+LOCATION_MIN_WINDOW = timedelta(seconds=30)
+DEFAULT_ZOQIN_TIME_ADJUST_HOURS = 5.0
 
 
 def _zoqin_https_url(url: str) -> str:
-    """Zoqin allBind over http:// often returns 405; production uses https://www.zoqin.com/..."""
     u = (url or "").strip()
     if "zoqin.com" in u.lower() and u.startswith("http://"):
         return "https://" + u[7:]
     return u
 
 
-def _login_url_candidates(login_url: str) -> list[str]:
-    base = _zoqin_https_url(login_url).rstrip("/")
-    urls = [base]
-    if base.endswith("/Login"):
-        urls.append(base[:-6] + "/login")
-    elif base.endswith("/login"):
-        urls.append(base[:-6] + "/Login")
-    seen: set[str] = set()
-    out: list[str] = []
-    for url in urls:
-        if url not in seen:
-            seen.add(url)
-            out.append(url)
-    return out
-
-
-def _parse_login_code(payload: Any) -> Optional[str]:
-    if not isinstance(payload, dict):
+def _parse_report_ts(value: Any) -> Optional[datetime]:
+    if not value:
         return None
-    data = payload.get("data")
-    if isinstance(data, str) and data.strip():
-        return data.strip()
-    if isinstance(data, dict):
-        for key in ("userCode", "code", "token", "user_code"):
-            v = data.get(key)
-            if v is not None and str(v).strip():
-                return str(v).strip()
-    for key in ("userCode", "user_code"):
-        v = payload.get(key)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            return None
     return None
 
 
-async def zoqin_login(client: httpx.AsyncClient, login_url: str, email: str, pwd: str) -> str:
-    errors: list[str] = []
-    headers_base = dict(_ZOQIN_REQUEST_HEADERS)
-
-    for url in _login_url_candidates(login_url):
-        for mode, template in _LOGIN_BODY_VARIANTS:
-            body = dict(template)
-            if "email" in body:
-                body["email"] = email
-                body["pwd"] = pwd
-            else:
-                body["username"] = email
-                body["password"] = pwd
-
-            headers = dict(headers_base)
-            try:
-                if mode == "json":
-                    headers["Content-Type"] = "application/json"
-                    resp = await client.post(url, json=body, headers=headers)
-                else:
-                    headers["Content-Type"] = "application/x-www-form-urlencoded"
-                    resp = await client.post(url, data=body, headers=headers)
-
-                if resp.status_code == 404:
-                    errors.append(f"{url} [{mode}] 404")
-                    continue
-                resp.raise_for_status()
-
-                try:
-                    payload = resp.json()
-                except Exception:
-                    errors.append(f"{url} [{mode}] non-JSON {resp.status_code}")
-                    continue
-
-                code = _parse_login_code(payload)
-                if code:
-                    _write_session(code)
-                    logger.info("zoqin login ok url=%s mode=%s", url, mode)
-                    return code
-
-                errors.append(f"{url} [{mode}] no userCode in response")
-            except httpx.HTTPStatusError as exc:
-                errors.append(f"{url} [{mode}] HTTP {exc.response.status_code}")
-            except Exception as exc:
-                errors.append(f"{url} [{mode}] {exc}")
-
-    logger.error("zoqin login failed for all variants: %s", "; ".join(errors[:6]))
-    raise ValueError(
-        "zoqin login failed: the configured login URL returned 404 or an invalid response. "
-        "Confirm ZOQIN_LOGIN_URL with Zoqin or set ZOQIN_USER_CODE in .env."
-    )
+def _report_key(sn: str, report: Dict[str, Any]) -> Tuple[str, str, float, float]:
+    ts = report.get("timestamp") or ""
+    lat = float(report.get("latitude") or 0)
+    lng = float(report.get("longitude") or 0)
+    return sn, str(ts), lat, lng
 
 
-async def get_zoqin_user_code(
+def fmt_zoqin_time(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+async def zoqin_query_reports(
     client: httpx.AsyncClient,
     *,
-    login_url: str,
-    email: str,
-    password: str,
-    force_refresh: bool = False,
-    static_code: str | None = None,
-) -> str:
-    if static_code and str(static_code).strip():
-        return str(static_code).strip()
-    if not force_refresh:
-        cached = _read_session()
-        if cached:
-            return cached
-    return await zoqin_login(client, login_url, email, password)
+    location_url: str,
+    sn_list: List[str],
+    start_time: str,
+    end_time: str,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """POST /ZQGPS/Device/location/query — returns reports grouped by SN."""
+    body = {
+        "start_time": start_time,
+        "end_time": end_time,
+        "sn_list": sn_list,
+        "limit": 50,
+    }
+    headers = {**_ZOQIN_REQUEST_HEADERS, "Content-Type": "application/json"}
+    url = _zoqin_https_url(location_url)
+    resp = await client.post(url, json=body, headers=headers)
+    resp.raise_for_status()
+    payload = resp.json()
 
-
-def parse_bind_devices(payload: Any) -> List[Dict[str, Any]]:
-    """Normalize allBind JSON into dict rows with at least `sn`."""
-    if payload is None:
-        return []
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if data is None and isinstance(payload, dict):
-        data = payload.get("Data")
-    candidates: List[Any] = []
-    if isinstance(data, list):
-        candidates = data
-    elif isinstance(data, dict):
-        for key in ("list", "bindList", "devices", "rows", "records"):
-            v = data.get(key)
-            if isinstance(v, list):
-                candidates = v
-                break
-        if not candidates:
-            candidates = list(data.values()) if data else []
-    elif isinstance(payload, list):
-        candidates = payload
-
-    out: List[Dict[str, Any]] = []
-    for item in candidates:
-        if isinstance(item, str) and item.strip():
-            out.append({"sn": item.strip()})
+    out: Dict[str, List[Dict[str, Any]]] = {sn: [] for sn in sn_list}
+    for block in payload.get("results") or []:
+        if not isinstance(block, dict):
             continue
-        if not isinstance(item, dict):
-            continue
-        sn = (
-            item.get("sn")
-            or item.get("SN")
-            or item.get("deviceSn")
-            or item.get("imei")
-            or item.get("IMEI")
-        )
-        if sn:
-            row = dict(item)
-            row["sn"] = str(sn).strip()
-            out.append(row)
+        sn = str(block.get("sn") or "").strip()
+        reports = block.get("reports") or []
+        if sn and isinstance(reports, list):
+            out[sn] = [r for r in reports if isinstance(r, dict)]
     return out
 
 
-async def zoqin_all_bind(client: httpx.AsyncClient, bind_url: str, user_code: str) -> List[Dict[str, Any]]:
+async def zoqin_fetch_reports_for_sn(
+    client: httpx.AsyncClient,
+    *,
+    location_url: str,
+    sn: str,
+    start: datetime,
+    end: datetime,
+) -> List[Dict[str, Any]]:
     """
-    List bound devices for ``userCode``.
-
-    Production gateway accepts POST form-urlencoded; GET often returns 405.
+    Fetch all location reports for one SN in [start, end].
+    Recursively splits the window when the API returns its 100-point cap.
     """
-    url = _zoqin_https_url(bind_url)
-    h = _ZOQIN_REQUEST_HEADERS
+    seen: Set[Tuple[str, str, float, float]] = set()
+    collected: List[Dict[str, Any]] = []
 
-    async def _parse(resp: httpx.Response) -> List[Dict[str, Any]]:
-        resp.raise_for_status()
-        payload = resp.json()
-        if isinstance(payload, dict):
-            c = payload.get("code")
-            if c not in (None, 200, "200", 0, "0"):
-                logger.warning("zoqin allBind non-success code=%s body=%s", c, payload)
-        return parse_bind_devices(payload)
+    async def _fetch_window(window_start: datetime, window_end: datetime) -> List[Dict[str, Any]]:
+        by_sn = await zoqin_query_reports(
+            client,
+            location_url=location_url,
+            sn_list=[sn],
+            start_time=fmt_zoqin_time(window_start),
+            end_time=fmt_zoqin_time(window_end),
+        )
+        return by_sn.get(sn) or []
 
-    # 1) POST form (works on current Zoqin gateway)
-    resp = await client.post(
-        url,
-        data={"userCode": user_code},
-        headers={**h, "Content-Type": "application/x-www-form-urlencoded"},
-    )
-    if resp.status_code not in (404, 405):
-        return await _parse(resp)
+    async def _walk(window_start: datetime, window_end: datetime) -> None:
+        reports = await _fetch_window(window_start, window_end)
+        if not reports:
+            return
 
-    # 2) GET (legacy / Postman)
-    resp = await client.get(url, params={"userCode": user_code}, headers=h)
-    if resp.status_code != 405:
-        return await _parse(resp)
+        if len(reports) < LOCATION_API_PAGE_CAP or (window_end - window_start) <= LOCATION_MIN_WINDOW:
+            for report in reports:
+                key = _report_key(sn, report)
+                if key not in seen:
+                    seen.add(key)
+                    collected.append(report)
+            return
 
-    logger.info("zoqin allBind GET returned 405; retrying POST JSON")
-    # 3) POST JSON
-    resp = await client.post(
-        url,
-        json={"userCode": user_code},
-        headers={**h, "Content-Type": "application/json"},
-    )
-    return await _parse(resp)
+        mid = window_start + (window_end - window_start) / 2
+        if mid <= window_start:
+            for report in reports:
+                key = _report_key(sn, report)
+                if key not in seen:
+                    seen.add(key)
+                    collected.append(report)
+            return
+
+        await _walk(window_start, mid)
+        await _walk(mid + timedelta(seconds=1), window_end)
+
+    await _walk(start, end)
+    collected.sort(key=lambda r: _parse_report_ts(r.get("timestamp")) or datetime.min)
+    return collected

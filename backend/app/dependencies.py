@@ -48,16 +48,12 @@ def get_settings():
         "tracksolid_base_url": _env_strip("TRACKSOLID_BASE_URL") or _env_strip(
             "BASE_URL", "https://eu-open.tracksolidpro.com/route/rest"
         ),
-        # Zoqin
-        "zoqin_login_url": _env_strip("ZOQIN_LOGIN_URL", "https://www.zoqin.com/ZQGPS/User/Login"),
-        "zoqin_bind_url": _env_strip(
-            "ZOQIN_BIND_URL", "https://www.zoqin.com/ZQGPS/Bind/allBind"
+        # Zoqin (location/query — no login)
+        "zoqin_location_query_url": _env_strip(
+            "ZOQIN_LOCATION_QUERY_URL",
+            "https://www.zoqin.com/ZQGPS/Device/location/query",
         ),
-        "zoqin_location_url": _env_strip(
-            "ZOQIN_LOCATION_URL", "https://www.zoqin.com/ZQGPS/Device/getLocationListByTimeAndSN"
-        ),
-        "zoqin_admin_email": _env_strip("ZOQIN_ADMIN_EMAIL", "abdul.saboor@tpltrakker.com"),
-        "zoqin_admin_password": _env_strip("ZOQIN_ADMIN_PASSWORD", "Trakker123"),
+        "zoqin_time_adjust_hours": float(os.getenv("ZOQIN_TIME_ADJUST_HOURS", "5")),
         # Device registry admins
         "vendor_admin_tpl_email": _env_strip("VENDOR_ADMIN_TPL_EMAIL", "tpl@gmail.com"),
         "vendor_admin_citytag_email": _env_strip(

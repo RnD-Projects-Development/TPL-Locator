@@ -17,10 +17,8 @@ from app.services.citytag import CityTagClient, CityTagError
 from app.services.mongodb import MongoService
 from app.services.tracksolid import TrackSolidClient, TrackSolidError
 from app.services.zoqin_api import (
-    get_zoqin_user_code,
-    invalidate_zoqin_session,
-    zoqin_all_bind,
-    zoqin_login,
+    DEFAULT_ZOQIN_TIME_ADJUST_HOURS,
+    zoqin_fetch_reports_for_sn,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,10 +70,6 @@ def _battery_tracksolid(row: Dict[str, Any]) -> Optional[float]:
         except (TypeError, ValueError):
             continue
     return None
-
-
-def _battery_zoqin_bind(row: Dict[str, Any]) -> Optional[int]:
-    return _battery_int(row.get("battery"))
 
 
 async def _citytag_get_devices_retry(
@@ -317,95 +311,93 @@ async def _sync_zoqin(
     stats: SyncStats,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     """
-    Zoqin: GET ``/ZQGPS/Bind/allBind?userCode=`` (HTTPS). ``data[]`` rows include
-    ``latitude``, ``longitude``, ``timestamp``, and ``battery`` (may be null) — we upsert one location per row.
+    Zoqin: POST ``/ZQGPS/Device/location/query`` (no login).
+    Fetches recent GPS history for registry devices and upserts into ``locations``.
     """
     by_sn = device_registry.index_by_sn(devices_list)
-    tpl_email = (settings.get("vendor_admin_tpl_email") or "").strip().lower()
-    login_url = (settings.get("zoqin_login_url") or "").strip()
-    bind_url = (settings.get("zoqin_bind_url") or "").strip()
-    z_email = (settings.get("zoqin_admin_email") or "").strip()
-    z_pwd = settings.get("zoqin_admin_password") or ""
-
-    if not all([login_url, bind_url, z_email, z_pwd]):
-        logger.info("vendor_sync zoqin skipped (incomplete env)")
+    location_url = (settings.get("zoqin_location_query_url") or "").strip()
+    if not location_url:
+        logger.info("vendor_sync zoqin skipped (ZOQIN_LOCATION_QUERY_URL not set)")
         return devices_list, by_sn
 
+    zoqin_sns = [
+        d["sn"]
+        for d in devices_list
+        if device_registry.normalize_vendor(d.get("vendor")) == "zoqin" and d.get("sn")
+    ]
+    if not zoqin_sns:
+        logger.info("vendor_sync zoqin skipped (no zoqin devices in registry)")
+        return devices_list, by_sn
+
+    tpl_email = (settings.get("vendor_admin_tpl_email") or "tpl@gmail.com").strip().lower()
     tpl_doc = await mongo.accounts.find_one({"email": tpl_email, "role": "admin"})
     if not tpl_doc:
         logger.error("vendor_sync zoqin tpl admin missing email=%s", tpl_email)
         return devices_list, by_sn
-    tpl_admin_id = str(tpl_doc["_id"])
     tpl_uid = str(tpl_doc.get("uid") or "zoqin_vendor_tpl")
 
-    async with AsyncClient(timeout=50.0) as http:
-        try:
-            code = await get_zoqin_user_code(
-                http,
-                login_url=login_url,
-                email=z_email,
-                password=z_pwd,
-                force_refresh=False,
-            )
-            binds = await zoqin_all_bind(http, bind_url, code)
-        except Exception:
-            logger.warning("vendor_sync zoqin bind failed; forcing fresh login")
-            invalidate_zoqin_session()
-            try:
-                code = await zoqin_login(http, login_url, z_email, z_pwd)
-                binds = await zoqin_all_bind(http, bind_url, code)
-            except Exception:
-                logger.exception("vendor_sync zoqin login/bind failed")
-                return devices_list, by_sn
+    time_adjust = float(settings.get("zoqin_time_adjust_hours", DEFAULT_ZOQIN_TIME_ADJUST_HOURS))
+    end_time = datetime.utcnow()
+    start_time = end_time - timedelta(minutes=SYNC_HISTORY_MINUTES)
+    lock = asyncio.Lock()
+    sem = asyncio.Semaphore(8)
 
-    for row in binds:
-        sn = row.get("sn")
-        if not sn:
-            continue
-        sn = str(sn).strip()
-        if not by_sn.get(sn):
-            devices_list = device_registry.append_device(
-                devices_list,
-                sn=sn,
-                admin_email=tpl_email,
-                vendor="zoqin",
-            )
-            by_sn = device_registry.index_by_sn(devices_list)
+    async with AsyncClient(timeout=60.0) as http:
 
-        label = row.get("deviceName") or row.get("name") or sn
-        await mongo.upsert_device_from_citytag(
-            admin_id=tpl_admin_id,
-            citytag_device={"sn": sn, "assigned_name": label},
-        )
+        async def _process_sn(sn: str) -> None:
+            async with sem:
+                try:
+                    reports = await zoqin_fetch_reports_for_sn(
+                        http,
+                        location_url=location_url,
+                        sn=sn,
+                        start=start_time,
+                        end=end_time,
+                    )
+                    local_points = 0
+                    for report in reports:
+                        try:
+                            lat_f = float(str(report.get("latitude") or "").strip() or 0)
+                            lng_f = float(str(report.get("longitude") or "").strip() or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if lat_f == 0.0 and lng_f == 0.0:
+                            continue
+                        ts_raw = report.get("timestamp")
+                        if not ts_raw:
+                            continue
+                        inserted = await mongo.upsert_location_from_citytag(
+                            history_item={
+                                "sn": sn,
+                                "latitude": lat_f,
+                                "longitude": lng_f,
+                                "timestamp": ts_raw,
+                            },
+                            uid=tpl_uid,
+                            sn=sn,
+                            time_adjust_hours=time_adjust,
+                        )
+                        if inserted:
+                            local_points += 1
+                            logger.info(
+                                "zoqin_point_uploaded | sn=%s lat=%s lng=%s",
+                                sn,
+                                lat_f,
+                                lng_f,
+                            )
+                    async with lock:
+                        stats.zoqin_devices += 1
+                        stats.zoqin_points += local_points
+                except Exception:
+                    logger.exception("vendor_sync zoqin failed sn=%s", sn)
 
-        try:
-            lat_f = float(str(row.get("latitude") or row.get("lat") or "").strip() or 0)
-            lng_f = float(str(row.get("longitude") or row.get("lng") or "").strip() or 0)
-        except (TypeError, ValueError):
-            continue
-        if lat_f == 0.0 and lng_f == 0.0:
-            continue
+        await asyncio.gather(*[_process_sn(sn) for sn in zoqin_sns])
 
-        ts_raw = row.get("timestamp") or row.get("updateTime") or row.get("createTime")
-        bat = _battery_zoqin_bind(row)
-
-        stats.zoqin_devices += 1
-        inserted = await mongo.upsert_location_from_citytag(
-            history_item={
-                "sn": sn,
-                "latitude": lat_f,
-                "longitude": lng_f,
-                "gpstime": ts_raw,
-            },
-            uid=tpl_uid,
-            sn=sn,
-            battery_status=bat,
-            time_adjust_hours=-3.0,
-        )
-        if inserted:
-            stats.zoqin_points += 1
-            logger.info("zoqin_point_uploaded | sn=%s lat=%s lng=%s battery=%s", sn, lat_f, lng_f, bat)
-
+    logger.info(
+        "vendor_sync zoqin done devices=%s points=%s",
+        stats.zoqin_devices,
+        stats.zoqin_points,
+    )
     return devices_list, by_sn
 
 
