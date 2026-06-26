@@ -32,14 +32,13 @@ def _tls_context(*, insecure: bool) -> ssl.SSLContext:
     return ctx
 
 
-def send_otp_email(*, to_email: str, otp: str) -> None:
-    """Send a one-time password to the user's email address."""
+def _send_plain_otp_email(*, to_email: str, otp: str, subject: str, intro: str, footer: str) -> None:
     cfg = _smtp_settings()
     if not cfg["user"] or not cfg["password"] or not cfg["from_email"]:
         raise RuntimeError("SMTP credentials are not configured")
 
     message = EmailMessage()
-    message["Subject"] = "TPL Trakker — Password Reset Code"
+    message["Subject"] = subject
     message["From"] = cfg["from_email"]
     message["To"] = to_email
     message.set_content(
@@ -47,9 +46,11 @@ def send_otp_email(*, to_email: str, otp: str) -> None:
             [
                 "Hello,",
                 "",
-                f"Your password reset code is: {otp}",
+                intro,
                 "",
-                "This code expires in a few minutes. If you did not request a reset, you can ignore this email.",
+                f"Your verification code is: {otp}",
+                "",
+                footer,
                 "",
                 "— TPL Trakker",
             ]
@@ -70,4 +71,26 @@ def send_otp_email(*, to_email: str, otp: str) -> None:
         logger.exception("failed to send OTP email to=%s", to_email)
         raise RuntimeError(f"Failed to send email: {exc}") from exc
 
-    logger.info("OTP email sent to=%s", to_email)
+    logger.info("OTP email sent to=%s subject=%s", to_email, subject)
+
+
+def send_otp_email(*, to_email: str, otp: str) -> None:
+    """Send a one-time password for password reset."""
+    _send_plain_otp_email(
+        to_email=to_email,
+        otp=otp,
+        subject="TPL Trakker — Password Reset Code",
+        intro="Use this code to reset your password.",
+        footer="This code expires in a few minutes. If you did not request a reset, you can ignore this email.",
+    )
+
+
+def send_signup_verification_email(*, to_email: str, otp: str) -> None:
+    """Send a one-time password to verify email during signup."""
+    _send_plain_otp_email(
+        to_email=to_email,
+        otp=otp,
+        subject="TPL Trakker — Email Verification Code",
+        intro="Use this code to verify your email and complete signup.",
+        footer="This code expires in a few minutes. If you did not create an account, you can ignore this email.",
+    )

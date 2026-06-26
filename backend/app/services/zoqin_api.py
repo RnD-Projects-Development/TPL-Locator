@@ -26,6 +26,13 @@ _ZOQIN_REQUEST_HEADERS = {
 
 SESSION_PATH = Path(__file__).resolve().parents[1] / "data" / "zoqin_session.json"
 
+_LOGIN_BODY_VARIANTS = (
+    ("json", {"email": None, "pwd": None}),
+    ("form", {"email": None, "pwd": None}),
+    ("json", {"username": None, "password": None}),
+    ("form", {"username": None, "password": None}),
+)
+
 
 def invalidate_zoqin_session() -> None:
     try:
@@ -62,6 +69,22 @@ def _zoqin_https_url(url: str) -> str:
     return u
 
 
+def _login_url_candidates(login_url: str) -> list[str]:
+    base = _zoqin_https_url(login_url).rstrip("/")
+    urls = [base]
+    if base.endswith("/Login"):
+        urls.append(base[:-6] + "/login")
+    elif base.endswith("/login"):
+        urls.append(base[:-6] + "/Login")
+    seen: set[str] = set()
+    out: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
+    return out
+
+
 def _parse_login_code(payload: Any) -> Optional[str]:
     if not isinstance(payload, dict):
         return None
@@ -81,18 +104,56 @@ def _parse_login_code(payload: Any) -> Optional[str]:
 
 
 async def zoqin_login(client: httpx.AsyncClient, login_url: str, email: str, pwd: str) -> str:
-    url = _zoqin_https_url(login_url)
-    body = {"email": email, "pwd": pwd}
-    headers = {**_ZOQIN_REQUEST_HEADERS, "Content-Type": "application/json"}
-    resp = await client.post(url, json=body, headers=headers)
-    resp.raise_for_status()
-    payload = resp.json()
-    code = _parse_login_code(payload)
-    if not code:
-        logger.error("zoqin login could not parse userCode payload=%s", payload)
-        raise ValueError("zoqin login failed: no user code")
-    _write_session(code)
-    return code
+    errors: list[str] = []
+    headers_base = dict(_ZOQIN_REQUEST_HEADERS)
+
+    for url in _login_url_candidates(login_url):
+        for mode, template in _LOGIN_BODY_VARIANTS:
+            body = dict(template)
+            if "email" in body:
+                body["email"] = email
+                body["pwd"] = pwd
+            else:
+                body["username"] = email
+                body["password"] = pwd
+
+            headers = dict(headers_base)
+            try:
+                if mode == "json":
+                    headers["Content-Type"] = "application/json"
+                    resp = await client.post(url, json=body, headers=headers)
+                else:
+                    headers["Content-Type"] = "application/x-www-form-urlencoded"
+                    resp = await client.post(url, data=body, headers=headers)
+
+                if resp.status_code == 404:
+                    errors.append(f"{url} [{mode}] 404")
+                    continue
+                resp.raise_for_status()
+
+                try:
+                    payload = resp.json()
+                except Exception:
+                    errors.append(f"{url} [{mode}] non-JSON {resp.status_code}")
+                    continue
+
+                code = _parse_login_code(payload)
+                if code:
+                    _write_session(code)
+                    logger.info("zoqin login ok url=%s mode=%s", url, mode)
+                    return code
+
+                errors.append(f"{url} [{mode}] no userCode in response")
+            except httpx.HTTPStatusError as exc:
+                errors.append(f"{url} [{mode}] HTTP {exc.response.status_code}")
+            except Exception as exc:
+                errors.append(f"{url} [{mode}] {exc}")
+
+    logger.error("zoqin login failed for all variants: %s", "; ".join(errors[:6]))
+    raise ValueError(
+        "zoqin login failed: the configured login URL returned 404 or an invalid response. "
+        "Confirm ZOQIN_LOGIN_URL with Zoqin or set ZOQIN_USER_CODE in .env."
+    )
 
 
 async def get_zoqin_user_code(
@@ -102,7 +163,10 @@ async def get_zoqin_user_code(
     email: str,
     password: str,
     force_refresh: bool = False,
+    static_code: str | None = None,
 ) -> str:
+    if static_code and str(static_code).strip():
+        return str(static_code).strip()
     if not force_refresh:
         cached = _read_session()
         if cached:
@@ -156,8 +220,7 @@ async def zoqin_all_bind(client: httpx.AsyncClient, bind_url: str, user_code: st
     """
     List bound devices for ``userCode``.
 
-    Postman often uses GET ``.../allBind?userCode=``; some gateways return **405** to httpx unless
-    browser-like headers are sent, or require **POST** with the same parameter.
+    Production gateway accepts POST form-urlencoded; GET often returns 405.
     """
     url = _zoqin_https_url(bind_url)
     h = _ZOQIN_REQUEST_HEADERS
@@ -171,21 +234,21 @@ async def zoqin_all_bind(client: httpx.AsyncClient, bind_url: str, user_code: st
                 logger.warning("zoqin allBind non-success code=%s body=%s", c, payload)
         return parse_bind_devices(payload)
 
-    # 1) GET (matches Postman / browser)
-    resp = await client.get(url, params={"userCode": user_code}, headers=h)
-    if resp.status_code != 405:
-        return await _parse(resp)
-
-    logger.info("zoqin allBind GET returned 405; retrying POST form (gateway quirk)")
-    # 2) POST application/x-www-form-urlencoded
+    # 1) POST form (works on current Zoqin gateway)
     resp = await client.post(
         url,
         data={"userCode": user_code},
         headers={**h, "Content-Type": "application/x-www-form-urlencoded"},
     )
+    if resp.status_code not in (404, 405):
+        return await _parse(resp)
+
+    # 2) GET (legacy / Postman)
+    resp = await client.get(url, params={"userCode": user_code}, headers=h)
     if resp.status_code != 405:
         return await _parse(resp)
 
+    logger.info("zoqin allBind GET returned 405; retrying POST JSON")
     # 3) POST JSON
     resp = await client.post(
         url,

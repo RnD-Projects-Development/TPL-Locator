@@ -1,28 +1,55 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import asyncio
 import logging
+import secrets
 from typing import Annotated, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from bson import ObjectId
 
 from app.auth_utils import verify_password, hash_password
 from app.dependencies import (
     create_access_token,
     get_mongo_service,
+    get_settings,
     admin_to_public,
     user_to_public,
     require_role,
 )
 from app.models.admin import AdminCreate, AdminPublic
 from app.models.user import UserCreate, UserPublic
+from app.services.email_service import send_signup_verification_email
 from app.services.mongodb import MongoService
 from app.user_display import public_contact
-from app.account_identifier import normalize_phone, resolve_identifier
+from app.account_identifier import normalize_phone, resolve_identifier, resolve_register_identity
 
 
 router = APIRouter(prefix="/api", tags=["auth"])
 logger = logging.getLogger(__name__)
+
+SIGNUP_OTP_COLLECTION = "signup_verification_otps"
+
+
+def _generate_otp() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _generate_verification_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _otp_expiry() -> datetime:
+    minutes = get_settings()["otp_expire_minutes"]
+    return datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+
+def _as_utc_aware(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 # ── Request / Response models ────────────────────────────────────────────────
@@ -73,8 +100,16 @@ def _user_account_payload(user: UserPublic) -> dict:
 
 class RegisterRequest(BaseModel):
     identifier: str          # email address OR phone number
+    email: EmailStr
     password: str
     name: Optional[str] = None
+    verification_token: str = Field(..., min_length=16)
+    otp: str = Field(..., min_length=4, max_length=8)
+
+
+class SendSignupVerificationRequest(BaseModel):
+    email: EmailStr
+    identifier: Optional[str] = None
 
 
 # ── Login ────────────────────────────────────────────────────────────────────
@@ -156,6 +191,91 @@ async def login(
 
 # ── Register ─────────────────────────────────────────────────────────────────
 
+@router.post("/register/send-verification")
+async def send_signup_verification(
+    payload: SendSignupVerificationRequest,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """Send a one-time code to verify the user's email before signup."""
+    email = payload.email.strip().lower()
+    identifier = (payload.identifier or "").strip()
+
+    if identifier:
+        try:
+            resolve_register_identity(identifier, email)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    existing_account = await mongo.get_account_by_email(email)
+    if existing_account:
+        role = existing_account.role if hasattr(existing_account, "role") else existing_account.get("role")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Email already registered as {role}",
+        )
+
+    if identifier and "@" not in identifier:
+        phone = normalize_phone(identifier)
+        existing_phone = await mongo.get_user_by_phone(phone)
+        if existing_phone:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already registered")
+
+    verification_token = _generate_verification_token()
+    otp = _generate_otp()
+    now = datetime.now(timezone.utc)
+    await mongo.db[SIGNUP_OTP_COLLECTION].update_one(
+        {"email": email},
+        {
+            "$set": {
+                "email": email,
+                "verification_token": verification_token,
+                "otp_hash": hash_password(otp),
+                "expires_at": _otp_expiry(),
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
+
+    try:
+        await asyncio.to_thread(send_signup_verification_email, to_email=email, otp=otp)
+    except RuntimeError as exc:
+        logger.error("signup OTP delivery failed email=%s error=%s", email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send verification email. Please try again later.",
+        ) from exc
+
+    logger.info("signup verification OTP sent email=%s", email)
+    return {
+        "message": "A verification code has been sent to your email.",
+        "verification_token": verification_token,
+    }
+
+
+async def _verify_signup_otp(mongo: MongoService, *, verification_token: str, email: str, otp: str) -> None:
+    token = verification_token.strip()
+    code = otp.strip()
+    record = await mongo.db[SIGNUP_OTP_COLLECTION].find_one({"verification_token": token})
+    if not record:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    record_email = record.get("email", "").strip().lower()
+    if record_email != email.strip().lower():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    expires_at = _as_utc_aware(record.get("expires_at"))
+    if not expires_at or expires_at < datetime.now(timezone.utc):
+        await mongo.db[SIGNUP_OTP_COLLECTION].delete_one({"verification_token": token})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    if not verify_password(code, record.get("otp_hash", "")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    await mongo.db[SIGNUP_OTP_COLLECTION].delete_one({"verification_token": token})
+
+
 # FIX 1: removed `response_model=UserPublic` — we now return a custom dict
 #         with access_token + user so SignupForm can call loginSuccess() and
 #         redirect immediately. Previously returned UserPublic which has neither.
@@ -167,9 +287,17 @@ async def register(
     """Create a new user account and auto-login on success."""
     raw = payload.identifier.strip()
     name = (payload.name or "").strip()
+    email = payload.email.strip().lower()
+
+    await _verify_signup_otp(
+        mongo,
+        verification_token=payload.verification_token,
+        email=email,
+        otp=payload.otp,
+    )
 
     try:
-        email, phone = resolve_identifier(raw)
+        email, phone = resolve_register_identity(raw, email)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

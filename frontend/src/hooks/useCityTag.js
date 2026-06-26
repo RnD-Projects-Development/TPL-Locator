@@ -91,8 +91,26 @@ export function useCityTag() {
   );
 
   const signup = useCallback(
-    async ({ identifier, password, name }) =>
-      apiFetch("/api/register", { method: "POST", body: { identifier, password, name: name || "" } }, null), []
+    async ({ identifier, email, password, name, verification_token, otp }) =>
+      apiFetch(
+        "/api/register",
+        {
+          method: "POST",
+          body: { identifier, email, password, name: name || "", verification_token, otp },
+        },
+        null
+      ),
+    []
+  );
+
+  const requestSignupVerification = useCallback(
+    async ({ email, identifier }) =>
+      apiFetch(
+        "/api/register/send-verification",
+        { method: "POST", body: { email, identifier: identifier || undefined } },
+        null
+      ),
+    []
   );
 
   const requestPasswordReset = useCallback(
@@ -326,7 +344,7 @@ export function useCityTag() {
   );
 
   return {
-    login, adminLogin, signup, requestPasswordReset, resetPasswordWithOtp,
+    login, adminLogin, signup, requestSignupVerification, requestPasswordReset, resetPasswordWithOtp,
     getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,

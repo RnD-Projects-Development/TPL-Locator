@@ -1,60 +1,124 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isValidEmail, normalizeEmail } from "../utils/email.js";
+import { isValidIdentifier } from "../utils/userContact.js";
 import ForgotPasswordForm from "./ForgotPasswordForm.jsx";
 
 const MODE = { LOGIN: "login", SIGNUP: "signup", FORGOT: "forgot" };
 
-// ── Phone validation helpers ───────────────────────────────────────────────────
-function normalizePhone(raw) {
-  return raw.replace(/[\s\-\(\)]/g, '');
-}
-
-function isValidPakistaniPhone(raw) {
-  const p = normalizePhone(raw);
-  return /^03\d{9}$/.test(p) || /^\+92\d{10}$/.test(p);
-}
-
-function isValidIdentifier(raw) {
-  const trimmed = raw.trim();
-  if (!trimmed) return false;
-  if (trimmed.includes("@")) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
-  return isValidPakistaniPhone(trimmed);
-}
-
 export default function LoginForm() {
   const navigate = useNavigate();
-  const { login, signup } = useCityTag();
+  const { login, signup, requestSignupVerification } = useCityTag();
   const { loginSuccess } = useAuth();
 
   const [mode, setMode] = useState(MODE.LOGIN);
-  const [name, setName]                       = useState("");
-  const [identifier, setIdentifier]           = useState(""); // email or phone
-  const [password, setPassword]               = useState("");
+  const [name, setName] = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading]                 = useState(false);
-  const [error, setError]                     = useState("");
+  const [otp, setOtp] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
 
   const isSignup = mode === MODE.SIGNUP;
-  const isLogin  = mode === MODE.LOGIN;
+  const isLogin = mode === MODE.LOGIN;
   const isForgot = mode === MODE.FORGOT;
 
+  const identifierIsEmail = identifier.trim().includes("@");
+  const emailAutoFilled = identifierIsEmail && isValidEmail(identifier);
   const identifierError = identifier && !isValidIdentifier(identifier);
+  const emailError = email && !isValidEmail(email);
+
+  useEffect(() => {
+    if (isSignup && emailAutoFilled && !emailTouched) {
+      setEmail(normalizeEmail(identifier));
+    }
+  }, [isSignup, identifier, emailAutoFilled, emailTouched]);
+
+  const signupFormReady =
+    name.trim() &&
+    identifier.trim() &&
+    isValidIdentifier(identifier) &&
+    email.trim() &&
+    isValidEmail(email) &&
+    password.length >= 6 &&
+    confirmPassword &&
+    password === confirmPassword;
+
+  const canSendOtp = isSignup && signupFormReady && !sendingOtp && !loading;
 
   const canSubmit = (() => {
-    if (loading) return false;
+    if (loading || sendingOtp) return false;
     if (!identifier.trim() || !password) return false;
     if (!isValidIdentifier(identifier)) return false;
     if (isLogin) return true;
-    if (!name.trim() || !confirmPassword || password !== confirmPassword) return false;
-    return true;
+    if (!signupFormReady) return false;
+    return otpSent && verificationToken && otp.trim().length >= 4;
   })();
+
+  function resetVerification() {
+    setOtp("");
+    setVerificationToken("");
+    setOtpSent(false);
+    setInfo("");
+  }
 
   function switchMode(newMode) {
     setMode(newMode);
     setError("");
+    setInfo("");
     setConfirmPassword("");
+    setEmail("");
+    setEmailTouched(false);
+    resetVerification();
+  }
+
+  function onIdentifierChange(value) {
+    setIdentifier(value);
+    resetVerification();
+    if (!value.trim().includes("@")) {
+      setEmailTouched(false);
+    }
+  }
+
+  function onEmailChange(value) {
+    setEmail(value);
+    setEmailTouched(true);
+    resetVerification();
+  }
+
+  async function onSendOtp() {
+    setError("");
+    setInfo("");
+    const normalizedEmail = normalizeEmail(email);
+    if (!canSendOtp || !isValidEmail(normalizedEmail)) return;
+
+    setSendingOtp(true);
+    try {
+      const res = await requestSignupVerification({
+        email: normalizedEmail,
+        identifier: identifier.trim(),
+      });
+      if (!res.verification_token) {
+        setError("Unable to send verification code. Please try again.");
+        return;
+      }
+      setVerificationToken(res.verification_token);
+      setOtpSent(true);
+      setInfo(res.message || "Verification code sent. Check your email.");
+    } catch (err) {
+      setError(err.message || "Unable to send verification code");
+    } finally {
+      setSendingOtp(false);
+    }
   }
 
   async function onSubmit(e) {
@@ -63,13 +127,15 @@ export default function LoginForm() {
     setLoading(true);
     try {
       if (isSignup) {
-        // 1) Create the user account (email is the identifier field in signup mode)
+        const normalizedEmail = normalizeEmail(email);
         await signup({
           identifier: identifier.trim(),
+          email: normalizedEmail,
           password,
           name: name.trim(),
+          verification_token: verificationToken,
+          otp: otp.trim(),
         });
-        // 2) Auto-login after signup
         const res = await login({
           identifier: identifier.trim(),
           password,
@@ -109,7 +175,6 @@ export default function LoginForm() {
 
   return (
     <div>
-      {/* Signup header back arrow */}
       {isSignup && (
         <button
           type="button"
@@ -138,8 +203,6 @@ export default function LoginForm() {
       )}
 
       <form onSubmit={onSubmit} className="space-y-4">
-
-        {/* Full Name (signup only) */}
         {isSignup && (
           <div>
             <label className="block text-sm font-medium text-white">Full Name</label>
@@ -155,14 +218,13 @@ export default function LoginForm() {
           </div>
         )}
 
-        {/* Email or phone */}
         <div>
           <label className="block text-sm font-medium text-white">Email or Phone Number</label>
           <input
             className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
             style={{ borderColor: identifierError ? "#ef4444" : "#cbd5e1" }}
             value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
+            onChange={(e) => onIdentifierChange(e.target.value)}
             type="text"
             autoComplete="username"
             placeholder="Email or phone number"
@@ -175,7 +237,35 @@ export default function LoginForm() {
           )}
         </div>
 
-        {/* Password */}
+        {isSignup && (
+          <div>
+            <label className="block text-sm font-medium text-white">Email Address</label>
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              style={{ borderColor: emailError ? "#ef4444" : "#cbd5e1" }}
+              value={email}
+              onChange={(e) => onEmailChange(e.target.value)}
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              readOnly={emailAutoFilled}
+              required
+            />
+            {emailAutoFilled ? (
+              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+                Auto-filled from your email identifier
+              </p>
+            ) : (
+              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+                Required for phone signups — we&apos;ll send a verification code here
+              </p>
+            )}
+            {emailError && (
+              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>Enter a valid email address</p>
+            )}
+          </div>
+        )}
+
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <label className="block text-sm font-medium text-white">Password</label>
@@ -205,11 +295,11 @@ export default function LoginForm() {
             onChange={(e) => setPassword(e.target.value)}
             type="password"
             autoComplete={isSignup ? "new-password" : "current-password"}
+            minLength={isSignup ? 6 : undefined}
             required
           />
         </div>
 
-        {/* Confirm Password (signup only) */}
         {isSignup && (
           <div>
             <label className="block text-sm font-medium text-white">Confirm Password</label>
@@ -229,14 +319,66 @@ export default function LoginForm() {
           </div>
         )}
 
-        {/* Error */}
+        {isSignup && !otpSent && (
+          <button
+            type="button"
+            disabled={!canSendOtp}
+            onClick={onSendOtp}
+            className="w-full rounded-lg border border-slate-400 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/10 transition"
+          >
+            {sendingOtp ? "Sending code..." : "Send verification code"}
+          </button>
+        )}
+
+        {isSignup && otpSent && (
+          <div>
+            <label className="block text-sm font-medium text-white">Verification Code</label>
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              required
+            />
+            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+              Enter the code sent to <strong style={{ color: "#fff" }}>{normalizeEmail(email)}</strong>
+            </p>
+            <button
+              type="button"
+              disabled={sendingOtp}
+              onClick={onSendOtp}
+              style={{
+                marginTop: 8,
+                background: "none",
+                border: "none",
+                color: "#cc4444",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 12,
+                textDecoration: "underline",
+                textUnderlineOffset: 2,
+              }}
+            >
+              Resend code
+            </button>
+          </div>
+        )}
+
+        {info && (
+          <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            {info}
+          </div>
+        )}
+
         {error && (
           <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             {error}
           </div>
         )}
 
-        {/* Submit */}
         <button
           type="submit"
           disabled={!canSubmit}
@@ -246,11 +388,10 @@ export default function LoginForm() {
         </button>
       </form>
 
-      {/* ── Footer links ── */}
       <div style={{ marginTop: 16, textAlign: "center" }}>
         {isLogin && (
           <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <button
               type="button"
               onClick={() => switchMode(MODE.SIGNUP)}
