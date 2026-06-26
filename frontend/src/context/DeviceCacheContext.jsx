@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
 import { registerCacheResetListener } from "../utils/clearAppCaches.js";
+import { fetchFleetDevices, getFleetCache, invalidateFleetCache, isFleetCacheValid } from "../utils/fleetCache.js";
 
 const DeviceCacheContext = createContext(null);
 
@@ -26,12 +27,15 @@ export function DeviceCacheProvider({ children }) {
   useEffect(() => registerCacheResetListener(resetDeviceCache), [resetDeviceCache]);
 
   const fetchDevices = useCallback(async () => {
+    if (isFleetCacheValid()) {
+      setDevices(getFleetCache());
+      setLastFetched(Date.now());
+      return;
+    }
     setLoading(true);
     setError("");
     try {
-      // Load first 100 devices — used only for the bind modal's unbound device list
-      const data = await getDevicesRef.current({ page: 1, limit: 100 });
-      const list = Array.isArray(data) ? data : data?.devices ?? [];
+      const list = await fetchFleetDevices(getDevicesRef.current);
       setDevices(list);
       setLastFetched(Date.now());
     } catch (err) {
@@ -43,8 +47,8 @@ export function DeviceCacheProvider({ children }) {
 
   const silentRefresh = useCallback(async () => {
     try {
-      const data = await getDevicesRef.current({ page: 1, limit: 100 });
-      const list = Array.isArray(data) ? data : data?.devices ?? [];
+      invalidateFleetCache();
+      const list = await fetchFleetDevices(getDevicesRef.current, { force: true });
       setDevices(list);
       setLastFetched(Date.now());
     } catch {}

@@ -96,7 +96,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
   const total     = Number(summary?.total)  || devices.length
   const onlineNow = Number(summary?.online) || 0
   const onlineRate = total > 0 ? Math.round((onlineNow / total) * 100) : 0
-  const upColor    = onlineRate >= 70 ? '#4ade80' : onlineRate >= 40 ? '#FBBF24' : '#f87171'
+  const upColor    = '#4ade80'
 
   const batteryWarn = useMemo(() =>
     Object.values(locations).filter(loc => loc?.batteryStatus != null && loc.batteryStatus < 20).length
@@ -147,12 +147,12 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
     <div {...bind} style={{ ...INSIGHT_CARD, ...hoverStyle }}>
       <div style={CARD_HDR}>
         <div>
-          <div style={CARD_TTL}>Fleet Health Snapshot</div>
+          <div style={CARD_TTL}>Locator Health Snapshot</div>
           <div style={CARD_SUB}>Live system diagnostics</div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', padding: '2px 0 20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', padding: '2px 0 20px' }}>
 
         {/* ── Section 1: Uptime ── */}
         <div style={{ padding: '4px 24px 4px 20px', ...DIVIDER }}>
@@ -216,9 +216,9 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
         <div style={{ padding: '4px 20px 4px 24px' }}>
           <div style={SECTION_HDR}>Top Active Zones</div>
           {topZones.length > 0 ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
               {/* Legend on left */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 0.5 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 0 }}>
                 {topZones.map((z, i) => {
                   const totalCount = topZones.reduce((s, x) => s + x.count, 0)
                   const pct = Math.round((z.count / totalCount) * 100)
@@ -238,7 +238,7 @@ function FleetSnapshotCard({ devices, locations, activityData, zones, summary })
                 )}
               </div>
               {/* Pie chart on right */}
-              <div style={{ flex: 0.5 }}>
+              <div style={{ flex: '0 0 90px', minWidth: 0, overflow: 'hidden' }}>
                 <ResponsiveContainer width="100%" height={90}>
                   <PieChart>
                     <Pie
@@ -353,7 +353,7 @@ function RecentActivityPanel({ activityRows, totalActive }) {
         />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr', padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-        {['Device ID', 'User / Label', 'Status', 'Last Reported'].map(h => (
+        {['Device Name', 'User / Label', 'Status', 'Last Reported'].map(h => (
           <span key={h} style={{ fontSize: '9px', fontWeight: 700, color: '#B8B8B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</span>
         ))}
       </div>
@@ -373,7 +373,7 @@ function RecentActivityPanel({ activityRows, totalActive }) {
             onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
         >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-              <span style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.id}</span>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</span>
               <span style={{ flexShrink: 0, fontSize: '9px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
                 padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
                 ...(row.type === 'Sticker'
@@ -504,7 +504,7 @@ function BatteryStatusPanel({ batteryTiers }) {
           </div>
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={210}>
+        <ResponsiveContainer width="100%" height={170}>
           <PieChart>
             <Pie
               data={[
@@ -841,6 +841,7 @@ export default function Dashboard() {
         const type = /^\d+$/.test(String(sn)) ? 'Sticker' : 'Locator'
         return {
           id:       sn,
+          name:     d.name || d.assigned_name || sn,
           user:     d.assigned_user_name ?? d.assignedUser ?? d.name ?? '—',
           status:   isOnline ? 'online' : 'offline',
           lastSeen: lastTs,
@@ -876,21 +877,45 @@ export default function Dashboard() {
   const goToPage2 = () => setActivePage(2)
   const goToPage1 = () => setActivePage(1)
 
+  const p1WheelAccum = useRef(0)
+  const p1WheelTimer = useRef(null)
   const handlePage1Wheel = (e) => {
-    if (e.deltaY > 0 && !p1TransLock.current) {
+    const el = page1Ref.current
+    const atBottom = !el || el.scrollTop + el.clientHeight >= el.scrollHeight - 5
+    if (!atBottom || e.deltaY <= 0 || p1TransLock.current) {
+      if (e.deltaY < 0) { p1WheelAccum.current = 0; clearTimeout(p1WheelTimer.current) }
+      return
+    }
+    p1WheelAccum.current += e.deltaY
+    clearTimeout(p1WheelTimer.current)
+    p1WheelTimer.current = setTimeout(() => { p1WheelAccum.current = 0 }, 200)
+    if (p1WheelAccum.current > 80) {
+      p1WheelAccum.current = 0
       p1TransLock.current = true
       goToPage2()
       setTimeout(() => { p1TransLock.current = false }, 600)
     }
   }
 
+  const p2WheelAccum = useRef(0)
+  const p2WheelTimer = useRef(null)
   const handlePage2Wheel = (e) => {
-    if (page2Ref.current?.scrollTop === 0 && e.deltaY < 0 && !p2TransLock.current) {
+    if (page2Ref.current?.scrollTop !== 0 || e.deltaY >= 0 || p2TransLock.current) {
+      if (e.deltaY > 0) { p2WheelAccum.current = 0; clearTimeout(p2WheelTimer.current) }
+      return
+    }
+    p2WheelAccum.current += e.deltaY
+    clearTimeout(p2WheelTimer.current)
+    p2WheelTimer.current = setTimeout(() => { p2WheelAccum.current = 0 }, 200)
+    if (p2WheelAccum.current < -80) {
+      p2WheelAccum.current = 0
       p2TransLock.current = true
       goToPage1()
       setTimeout(() => { p2TransLock.current = false }, 600)
     }
   }
+
+
 
   useEffect(() => {
     const handler = (e) => {
@@ -933,13 +958,13 @@ export default function Dashboard() {
       {/* Inner content div — overflow hidden */}
       <div
         ref={page1Ref}
+        onWheel={handlePage1Wheel}
         style={{
           position: 'absolute', inset: 0,
-          overflow: 'hidden',
+          overflowY: 'auto',
           padding: '14px 16px',
           display: 'flex', flexDirection: 'column', gap: '10px',
         }}
-        onWheel={handlePage1Wheel}
       >
 
         {/* ── Dashboard header ──────────────────────────────────── */}
@@ -969,13 +994,25 @@ export default function Dashboard() {
         </div>
 
         {/* ── KPI row ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'10px', flexShrink: 0 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'10px', flexShrink: 0 }}>
           <KPICard
             title="Assigned Devices"
             value={assignedDevices}
             sub=""
             icon={Link2}
             onClick={() => navigate('/devices?status=assigned')}
+            colors={{
+              gradient:    'linear-gradient(145deg, #2A2210 0%, #201A08 40%, #181206 70%, #100C03 100%)',
+              border:      'rgba(234,179,8,0.25)',
+              shadow:      '0 0 28px rgba(234,179,8,0.10), 0 12px 38px rgba(0,0,0,0.52)',
+              shadowHover: '0 0 44px rgba(234,179,8,0.40), 0 16px 46px rgba(0,0,0,0.60)',
+              shimmer:     'rgba(234,179,8,0.32)',
+              radialTL:    'rgba(234,179,8,0.14)',
+              iconBg:      'rgba(234,179,8,0.12)',
+              iconBorder:  'rgba(234,179,8,0.24)',
+              iconColor:   '#EAB308',
+              gloss:       0.034,
+            }}
           />
           <KPICard
             title="Unassigned Devices"
@@ -1024,7 +1061,7 @@ export default function Dashboard() {
             icon={WifiOff}
             trend={offlineDevices > 0 ? 'down' : 'up'}
             trendVal={offlineDevices > 0 ? 'Needs review' : 'All online'}
-            onClick={() => navigate('/missing')}
+            onClick={() => navigate('/devices?status=offline')}
             colors={{
               gradient:    'linear-gradient(145deg, #3D1D22 0%, #2D191E 40%, #231015 70%, #180C10 100%)',
               border:      'rgba(255,77,109,0.25)',
@@ -1041,17 +1078,17 @@ export default function Dashboard() {
         </div>
 
         {/* ── Platform metrics ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:'10px', flexShrink: 0 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'10px', flexShrink: 0 }}>
           {[
             { label:'Total Devices',  value: totalDevices,     icon: Layers, color:'#00B4D8', sub:`${summary.locators ?? 0} locators · ${summary.stickers ?? 0} stickers`, onClick: () => navigate('/devices') },
-            { label:'Users',          value: users.length,     icon: Users,  color:'#22D3EE', sub:'under your account' },
+            { label:'Users',          value: users.length,     icon: Users,  color:'#22D3EE', sub:'under your account', onClick: () => navigate('/users') },
             { label:'Fences',     value: zones.length,     icon: Shield, color:'#F59E0B', sub:'active Fence zones', onClick: () => navigate('/geofence') },
             { label:'Smart Stickers', value: summary.stickers, icon: Tag,    color:'#FFB703', sub: weeklyStickers > 0 ? `+${weeklyStickers} this week` : '', onClick: () => navigate('/stickers') },
           ].map(m => <MetricCard key={m.label} m={m} />)}
         </div>
 
         {/* ── Analytics ── */}
-        <div style={{ flex: 1, minHeight: 0, display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(240px, 1fr)', gap:'10px' }}>
+        <div style={{ flex: '1 0 300px', display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'10px' }}>
           <RecentTrendPanel generalBins={generalBins} peakLabel={peakLabel} />
           <BatteryStatusPanel batteryTiers={batteryTiers} />
         </div>
@@ -1072,13 +1109,13 @@ export default function Dashboard() {
         {/* Scrollable content */}
         <div
           ref={page2Ref}
+          onWheel={handlePage2Wheel}
           style={{
             position: 'absolute', inset: 0,
             overflowY: 'auto',
             padding: '20px',
             display: 'flex', flexDirection: 'column', gap: '14px',
           }}
-          onWheel={handlePage2Wheel}
         >
 
           {/* ── Level 2 ── */}

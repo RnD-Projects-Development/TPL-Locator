@@ -1,5 +1,5 @@
-import React from "react";
-import { landmarkDisplayFromPoint } from "../utils/landmark.js";
+import React, { useEffect, useState } from "react";
+import { landmarkDisplayFromPoint, mapboxReverseGeocode } from "../utils/landmark.js";
 import "./MapInfoPanel.css";
 
 function extractCoords(point) {
@@ -65,7 +65,18 @@ export default function MapInfoPanel({
   emptyHint = "Select a device to view its live details",
 }) {
   const coords = extractCoords(point);
-  const geo = landmarkDisplayFromPoint(point);
+  const [geo, setGeo] = useState(() => landmarkDisplayFromPoint(point));
+
+  useEffect(() => {
+    const stored = landmarkDisplayFromPoint(point);
+    if (stored) { setGeo(stored); return; }
+    if (!coords) { setGeo(null); return; }
+    let cancelled = false;
+    mapboxReverseGeocode(coords.lat, coords.lng).then(result => {
+      if (!cancelled) setGeo(result ?? null);
+    });
+    return () => { cancelled = true; };
+  }, [point, coords?.lat, coords?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!sn) {
     return (

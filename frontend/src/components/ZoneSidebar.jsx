@@ -330,7 +330,7 @@ export default function ZoneSidebar({
           <button
             onClick={onCreateZone}
             style={{
-              display: 'flex', alignItems: 'center', gap: 4,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
               padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
               fontSize: 11, fontWeight: 700, letterSpacing: '0.03em',
               background: 'rgba(193,18,31,0.12)', border: '1px solid rgba(193,18,31,0.35)',

@@ -234,9 +234,9 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-              background: 'rgba(167,44,50,0.15)', border: '1px solid rgba(167,44,50,0.25)',
+              background: '#A72C32', border: '1px solid #8B2328',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, fontWeight: 700, color: '#C44E54',
+              fontSize: 11, fontWeight: 700, color: '#FFFFFF',
             }}>
               {initials}
             </div>

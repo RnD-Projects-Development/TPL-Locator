@@ -1,7 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import loadTPLMaps from "./loadTPLMaps.js";
-import { landmarkDisplayFromPoint } from "../utils/landmark.js";
+import { landmarkDisplayFromPoint, mapboxReverseGeocode } from "../utils/landmark.js";
 import { deviceColor } from "../utils/zonePolygonManager.js";
+
+// ── Mapbox fallback — used for devices outside Pakistan ───────────────────────
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? '';
+const MAPBOX_TILE  = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
+const PAK          = { minLat: 23.5, maxLat: 37.5, minLng: 60.5, maxLng: 77.5 };
+const insidePakistan = (lat, lng) =>
+  lat >= PAK.minLat && lat <= PAK.maxLat && lng >= PAK.minLng && lng <= PAK.maxLng;
 
 function safe(v) { return v == null || v === '' ? '—' : String(v); }
 
@@ -108,6 +115,51 @@ function buildCarIconHtml(bearing = 0) {
       <rect x="48" y="64" width="10" height="18" rx="3"  fill="#111827"/>
     </svg>
   </div>`;
+}
+
+// ── Inject pulse keyframe once ───────────────────────────────────────────────
+function ensurePulseStyle() {
+  if (document.getElementById('pb-pin-pulse-style')) return;
+  const s = document.createElement('style');
+  s.id = 'pb-pin-pulse-style';
+  s.textContent = `@keyframes pbPinPulse{0%{box-shadow:0 3px 8px rgba(0,0,0,.45),0 0 0 0 rgba(231,76,60,.65)}70%{box-shadow:0 3px 8px rgba(0,0,0,.45),0 0 0 10px rgba(231,76,60,0)}100%{box-shadow:0 3px 8px rgba(0,0,0,.45),0 0 0 0 rgba(231,76,60,0)}}`;
+  document.head.appendChild(s);
+}
+
+// ── Active playback pin — same lollipop as the regular pin + pulsing ring ────
+function buildPlaybackPinHtml(innerColor = '#E8192C', outerColor = '#8B0000') {
+  ensurePulseStyle();
+  return `
+  <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:30px;height:48px;">
+    <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;
+      background:${outerColor};display:flex;align-items:center;justify-content:center;
+      animation:pbPinPulse 1.4s ease-out infinite;">
+      <div style="width:16px;height:16px;border-radius:50%;background:${innerColor};"></div>
+    </div>
+    <div style="width:4px;height:18px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 3px 3px;"></div>
+    <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+      width:16px;height:6px;border-radius:50%;background:rgba(0,0,0,0.18);"></div>
+  </div>`;
+}
+
+// ── Small data-point pin — dark maroon lollipop, smaller than main pin ───────
+function buildSmallPinHtml() {
+  return `
+  <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:14px;height:22px;">
+    <div style="width:11px;height:11px;border-radius:50%;flex-shrink:0;
+      background:#7F1D1D;display:flex;align-items:center;justify-content:center;
+      box-shadow:0 1px 4px rgba(0,0,0,0.5);">
+      <div style="width:5px;height:5px;border-radius:50%;background:#A72C32;"></div>
+    </div>
+    <div style="width:2px;height:9px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 2px 2px;"></div>
+    <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+      width:7px;height:3px;border-radius:50%;background:rgba(0,0,0,0.15);"></div>
+  </div>`;
+}
+
+// ── Visited data-point dot — replaces the small pin once the playback passes it
+function buildVisitedDotHtml() {
+  return `<div style="width:8px;height:8px;border-radius:50%;background:#7F1D1D;box-shadow:0 1px 4px rgba(0,0,0,0.55);margin:0;padding:0;"></div>`;
 }
 
 // ── Compute compass bearing (0° = north, clockwise) between two coordinates ──
@@ -280,6 +332,7 @@ export default function MapView({
   onFocusDevice = null,
   // All trajectory points rendered immediately as dim background dots (playback page only).
   staticDots = [],
+  isPlaying = false,
 }) {
   const onFocusRef     = useRef(onFocusDevice);
   useEffect(() => { onFocusRef.current = onFocusDevice; }, [onFocusDevice]);
@@ -320,7 +373,11 @@ export default function MapView({
 
   // Static preview dots refs (playback page — all points shown immediately on load)
   const staticDotsRef   = useRef([]);
+  const staticDotMapRef = useRef(new Map()); // trajectoryIndex → L.marker, for pin→dot swap
   const staticCanvasRef = useRef(null);
+
+  // Tile-swap — we add our own Mapbox layer on top when outside Pakistan
+  const mapboxLayerRef = useRef(null);
 
   // Fence overlay refs
   const fenceLayersRef = useRef([]);
@@ -334,8 +391,9 @@ export default function MapView({
   const pannedSnsRef    = useRef(new Set());
 
   // ── Smooth playback animation refs ───────────────────────────────────────
-  const animFromRef    = useRef(null);
-  const cancelTweenRef = useRef(null);
+  const animFromRef      = useRef(null);
+  const cancelTweenRef   = useRef(null);
+  const prevIsPlayingRef = useRef(false);
 
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError]   = useState(null);
@@ -399,18 +457,36 @@ export default function MapView({
   useEffect(() => { snRef.current          = sn;          }, [sn]);
   useEffect(() => { labelRef.current       = label;       }, [label]);
 
-  // Landmark from backend-stored location point
+  // Landmark — backend-stored first, Mapbox fallback for outside-Pakistan
   useEffect(() => {
+    let cancelled = false;
+
+    const updatePopup = (geocode) => {
+      geocodeRef.current = geocode;
+      if (popupRef.current && mapRef.current) {
+        popupRef.current.setContent(buildPopupHtml({
+          displayName: displayNameRef.current,
+          sn: snRef.current, label: labelRef.current,
+          coords: coordsRef.current, point: latestRef.current,
+          geocode,
+        }));
+      }
+    };
+
     const display = landmarkDisplayFromPoint(activePoint);
-    geocodeRef.current = display;
-    if (popupRef.current && mapRef.current) {
-      popupRef.current.setContent(buildPopupHtml({
-        displayName: displayNameRef.current,
-        sn: snRef.current, label: labelRef.current,
-        coords: coordsRef.current, point: latestRef.current,
-        geocode: display,
-      }));
+    if (display) { updatePopup(display); return; }
+
+    // No backend landmark — use Mapbox for outside-Pakistan devices
+    if (!coords || insidePakistan(coords.lat, coords.lng)) {
+      updatePopup(null);
+      return;
     }
+
+    mapboxReverseGeocode(coords.lat, coords.lng, MAPBOX_TOKEN).then(mbx => {
+      if (!cancelled) updatePopup(mbx ?? null);
+    });
+
+    return () => { cancelled = true; };
   }, [activePoint?.landmark, coords?.lat, coords?.lng]);
 
   /* ── INVALIDATE SIZE ── */
@@ -432,6 +508,23 @@ export default function MapView({
     });
     return () => cancelAnimationFrame(raf);
   }, [mapLoaded]);
+
+  /* ── TILE SWAP — overlay a Mapbox layer when any visible device is outside Pakistan ── */
+  useEffect(() => {
+    if (!mapLoaded || !mapRef.current || !window.L) return;
+    // Single-device mode: check `coords`; multi-device mode: check any device in multiDevices
+    const outside = coords
+      ? !insidePakistan(coords.lat, coords.lng)
+      : multiDevices.some(d => { const c = extractCoords(d.latest); return c && !insidePakistan(c.lat, c.lng); });
+    if (outside && !mapboxLayerRef.current) {
+      try {
+        mapboxLayerRef.current = window.L.tileLayer(MAPBOX_TILE, { maxZoom: 19 }).addTo(mapRef.current);
+      } catch {}
+    } else if (!outside && mapboxLayerRef.current) {
+      try { mapRef.current.removeLayer(mapboxLayerRef.current); } catch {}
+      mapboxLayerRef.current = null;
+    }
+  }, [coords?.lat, coords?.lng, mapLoaded, multiDevices]);
 
   /* ── RESIZE OBSERVER ── */
   useEffect(() => {
@@ -484,11 +577,28 @@ export default function MapView({
       multiGeocodeRef.current.clear();
       multiSnsRef.current  = new Set();
       pannedSnsRef.current = new Set();
-      animFromRef.current = null;
+      animFromRef.current  = null;
+      if (mapboxLayerRef.current) {
+        try { _cachedMap?.removeLayer(mapboxLayerRef.current); } catch {}
+        mapboxLayerRef.current = null;
+      }
       detachMap();
       mapRef.current = null;
     };
   }, [retryTick]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── PLAY START ZOOM — zoom to 18 at pin when playback begins ── */
+  useEffect(() => {
+    if (!isPlaybackPage) { prevIsPlayingRef.current = isPlaying; return; }
+    if (isPlaying && !prevIsPlayingRef.current) {
+      const map = mapRef.current;
+      const c   = coordsRef.current;
+      if (map && c) {
+        try { map.setView([c.lat, c.lng], 18, { animate: true, duration: 0.6 }); } catch {}
+      }
+    }
+    prevIsPlayingRef.current = isPlaying;
+  }, [isPlaying, isPlaybackPage]);
 
   /* ── DEVICE MARKER — with smooth playback animation ── */
   useEffect(() => {
@@ -521,7 +631,7 @@ export default function MapView({
         if (isPlaybackPage) {
           try {
             markerRef.current?.setIcon(window.L.divIcon({
-              html: buildCarIconHtml(0), className: '', iconSize: [28, 46], iconAnchor: [14, 23],
+              html: buildPlaybackPinHtml(), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
             }));
           } catch {}
         }
@@ -540,17 +650,14 @@ export default function MapView({
         if (isPlaybackPage) {
           try {
             markerRef.current?.setIcon(window.L.divIcon({
-              html: buildCarIconHtml(bearing), className: '', iconSize: [28, 46], iconAnchor: [14, 23],
+              html: buildPlaybackPinHtml(), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
             }));
           } catch {}
           if (pbTipLineRef.current) {
             try { pbTipLineRef.current.setLatLngs([[to.lat, to.lng], [to.lat, to.lng]]); } catch {}
           }
           try {
-            const bds = window.L.latLngBounds([[to.lat, to.lng]]);
-            const cb = pbCommittedLineRef.current?.getBounds();
-            if (cb?.isValid()) bds.extend(cb);
-            if (bds.isValid()) map.fitBounds(bds, { padding: [60, 60], animate: false, maxZoom: 16 });
+            map.setView([to.lat, to.lng], Math.max(map.getZoom(), 16), { animate: false });
           } catch {}
         }
         return;
@@ -560,11 +667,11 @@ export default function MapView({
       // motion — never sits still between waypoints (Google Maps-style glide).
       const tweenDuration = Math.max(playbackSpeed * 0.98, 100);
 
-      // Rotate car icon to face the direction of travel
+      // Switch to pulsing pin during active playback movement
       if (isPlaybackPage) {
         try {
           markerRef.current?.setIcon(window.L.divIcon({
-            html: buildCarIconHtml(bearing), className: '', iconSize: [28, 46], iconAnchor: [14, 23],
+            html: buildPlaybackPinHtml(), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
           }));
         } catch {}
       }
@@ -605,13 +712,14 @@ export default function MapView({
       }, tweenDuration);
 
       if (isPlaybackPage) {
-        // fitBounds on the committed trajectory + current destination so the
-        // full drawn path stays visible as the car moves.
+        // Pan the map to follow the pin — stay zoomed in, don't zoom to full path.
         try {
-          const bds = window.L.latLngBounds([[from.lat, from.lng], [to.lat, to.lng]]);
-          const cb = pbCommittedLineRef.current?.getBounds();
-          if (cb?.isValid()) bds.extend(cb);
-          map.fitBounds(bds, { padding: [60, 60], animate: true, duration: tweenDuration / 1000, maxZoom: 16 });
+          map.stop();
+          map.panTo([to.lat, to.lng], {
+            animate: true,
+            duration: tweenDuration / 1000,
+            easeLinearity: 0.5,
+          });
         } catch {}
       } else {
         const targetZoom = Math.max(map.getZoom(), 15);
@@ -814,7 +922,7 @@ export default function MapView({
       const MAX_DOTS = 300;
       const stepSize = items.length > MAX_DOTS ? Math.ceil(items.length / MAX_DOTS) : 1;
       if (nextCommitted % stepSize === 0 || nextCommitted === items.length - 1) {
-        _addPbDot(map, newPt, items[nextCommitted].p);
+        _addPbDot(map, newPt, items[nextCommitted].p, nextCommitted);
       }
 
       pbCommittedIdxRef.current = nextCommitted;
@@ -835,15 +943,22 @@ export default function MapView({
       }
     }
 
-    function _addPbDot(map, c, p) {
+    function _addPbDot(map, c, p, trajIdx) {
       if (!window.L) return;
+      // Swap: remove the static preview lollipop at this index and replace with a circle
+      if (trajIdx !== undefined) {
+        const staticMarker = staticDotMapRef.current.get(trajIdx);
+        if (staticMarker) {
+          try { map.removeLayer(staticMarker); } catch {}
+          staticDotMapRef.current.delete(trajIdx);
+        }
+      }
       const dot = window.L.circleMarker([c.lat, c.lng], {
         radius: 4, color: '#7f1d1d', fillColor: '#dc2626',
         fillOpacity: 0.9, weight: 1,
         interactive: false,
         renderer: pbCanvasRef.current,
       }).addTo(map);
-
       pbDotsRef.current.push(dot);
     }
 
@@ -857,6 +972,7 @@ export default function MapView({
 
     staticDotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
     staticDotsRef.current = [];
+    staticDotMapRef.current.clear();
 
     const items = (staticDots ?? [])
       .map(p => { const c = extractCoords(p); return c ? c : null; })
@@ -864,23 +980,24 @@ export default function MapView({
 
     if (items.length === 0) return;
 
-    if (!staticCanvasRef.current) staticCanvasRef.current = window.L.canvas({ padding: 0.5 });
-
     const MAX_STATIC = 500;
     const step = items.length > MAX_STATIC ? Math.ceil(items.length / MAX_STATIC) : 1;
+    const smallPinIcon = window.L.divIcon({
+      html: buildSmallPinHtml(),
+      className: '',
+      iconSize: [14, 22],
+      iconAnchor: [7, 22],
+    });
 
     items.forEach((c, i) => {
       if (i % step !== 0 && i !== items.length - 1) return;
-      const dot = window.L.circleMarker([c.lat, c.lng], {
-        radius: 3.5,
-        color: 'rgba(127,29,29,0.8)',
-        fillColor: 'rgba(185,28,28,0.65)',
-        fillOpacity: 0.9,
-        weight: 1,
+      const dot = window.L.marker([c.lat, c.lng], {
+        icon: smallPinIcon,
         interactive: false,
-        renderer: staticCanvasRef.current,
+        keyboard: false,
       }).addTo(map);
       staticDotsRef.current.push(dot);
+      staticDotMapRef.current.set(i, dot);
     });
 
     // Fit map to show all points on load

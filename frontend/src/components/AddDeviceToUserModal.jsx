@@ -7,8 +7,8 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
   const found = items.find(it => keyOf(it) === selectedValue);
   const inputVal = open ? q : (found ? labelOf(found) : '');
   const matches = q.trim()
-    ? items.filter(it => labelOf(it).toLowerCase().includes(q.toLowerCase())).slice(0, 10)
-    : items.slice(0, 10);
+    ? items.filter(it => labelOf(it).toLowerCase().includes(q.toLowerCase())).slice(0, 20)
+    : items.slice(0, 20);
 
   const toggleOpen = () => {
     if (open) { setOpen(false); setQ(''); }
@@ -61,9 +61,9 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
               </div>
             ))
           }
-          {items.length > 10 && q.trim() === '' && (
+          {items.length > 20 && q.trim() === '' && (
             <div style={{ padding: '6px 12px', fontSize: 11, color: 'rgba(255,255,255,0.28)', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-              Showing top 10 — type to filter {items.length} total
+              Showing top 20 — type to filter {items.length} total
             </div>
           )}
         </div>

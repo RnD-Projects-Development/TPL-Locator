@@ -72,7 +72,6 @@ function FencePageInner() {
   const polygonManager     = useRef(null);
   const resizeObserver     = useRef(null);
   const tracksFetchZoneRef = useRef(null);
-  const zoneStatusesRef    = useRef({});
   const accessTokenRef     = useRef(accessToken);
   const devicesRef         = useRef(devices);
   const zonesRef           = useRef(zones);
@@ -82,8 +81,6 @@ function FencePageInner() {
   const [isSaving,       setIsSaving]       = useState(false);
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [assignments,     setAssignments]     = useState({});
-  const [zoneStatuses,    setZoneStatuses]    = useState({});
-  const [statusLoading,   setStatusLoading]   = useState(false);
   const [assignModal,     setAssignModal]     = useState(null);
   const [assigningZoneId, setAssigningZoneId] = useState(null);
   const [deviceTracks,    setDeviceTracks]    = useState([]);
@@ -95,7 +92,6 @@ function FencePageInner() {
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
   useEffect(() => { devicesRef.current = devices; }, [devices]);
   useEffect(() => { zonesRef.current = zones; }, [zones]);
-  useEffect(() => { zoneStatusesRef.current = zoneStatuses; }, [zoneStatuses]);
 
   // Stable auth headers
   const authHeaders = useCallback(() => ({
@@ -160,53 +156,16 @@ function FencePageInner() {
     setAssignments(map);
   }, [devices]);
 
-  // For user-created zones (MongoDB 24-char hex IDs), /api/geofence/status never
-  // returns data, so supplement zoneStatuses with data derived from the device cache.
+  // Derive per-zone device statuses from the device cache (assignments).
   const displayStatuses = useMemo(() => {
-    const result = { ...zoneStatuses };
+    const result = {};
     Object.entries(assignments).forEach(([zid, devs]) => {
-      if (/^[0-9a-f]{24}$/i.test(zid) && devs.length > 0) {
+      if (devs.length > 0) {
         result[zid] = devs.map((d) => ({ ...d, status: d.status || 'OFFLINE' }));
       }
     });
     return result;
-  }, [zoneStatuses, assignments]);
-
-  // ── Fetch geofence statuses ───────────────────────────────────────────────────
-  const fetchStatuses = useCallback(async () => {
-    setStatusLoading(true);
-    try {
-      const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), 30_000);
-      let res;
-      try {
-        res = await fetch(`${API_BASE_URL}/api/geofence/status`, {
-          headers: authHeaders(),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      if (!res.ok) return;
-      const { zones: zoneData = {} } = await res.json();
-      const enriched = {};
-      Object.entries(zoneData).forEach(([zone_id, entries]) => {
-        enriched[zone_id] = entries.map((e) => {
-          const dev = devicesRef.current.find((d) => d.sn === e.sn);
-          return { ...e, user_name: dev?.assigned_user_name || dev?.assignedUser || e.sn };
-        });
-      });
-      setZoneStatuses(enriched);
-    } catch { /* keep previous statuses on error/timeout */ }
-    finally {
-      setStatusLoading(false);
-      setAssigningZoneId(null);
-    }
-  }, [authHeaders]);
-
-  useEffect(() => {
-    if (accessToken) fetchStatuses();
-  }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [assignments]);
 
   // ── Zone selection → map highlight + zoom to zone bounds ─────────────────────
   useEffect(() => {
@@ -256,13 +215,13 @@ function FencePageInner() {
         const data = await res.json();
         if (tracksFetchZoneRef.current !== fetchTag) { setTracksLoading(false); return; }
 
-        const statusMap = zoneStatusesRef.current[selectedZoneId] || [];
         const isInZone  = selectedZone.polygons
           ? (lat, lng) => pointInMultiPolygon(lat, lng, selectedZone.polygons)
           : (lat, lng) => pointInPolygon(lat, lng, selectedZone.polygon);
 
         const tracks = (data.devices || []).map((dev) => {
-          const user_name     = statusMap.find((e) => e.sn === dev.sn)?.user_name ?? dev.sn;
+          const deviceDoc = devicesRef.current.find((d) => d.sn === dev.sn);
+          const user_name = deviceDoc?.assigned_user_name || deviceDoc?.assignedUser || dev.sn;
           const allPoints     = (dev.points || []).map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp ?? null }));
           const insidePoints  = allPoints.filter(p => isInZone(p.lat, p.lng));
           const outsidePoints = allPoints.filter(p => !isInZone(p.lat, p.lng));
@@ -333,11 +292,11 @@ function FencePageInner() {
       }
       setAssignModal(null);
       await refresh();
-      fetchStatuses();
       setTracksFetchKey((k) => k + 1);
     } catch (err) {
-      setAssigningZoneId(null);
       throw err;
+    } finally {
+      setAssigningZoneId(null);
     }
   }
 
@@ -425,9 +384,6 @@ function FencePageInner() {
               </button>
             ))}
           </div>
-          <button onClick={fetchStatuses} disabled={statusLoading} className="fp-btn-load" style={{ fontSize: 11 }}>
-            {statusLoading ? <><span className="fp-spinner" /> Refreshing…</> : '↻ Refresh Status'}
-          </button>
         </div>
       </div>
 
@@ -438,7 +394,6 @@ function FencePageInner() {
           selectedZoneId={selectedZoneId}
           onSelect={setSelectedZoneId}
           zoneStatuses={displayStatuses}
-          statusLoading={statusLoading}
           assignments={assignments}
           onOpenAssign={isAdmin ? (zone) => setAssignModal({ zone }) : null}
           onUnassign={isAdmin ? handleUnassign : null}
