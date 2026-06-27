@@ -18,6 +18,7 @@ from app.services.mongodb import MongoService
 from app.services.tracksolid import TrackSolidClient, TrackSolidError
 from app.services.zoqin_api import (
     DEFAULT_ZOQIN_TIME_ADJUST_HOURS,
+    ZOQIN_REQUEST_TIMEOUT_SEC,
     zoqin_fetch_reports_for_sn,
 )
 
@@ -340,9 +341,9 @@ async def _sync_zoqin(
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(minutes=SYNC_HISTORY_MINUTES)
     lock = asyncio.Lock()
-    sem = asyncio.Semaphore(8)
+    sem = asyncio.Semaphore(4)
 
-    async with AsyncClient(timeout=60.0) as http:
+    async with AsyncClient(timeout=ZOQIN_REQUEST_TIMEOUT_SEC) as http:
 
         async def _process_sn(sn: str) -> None:
             async with sem:

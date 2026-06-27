@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -26,6 +27,17 @@ _ZOQIN_REQUEST_HEADERS = {
 LOCATION_API_PAGE_CAP = 100
 LOCATION_MIN_WINDOW = timedelta(seconds=30)
 DEFAULT_ZOQIN_TIME_ADJUST_HOURS = 5.0
+ZOQIN_REQUEST_TIMEOUT_SEC = 120.0
+ZOQIN_MAX_RETRIES = 3
+ZOQIN_RETRY_BASE_DELAY_SEC = 2.0
+
+_RETRYABLE_ERRORS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+)
 
 
 def _zoqin_https_url(url: str) -> str:
@@ -59,6 +71,39 @@ def fmt_zoqin_time(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
+async def _post_json_with_retry(
+    client: httpx.AsyncClient,
+    *,
+    url: str,
+    body: dict[str, Any],
+    headers: dict[str, str],
+) -> httpx.Response:
+    last_exc: Exception | None = None
+    for attempt in range(1, ZOQIN_MAX_RETRIES + 1):
+        try:
+            resp = await client.post(url, json=body, headers=headers)
+            resp.raise_for_status()
+            return resp
+        except _RETRYABLE_ERRORS as exc:
+            last_exc = exc
+            if attempt >= ZOQIN_MAX_RETRIES:
+                break
+            delay = ZOQIN_RETRY_BASE_DELAY_SEC * attempt
+            logger.warning(
+                "zoqin request failed attempt=%s/%s url=%s err=%s; retry in %.1fs",
+                attempt,
+                ZOQIN_MAX_RETRIES,
+                url,
+                exc,
+                delay,
+            )
+            await asyncio.sleep(delay)
+        except httpx.HTTPStatusError:
+            raise
+    assert last_exc is not None
+    raise last_exc
+
+
 async def zoqin_query_reports(
     client: httpx.AsyncClient,
     *,
@@ -76,8 +121,7 @@ async def zoqin_query_reports(
     }
     headers = {**_ZOQIN_REQUEST_HEADERS, "Content-Type": "application/json"}
     url = _zoqin_https_url(location_url)
-    resp = await client.post(url, json=body, headers=headers)
-    resp.raise_for_status()
+    resp = await _post_json_with_retry(client, url=url, body=body, headers=headers)
     payload = resp.json()
 
     out: Dict[str, List[Dict[str, Any]]] = {sn: [] for sn in sn_list}
