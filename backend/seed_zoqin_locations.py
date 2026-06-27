@@ -48,7 +48,7 @@ def _parse_day(value: Optional[str]) -> datetime:
 
 
 def _day_bounds(day: datetime) -> Tuple[str, str]:
-    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    start = day.replace(hour=00, minute=0, second=0, microsecond=0)
     end = day.replace(hour=23, minute=59, second=59, microsecond=0)
     return start.strftime("%Y-%m-%dT%H:%M:%S"), end.strftime("%Y-%m-%dT%H:%M:%S")
 
