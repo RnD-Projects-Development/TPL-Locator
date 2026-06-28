@@ -1,18 +1,7 @@
 """
 seed_zoqin_locations.py
 -----------------------
-Fetch today's Zoqin GPS history (no login required) and upsert into MongoDB
-`locations` collection.
-
-API: POST https://www.zoqin.com/ZQGPS/Device/location/query
-
-Usage (from backend/):
-    python seed_zoqin_locations.py
-    python seed_zoqin_locations.py --sn 2UXqG9nof
-    python seed_zoqin_locations.py --date 2026-06-26
-    python seed_zoqin_locations.py --dry-run
-
-Requires MONGO_URI in backend/.env (same as the main app).
+Fetch Zoqin GPS history using UTC and insert with +5 hours (PKT) offset.
 """
 
 from __future__ import annotations
@@ -22,7 +11,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -42,15 +31,23 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_day(value: Optional[str]) -> datetime:
+    """Return UTC midnight for the given date or today."""
     if value:
-        return datetime.strptime(value, "%Y-%m-%d")
-    return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        dt = datetime.strptime(value, "%Y-%m-%d")
+        return dt.replace(tzinfo=timezone.utc)
+    # Today in UTC
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _day_bounds(day: datetime) -> Tuple[str, str]:
-    start = day.replace(hour=00, minute=0, second=0, microsecond=0)
+    """Return start and end in UTC format for Zoqin API."""
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
     end = day.replace(hour=23, minute=59, second=59, microsecond=0)
-    return start.strftime("%Y-%m-%dT%H:%M:%S"), end.strftime("%Y-%m-%dT%H:%M:%S")
+    
+    return (
+        start.strftime("%Y-%m-%dT%H:%M:%S"),
+        end.strftime("%Y-%m-%dT%H:%M:%S")
+    )
 
 
 async def upsert_reports(
@@ -69,6 +66,7 @@ async def upsert_reports(
         lng = float(report.get("longitude") or 0)
         if lat == 0.0 and lng == 0.0:
             continue
+
         if dry_run:
             inserted += 1
             continue
@@ -110,7 +108,7 @@ async def _upsert_location_fast(
     ts_raw: Any,
     time_adjust_hours: float,
 ) -> bool:
-    """Upsert without reverse-geocoding (much faster for bulk backfill)."""
+    """Upsert without reverse-geocoding."""
     timestamp = mongo._parse_citytag_timestamp(ts_raw)
     if timestamp is not None:
         timestamp = timestamp + timedelta(hours=time_adjust_hours)
@@ -152,11 +150,10 @@ async def run(args: argparse.Namespace) -> int:
         print("ERROR: ZOQIN_LOCATION_QUERY_URL not set in backend/.env")
         return 1
 
-    time_adjust_hours = float(
-        settings.get("zoqin_time_adjust_hours", DEFAULT_ZOQIN_TIME_ADJUST_HOURS)
-    )
+    time_adjust_hours = 5.0  # Fixed +5 hours (PKT) as requested
     tpl_email = (settings.get("vendor_admin_tpl_email") or "tpl@gmail.com").strip().lower()
-    day = _parse_day(args.date)
+
+    day = _parse_day(args.date)                    # UTC day
     day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day.replace(hour=23, minute=59, second=59, microsecond=0)
     start_s, end_s = _day_bounds(day)
@@ -165,13 +162,10 @@ async def run(args: argparse.Namespace) -> int:
         sns = [args.sn.strip()]
     else:
         devices = load_devices(tpl_admin_email=tpl_email)
-        sns = sorted(
-            {
-                d["sn"]
-                for d in devices
-                if d.get("sn") and normalize_vendor(d.get("vendor")) == "zoqin"
-            }
-        )
+        sns = sorted({
+            d["sn"] for d in devices
+            if d.get("sn") and normalize_vendor(d.get("vendor")) == "zoqin"
+        })
 
     if not sns:
         print("No Zoqin serial numbers found.")
@@ -185,14 +179,16 @@ async def run(args: argparse.Namespace) -> int:
     total_upserted = 0
     failed_sns = 0
 
-    print(f"Date     : {day.strftime('%Y-%m-%d')} ({start_s} -> {end_s})")
+    print(f"Date     : {day.strftime('%Y-%m-%d')} (UTC)")
+    print(f"Range    : {start_s} → {end_s} UTC")
     print(f"Devices  : {len(sns)}")
     print(f"UID      : {uid}")
+    print(f"Time Offset (DB): +{time_adjust_hours} hours (PKT)")
     print(f"Dry run  : {args.dry_run}")
     print(f"Geocode  : {args.geocode}")
     print()
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:   # Increased timeout
 
         async def _process_sn(sn: str) -> Tuple[int, int, bool]:
             async with sem:
@@ -228,24 +224,20 @@ async def run(args: argparse.Namespace) -> int:
 
     print()
     print(
-        f"Done. devices={len(sns)} fetched={total_reports} "
-        f"upserted={total_upserted} failed={failed_sns}"
+        f"Done. devices={len(sns)} | fetched={total_reports} | "
+        f"upserted={total_upserted} | failed={failed_sns}"
     )
     return 0 if failed_sns == 0 else 2
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import today's Zoqin locations into MongoDB")
-    parser.add_argument("--sn", help="Single device serial (default: all Zoqin devices in registry)")
-    parser.add_argument("--date", help="Day to import (YYYY-MM-DD, default: today)")
-    parser.add_argument("--concurrency", type=int, default=8, help="Parallel SN fetches (default: 8)")
-    parser.add_argument("--dry-run", action="store_true", help="Fetch only; do not write to MongoDB")
-    parser.add_argument(
-        "--geocode",
-        action="store_true",
-        help="Reverse-geocode each point (slow; off by default for bulk import)",
-    )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    parser = argparse.ArgumentParser(description="Import Zoqin locations into MongoDB (UTC fetch + PKT insert)")
+    parser.add_argument("--sn", help="Single device serial")
+    parser.add_argument("--date", help="Day to import (YYYY-MM-DD)")
+    parser.add_argument("--concurrency", type=int, default=6, help="Parallel fetches (default: 6)")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--geocode", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(
