@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield, Layers, Link2, Unlink } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { WifiOff, Battery, Activity, Users, Shield, Layers, Link2, Unlink } from 'lucide-react'
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, RadialBarChart, RadialBar, PolarAngleAxis, PolarRadiusAxis, Label,
+} from 'recharts'
 import { toPng } from 'html-to-image'
 import jsPDF from 'jspdf'
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
@@ -32,7 +35,6 @@ function usePanelHover() {
   const style = {
     boxShadow:  hov ? PANEL_SHADOW_HOVER : PANEL_SHADOW,
     transition: 'box-shadow 0.22s ease, transform 0.22s ease',
-    transform:  hov ? 'translateY(-2px)' : 'translateY(0)',
   }
   return { bind, style }
 }
@@ -50,29 +52,17 @@ const ChartTip = ({ active, payload, label }) => {
   )
 }
 
-/* ── Battery donut colors: High / Medium / Low ─────────────────── */
-const BATT_COLORS = ['#4ade80', '#F59E0B', '#f87171']
+/* ── Shared design tokens (one cohesive card system) ────────────── */
+const BATT_COLORS = ['#4ade80', '#F59E0B', '#f87171']   // High / Medium / Low
+const BAR_COLORS  = ['#3A86FF', '#4CAF50', '#F4A261', '#8E7DBE', '#2A9D8F']
 
-/* ── Insight card shell — identical to existing panel cards ─────── */
-const INSIGHT_CARD = {
-  ...panel,
-  display: 'flex',
-  flexDirection: 'column',
-  position: 'relative',
-}
-const CARD_HDR = {
-  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  gap: '10px', padding: '18px 20px 12px', flexShrink: 0,
-}
-const CARD_TTL = {
-  fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em',
-}
-const CARD_SUB = { fontSize: '11px', color: '#E0E0E0', marginTop: '3px' }
-const EMPTY_MSG = {
-  color: '#D0D0D0', fontSize: '12px',
-  textAlign: 'center', padding: '20px 0', margin: 0,
-}
-const BAR_COLORS = ['#3A86FF', '#4CAF50', '#F4A261', '#8E7DBE', '#2A9D8F']
+const CARD_ROOT = { ...panel, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }
+const CARD_HDR  = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '14px 18px 8px', flexShrink: 0 }
+const CARD_TTL  = { fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }
+const CARD_SUB  = { fontSize: '11px', color: '#E0E0E0', marginTop: '2px' }
+const SECTION_HDR = { fontSize: 10, fontWeight: 700, color: '#909090', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 10 }
+const EMPTY_MSG = { color: '#D0D0D0', fontSize: '12px', textAlign: 'center', padding: '20px 0', margin: 0 }
+const VIEW_ALL_BTN = { background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 700, padding: 0, transition: 'color 0.15s' }
 
 function fmtRelTime(ts) {
   if (!ts) return '—'
@@ -87,223 +77,285 @@ function fmtRelTime(ts) {
   } catch { return '—' }
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   FLEET HEALTH SNAPSHOT — 4-column system diagnostics card for admin
-   No filters — always shows live fleet state at a glance
-   ══════════════════════════════════════════════════════════════════ */
-function FleetSnapshotCard({ devices, locations, activityData, zones, summary }) {
-  const { bind, style: hoverStyle } = usePanelHover()
-
-  const total     = Number(summary?.total)  || devices.length
-  const onlineNow = Number(summary?.online) || 0
-  const onlineRate = total > 0 ? Math.round((onlineNow / total) * 100) : 0
-  const upColor    = '#4ade80'
-
-  const batteryWarn = useMemo(() =>
-    Object.values(locations).filter(loc => loc?.batteryStatus != null && loc.batteryStatus < 20).length
-  , [locations])
-
-  const longOffline = useMemo(() => {
-    const cutoff = 7 * 24 * 60 * 60 * 1000
-    return devices.filter(d => {
-      const loc = locations?.[d.sn]
-      const ts  = loc?.timestamp ?? loc?.time ?? loc?.locTime ?? d.last_seen ?? d.dataRetrievalTime
-      return ts && (Date.now() - new Date(ts).getTime()) > cutoff
-    }).length
-  }, [devices, locations])
-
-  const inZone = useMemo(() =>
-    devices.filter(d => d.fence_zone_ids?.length > 0).length
-  , [devices])
-
-  const locatorCount = Number(summary?.locators) || 0
-  const stickerCount = Number(summary?.stickers) || 0
-  const typeTotal    = locatorCount + stickerCount || 1
-  const locPct       = Math.round((locatorCount / typeTotal) * 100)
-
-  const { topZones, extraZones } = useMemo(() => {
-    const zoneCount = {}
-    devices.forEach(d => {
-      const dzones = d.fence_zone_ids?.length ? d.fence_zone_ids : (d.zone ? [d.zone] : [])
-      dzones.forEach(zid => { zoneCount[zid] = (zoneCount[zid] || 0) + 1 })
-    })
-    const active = zones
-      .map(z => ({ name: z.name || z.beat || 'Unnamed', count: zoneCount[z.zone_id] || 0 }))
-      .filter(z => z.count > 0)
-      .sort((a, b) => b.count - a.count)
-    return { topZones: active.slice(0, 4), extraZones: Math.max(0, active.length - 4) }
-  }, [zones, devices])
-
-  const topDevices = useMemo(() =>
-    [...devices]
-      .map(d => ({ sn: d.sn, pts: activityData?.[d.sn]?.length || 0 }))
-      .sort((a, b) => b.pts - a.pts)
-      .slice(0, 4)
-  , [devices, activityData])
-
-  const DIVIDER = { borderRight: '1px solid rgba(255,255,255,0.06)' }
-  const SECTION_HDR = { fontSize: 10, fontWeight: 700, color: '#909090', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 14 }
-
+/* ── Horizontal wrapping legend: rounded-square swatch + label, centered ── */
+function ChipLegend({ items }) {
   return (
-    <div {...bind} style={{ ...INSIGHT_CARD, ...hoverStyle }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: '6px 14px', marginTop: 8 }}>
+      {items.map((it, i) => (
+        <span key={it.key ?? i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: it.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: '#D8D8D8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>
+            {it.label}
+            {it.value != null && <span style={{ color: 'rgba(255,255,255,0.45)', marginLeft: 5, fontWeight: 700 }}>{it.value}</span>}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CELL 5 — METRICS STACK (Total Devices · Users · Fences)
+   Three metric rows in one card, evenly distributed to fill the cell.
+   ══════════════════════════════════════════════════════════════════ */
+function MetricsStackCard({ metrics }) {
+  const { bind, style: hoverStyle } = usePanelHover()
+  return (
+    <div {...bind} style={{ ...CARD_ROOT, justifyContent: 'space-around', padding: '6px 0', ...hoverStyle }}>
+      {metrics.map((m, i) => (
+        <div
+          key={m.label}
+          onClick={m.onClick}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px',
+            cursor: m.onClick ? 'pointer' : 'default',
+            borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)',
+          }}
+        >
+          <div style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <m.icon style={{ width: 17, height: 17, color: m.color }} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1 }}>{m.value}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#E2E2E2', marginTop: 3 }}>{m.label}</div>
+            {m.sub && <div style={{ fontSize: 10, color: '#BBBBBB', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CELL 6 — RECENT TREND (hourly activity area chart)
+   ══════════════════════════════════════════════════════════════════ */
+function RecentTrendPanel({ generalBins, peakLabel }) {
+  const { bind, style: hoverStyle } = usePanelHover()
+  return (
+    <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
       <div style={CARD_HDR}>
-        <div>
-          <div style={CARD_TTL}>Locator Health Snapshot</div>
-          <div style={CARD_SUB}>Live system diagnostics</div>
-        </div>
+        <div style={CARD_TTL}>Recent Trend</div>
+        <span style={{ fontSize:'11px', fontWeight:700, color:'#C44E54', background:'rgba(164,44,50,0.12)', border:'1px solid rgba(164,44,50,0.22)', borderRadius:'6px', padding:'3px 10px' }}>
+          {peakLabel}
+        </span>
       </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', padding: '2px 0 20px' }}>
-
-        {/* ── Section 1: Uptime ── */}
-        <div style={{ padding: '4px 24px 4px 20px', ...DIVIDER }}>
-          <div style={SECTION_HDR}>Fleet Uptime</div>
-          <div style={{ fontSize: 52, fontWeight: 800, color: '#4ade80', lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
-          <div style={{ fontSize: 12, color: '#C0C0C0', marginTop: 6 }}>{onlineNow} of {total} online</div>
-          <div style={{ marginTop: 14, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${onlineRate}%`, background: upColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
-          </div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', marginTop: 6 }}>
-            {onlineRate >= 70 ? 'Fleet healthy' : onlineRate >= 40 ? 'Needs attention' : 'Critical — many offline'}
-          </div>
-        </div>
-
-        {/* ── Section 2: Critical Watches ── */}
-        <div style={{ padding: '4px 24px 4px', ...DIVIDER }}>
-          <div style={SECTION_HDR}>Critical Watches</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[
-              { label: 'Battery (Less than 20%)',  value: batteryWarn,  warn: batteryWarn > 0,  color: batteryWarn > 0 ? '#F59E0B' : '#4ade80' },
-              { label: 'Offline (More than 7 days)', value: longOffline, warn: longOffline > 0,  color: longOffline > 0  ? '#f87171' : '#4ade80' },
-              { label: 'Fences',  value: inZone,        warn: false,            color: '#22D3EE' },
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: item.color, display: 'block', flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: '#D0D0D0' }}>{item.label}</span>
-                </div>
-                <span style={{ fontSize: 15, fontWeight: 800, color: item.color, flexShrink: 0 }}>{item.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Section 3: Device Mix ── */}
-        <div style={{ padding: '4px 24px 4px', ...DIVIDER }}>
-          <div style={SECTION_HDR}>Device Mix</div>
-          {/* Segmented bar */}
-          <div style={{ display: 'flex', height: 7, borderRadius: 4, overflow: 'hidden', marginBottom: 16 }}>
-            <div style={{ width: `${locPct}%`, background: '#00B4D8', transition: 'width 0.5s ease' }} />
-            <div style={{ flex: 1, background: '#FFB703' }} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[
-              { label: 'Locators',       value: locatorCount, color: '#00B4D8', pct: locPct },
-              { label: 'Smart Stickers', value: stickerCount, color: '#FFB703', pct: 100 - locPct },
-            ].map(item => (
-              <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, display: 'block', flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: '#D0D0D0' }}>{item.label}</span>
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', fontFamily: 'monospace' }}>{item.pct}%</span>
-                </div>
-                <span style={{ fontSize: 15, fontWeight: 800, color: item.color }}>{item.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Section 4: Zone Pizza Chart or Top Devices ── */}
-        <div style={{ padding: '4px 20px 4px 24px' }}>
-          <div style={SECTION_HDR}>Top Active Zones</div>
-          {topZones.length > 0 ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              {/* Legend on left */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 0 }}>
-                {topZones.map((z, i) => {
-                  const totalCount = topZones.reduce((s, x) => s + x.count, 0)
-                  const pct = Math.round((z.count / totalCount) * 100)
-                  const color = BAR_COLORS[i % BAR_COLORS.length]
-                  return (
-                    <div key={z.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'block', flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, color: '#D0D0D0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{z.name}</span>
-                      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 700, flexShrink: 0 }}>{pct}%</span>
-                    </div>
-                  )
-                })}
-                {extraZones > 0 && (
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', paddingLeft: 12, fontStyle: 'italic' }}>
-                    +{extraZones} more zone{extraZones !== 1 ? 's' : ''}
-                  </div>
-                )}
-              </div>
-              {/* Pie chart on right */}
-              <div style={{ flex: '0 0 90px', minWidth: 0, overflow: 'hidden' }}>
-                <ResponsiveContainer width="100%" height={90}>
-                  <PieChart>
-                    <Pie
-                      data={topZones}
-                      dataKey="count"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={42}
-                      paddingAngle={topZones.length > 1 ? 3 : 0}
-                      startAngle={90}
-                      endAngle={-270}
-                      stroke="none"
-                      isAnimationActive={false}
-                    >
-                      {topZones.map((z, i) => (
-                        <Cell key={z.name} fill={BAR_COLORS[i % BAR_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      cursor={false}
-                      content={({ active, payload }) => {
-                        if (!active || !payload?.length) return null
-                        const z = payload[0].payload
-                        const color = BAR_COLORS[topZones.indexOf(z) % BAR_COLORS.length]
-                        const pct = Math.round((z.count / topZones.reduce((s, x) => s + x.count, 0)) * 100)
-                        return (
-                          <div style={{ background: '#161616', border: `1px solid ${color}40`, borderRadius: 8, padding: '8px 12px', pointerEvents: 'none', boxShadow: `0 4px 16px rgba(0,0,0,0.5)` }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{z.name}</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
-                              <span style={{ fontSize: 11, color: color, fontWeight: 700 }}>{z.count} device{z.count !== 1 ? 's' : ''}</span>
-                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginLeft: 2 }}>{pct}%</span>
-                            </div>
-                          </div>
-                        )
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {topDevices.map((d, i) => (
-                <div key={d.sn} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: BAR_COLORS[i % BAR_COLORS.length], display: 'block', flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, color: '#D0D0D0', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.sn}</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: BAR_COLORS[i % BAR_COLORS.length], flexShrink: 0 }}>{d.pts} pts</span>
-                </div>
-              ))}
-              {topDevices.every(d => d.pts === 0) && (
-                <p style={EMPTY_MSG}>No activity data yet</p>
-              )}
-            </div>
-          )}
-        </div>
-
+      <div style={{ flex: 1, minHeight: 0, padding: '0 14px 12px' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={generalBins} margin={{ top:8, right:4, bottom:0, left:-20 }}>
+            <defs>
+              <linearGradient id="redGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor="#A72C32" stopOpacity={0.35} />
+                <stop offset="95%" stopColor="#A72C32" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="1 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <XAxis dataKey="hour" ticks={[0,4,8,12,16,20]} tickFormatter={h => `${String(h).padStart(2,'0')}h`}
+              tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
+            <Tooltip content={<ChartTip />} />
+            <Area
+              type="monotone"
+              dataKey="count"
+              name="Detections"
+              stroke="#C44E54"
+              strokeWidth={2.5}
+              fill="url(#redGrad)"
+              dot={false}
+              activeDot={{ r:5, fill:'#E05555', stroke:'rgba(200,50,50,0.4)', strokeWidth:4 }}
+              style={{ filter:'drop-shadow(0 0 6px rgba(196,78,84,0.6))' }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
     </div>
   )
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   RECENT ACTIVITY PANEL — filtered table, max 8 rows, no scroll
+   BATTERY — radial-stacked half-donut (High / Medium / Low)
+   ══════════════════════════════════════════════════════════════════ */
+function BatteryRadial({ batteryTiers }) {
+  if (batteryTiers.noData) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100 }}>
+        <div style={{ textAlign: 'center' }}>
+          <Battery style={{ width: 24, height: 24, color: '#A0A0A0', margin: '0 auto 6px' }} />
+          <div style={{ fontSize: 11, color: '#B8B8B8' }}>Awaiting data</div>
+        </div>
+      </div>
+    )
+  }
+  const total = batteryTiers.total
+  const data  = [{ high: batteryTiers.high, medium: batteryTiers.medium, low: batteryTiers.low }]
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 96 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RadialBarChart data={data} startAngle={180} endAngle={0} innerRadius="58%" outerRadius="100%" barSize={15}>
+            <PolarAngleAxis type="number" domain={[0, total || 1]} tick={false} axisLine={false} />
+            <RadialBar dataKey="high"   stackId="a" cornerRadius={4} fill={BATT_COLORS[0]} />
+            <RadialBar dataKey="medium" stackId="a" cornerRadius={4} fill={BATT_COLORS[1]} />
+            <RadialBar dataKey="low"    stackId="a" cornerRadius={4} fill={BATT_COLORS[2]} />
+            <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+              <Label content={({ viewBox }) => {
+                if (viewBox && 'cx' in viewBox) {
+                  return (
+                    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle">
+                      <tspan x={viewBox.cx} y={viewBox.cy - 4} fill="#FFFFFF" style={{ fontSize: 22, fontWeight: 800 }}>{total}</tspan>
+                      <tspan x={viewBox.cx} y={viewBox.cy + 13} fill="#B8B8B8" style={{ fontSize: 9 }}>reporting</tspan>
+                    </text>
+                  )
+                }
+                return null
+              }} />
+            </PolarRadiusAxis>
+          </RadialBarChart>
+        </ResponsiveContainer>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 4 }}>
+        {[
+          { name: 'High',   value: batteryTiers.high,   color: BATT_COLORS[0] },
+          { name: 'Medium', value: batteryTiers.medium, color: BATT_COLORS[1] },
+          { name: 'Low',    value: batteryTiers.low,    color: BATT_COLORS[2] },
+        ].map(s => (
+          <div key={s.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: s.color, display: 'block', flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: '#D8D8D8' }}>{s.name}</span>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#F5F5F5', flexShrink: 0 }}>{s.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ALERTS — bubble / network field (Critical / Battery / Fence)
+   ══════════════════════════════════════════════════════════════════ */
+const BUBBLE_MIN_R = 30
+const BUBBLE_MAX_R = 54
+function bubbleRadius(count, maxCount) {
+  if (!maxCount || maxCount <= 0) return BUBBLE_MIN_R
+  const frac = Math.log2(1 + count) / Math.log2(1 + maxCount)
+  return Math.round(BUBBLE_MIN_R + (BUBBLE_MAX_R - BUBBLE_MIN_R) * frac)
+}
+function fmtPct(value, total) {
+  if (!total || total <= 0 || value <= 0) return '0%'
+  const pct = (value / total) * 100
+  return `${pct.toFixed(1).replace(/\.0$/, '')}%`
+}
+
+// Single floating bubble. Three nested layers keep transforms separate:
+// position (center on anchor) · float (idle bob) · scale (hover).
+function AlertBubble({ data, radius, pct, delay }) {
+  const [hov, setHov] = useState(false)
+  const d = radius * 2
+  const small = radius < 42
+  const numFont = Math.min(22, Math.max(13, Math.round(radius * 0.5)))
+  return (
+    <div style={{ position: 'absolute', left: `${data.x}%`, top: `${data.y}%`, transform: 'translate(-50%, -50%)', zIndex: 2 }}>
+      <div style={{ animation: `alertBubbleFloat 6s ease-in-out ${delay}s infinite` }}>
+        <div
+          onMouseEnter={() => setHov(true)}
+          onMouseLeave={() => setHov(false)}
+          style={{
+            width: d, height: d, borderRadius: '50%',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: `radial-gradient(circle at 30% 30%, ${data.light}, ${data.base})`,
+            border: `1px solid ${data.border}`,
+            backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+            boxShadow: hov ? `0 0 42px ${data.glowHover}, 0 8px 26px rgba(0,0,0,0.45)` : `0 0 22px ${data.glow}`,
+            transform: hov ? 'scale(1.08)' : 'scale(1)',
+            transition: 'transform 0.25s ease, box-shadow 0.25s ease',
+            cursor: 'default',
+          }}
+        >
+          <div style={{ fontSize: numFont, fontWeight: 800, color: '#FFFFFF', lineHeight: 1, letterSpacing: '-0.02em' }}>{data.value}</div>
+          <div style={{ fontSize: small ? 9 : 11, fontWeight: 700, color: data.text, marginTop: 2 }}>{pct}</div>
+          <div style={{ fontSize: small ? 8 : 10, fontWeight: 600, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 1 }}>{data.label}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AlertBubbleField({ stats }) {
+  const bubbles = [
+    { key: 'critical', label: 'Critical', value: stats.critical, x: 42, y: 32,
+      base: '#7F1D1D', light: '#C2433F', border: 'rgba(248,113,113,0.55)', text: '#fca5a5',
+      glow: 'rgba(239,68,68,0.32)', glowHover: 'rgba(239,68,68,0.55)' },
+    { key: 'battery',  label: 'Battery',  value: stats.battery,  x: 73, y: 70,
+      base: '#5A3D08', light: '#B5841F', border: 'rgba(245,158,11,0.55)', text: '#FCD34D',
+      glow: 'rgba(245,158,11,0.28)', glowHover: 'rgba(245,158,11,0.50)' },
+    { key: 'fence',    label: 'Fence',    value: stats.fence,    x: 26, y: 72,
+      base: '#0B3A52', light: '#1E7FA8', border: 'rgba(34,211,238,0.55)', text: '#7DD3FC',
+      glow: 'rgba(34,211,238,0.26)', glowHover: 'rgba(34,211,238,0.48)' },
+  ]
+  const maxCount = Math.max(0, ...bubbles.map(b => b.value))
+  const [critical, battery, fence] = bubbles
+
+  if (stats.total === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 12px', borderRadius: 10, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
+        <Shield style={{ width: 16, height: 16, color: '#4ade80', flexShrink: 0 }} />
+        <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>All clear — no active alerts</span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      position: 'relative', flex: 1, minHeight: 160,
+      backgroundImage:
+        'radial-gradient(circle at 50% 40%, rgba(167,44,50,0.10), transparent 60%),' +
+        'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),' +
+        'linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+      backgroundSize: '100% 100%, 28px 28px, 28px 28px',
+    }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 0, pointerEvents: 'none' }}>
+        <div style={{ fontSize: 26, fontWeight: 800, color: 'rgba(255,255,255,0.05)', letterSpacing: '0.04em' }}>Alerts</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.05)' }}>{stats.total} Total</div>
+      </div>
+      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
+        <line x1={`${critical.x}%`} y1={`${critical.y}%`} x2={`${fence.x}%`}   y2={`${fence.y}%`}   stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+        <line x1={`${critical.x}%`} y1={`${critical.y}%`} x2={`${battery.x}%`} y2={`${battery.y}%`} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+        <line x1={`${fence.x}%`}    y1={`${fence.y}%`}    x2={`${battery.x}%`} y2={`${battery.y}%`} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+      </svg>
+      {bubbles.map((b, i) => (
+        <AlertBubble key={b.key} data={b} radius={bubbleRadius(b.value, maxCount)} pct={fmtPct(b.value, stats.total)} delay={-i * 1.8} />
+      ))}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ALERTS SUMMARY — dedicated bubble card (bottom of the 4th column)
+   ══════════════════════════════════════════════════════════════════ */
+function AlertsCard({ stats, onView }) {
+  const { bind, style: hoverStyle } = usePanelHover()
+  return (
+    <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
+      <style>{`@keyframes alertBubbleFloat { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }`}</style>
+      <div style={{ ...CARD_HDR, zIndex: 3 }}>
+        <div style={CARD_TTL}>Alerts Summary</div>
+        <button onClick={onView} style={VIEW_ALL_BTN}
+          onMouseEnter={e => { e.currentTarget.style.color = '#fca5a5' }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)' }}
+        >
+          View all →
+        </button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '0 18px 16px' }}>
+        <AlertBubbleField stats={stats} />
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CELL 8 — RECENT ACTIVITY (filtered table, fills its cell)
    ══════════════════════════════════════════════════════════════════ */
 function RecentActivityPanel({ activityRows, totalActive }) {
   const { bind, style: hoverStyle } = usePanelHover()
@@ -324,14 +376,13 @@ function RecentActivityPanel({ activityRows, totalActive }) {
   }, [activityRows, activeRows, search, isSearching])
 
   const trueTotal = totalActive ?? activeRows.length
-  const overflow  = !isSearching ? Math.max(0, trueTotal - 6) : 0
 
   return (
-    <div {...bind} style={{ ...panel, overflow: 'hidden', ...hoverStyle }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 12 }}>
+    <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 12, flexShrink: 0 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>Recent Activity</div>
-          <div style={{ fontSize: '11px', color: '#E0E0E0', marginTop: '2px' }}>
+          <div style={CARD_TTL}>Recent Activity</div>
+          <div style={CARD_SUB}>
             {isSearching
               ? `${visibleRows.length} result${visibleRows.length !== 1 ? 's' : ''} for "${search.trim()}"`
               : trueTotal === 0
@@ -353,12 +404,12 @@ function RecentActivityPanel({ activityRows, totalActive }) {
           onBlur={e  => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = '140px' }}
         />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr', padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr', padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
         {['Device Name', 'User / Label', 'Status', 'Last Reported'].map(h => (
           <span key={h} style={{ fontSize: '9px', fontWeight: 700, color: '#B8B8B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</span>
         ))}
       </div>
-      <div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {visibleRows.length === 0 ? (
           <div style={{ padding: '32px', textAlign: 'center', color: '#B8B8B8', fontSize: '13px' }}>
             {isSearching ? `No results for "${search.trim()}"` : 'No active devices'}
@@ -390,312 +441,168 @@ function RecentActivityPanel({ activityRows, totalActive }) {
             <span style={{ fontSize: '12px', color: '#D4D4D4', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{fmtRelTime(row.lastSeen)}</span>
           </div>
         ))}
-        {overflow > 0 && (
-          <div style={{ padding: '10px 20px', fontSize: '11px', color: 'rgba(255,255,255,0.35)', textAlign: 'center', borderTop: '1px solid rgba(255,255,255,0.04)', fontStyle: 'italic' }}>
-            +{overflow} more active · search by device ID or user name to find them
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CELL 9 — FLEET UPTIME + DEVICE MIX (from summary)
+   ══════════════════════════════════════════════════════════════════ */
+function FleetMixCard({ summary }) {
+  const { bind, style: hoverStyle } = usePanelHover()
+
+  const total       = Number(summary?.total)  || 0
+  const onlineNow   = Number(summary?.online) || 0
+  const onlineRate  = total > 0 ? Math.round((onlineNow / total) * 100) : 0
+  const locatorCount = Number(summary?.locators) || 0
+  const stickerCount = Number(summary?.stickers) || 0
+  const typeTotal    = locatorCount + stickerCount || 1
+  const locPct       = Math.round((locatorCount / typeTotal) * 100)
+
+  return (
+    <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
+      <div style={CARD_HDR}>
+        <div style={CARD_TTL}>Fleet Health</div>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '4px 18px 16px' }}>
+        {/* Fleet Uptime — equal top half */}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={SECTION_HDR}>Fleet Uptime</div>
+          <div style={{ fontSize: 42, fontWeight: 800, color: '#4ade80', lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
+          <div style={{ fontSize: 12, color: '#C0C0C0', marginTop: 5 }}>{onlineNow} of {total} online</div>
+          <div style={{ marginTop: 9, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${onlineRate}%`, background: '#4ade80', borderRadius: 3, transition: 'width 0.5s ease' }} />
           </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   CRITICAL ALERT STRIP — alert banner with hover shadow
-   ══════════════════════════════════════════════════════════════════ */
-function CriticalAlertStrip({ alerts, onView }) {
-  const { bind, style: hoverStyle } = usePanelHover()
-  const critical = alerts.filter(a => !a.isRead && a.severity === 'critical')
-  const PREVIEW = 3
-  const names   = critical.map(a => a.deviceName || a.deviceId)
-  const preview = names.slice(0, PREVIEW).join(', ')
-  const more    = names.length - PREVIEW
-  return (
-    <div {...bind} style={{ ...panel, padding:'12px 20px', display:'flex', alignItems:'center', gap:'12px', borderColor:'rgba(239,68,68,0.25)', background:'rgba(239,68,68,0.06)', ...hoverStyle }}>
-      <AlertOctagon style={{ width:'18px', height:'18px', color:'#f87171', flexShrink:0 }} />
-      {/* Single fixed-height line — truncates with ellipsis no matter how many alerts */}
-      <div style={{ flex:1, minWidth:0, fontSize:'13px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-        <span style={{ color:'#fca5a5', fontWeight:600 }}>
-          {names.length} Critical Alert{names.length !== 1 ? 's' : ''}:{' '}
-        </span>
-        <span style={{ color:'#CFCFCF' }}>
-          {preview}{more > 0 ? `, +${more} more` : ''} require immediate attention
-        </span>
-      </div>
-      <button
-        onClick={onView}
-        style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'6px 14px', borderRadius:8,
-          background:'#A72C32', border:'1px solid #8B2328', color:'#FFFFFF',
-          fontSize:12, fontWeight:700, cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}
-        onMouseEnter={e => { e.currentTarget.style.background='#8B2328' }}
-        onMouseLeave={e => { e.currentTarget.style.background='#A72C32' }}
-      >
-        View all →
-      </button>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   RECENT TREND PANEL — hourly activity area chart
-   ══════════════════════════════════════════════════════════════════ */
-function RecentTrendPanel({ generalBins, peakLabel }) {
-  const { bind, style: hoverStyle } = usePanelHover()
-  return (
-    <div {...bind} style={{ ...panel, padding:'18px 20px', display:'flex', flexDirection:'column', ...hoverStyle }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }}>
-        <div style={{ fontSize:'15px', fontWeight:700, color:'#FFFFFF', letterSpacing:'-0.01em' }}>Recent Trend</div>
-        <span style={{ fontSize:'11px', fontWeight:700, color:'#C44E54', background:'rgba(164,44,50,0.12)', border:'1px solid rgba(164,44,50,0.22)', borderRadius:'6px', padding:'3px 10px' }}>
-          {peakLabel}
-        </span>
-      </div>
-      <div style={{ flex: 1, minHeight: 170 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={generalBins} margin={{ top:4, right:4, bottom:0, left:-20 }}>
-            <defs>
-              <linearGradient id="redGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%"  stopColor="#A72C32" stopOpacity={0.35} />
-                <stop offset="95%" stopColor="#A72C32" stopOpacity={0} />
-              </linearGradient>
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
-                <feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge>
-              </filter>
-            </defs>
-            <CartesianGrid strokeDasharray="1 4" stroke="rgba(255,255,255,0.05)" vertical={false} />
-            <XAxis dataKey="hour" ticks={[0,4,8,12,16,20]} tickFormatter={h => `${String(h).padStart(2,'0')}h`}
-              tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill:'#B8B8B8', fontSize:10 }} axisLine={false} tickLine={false} />
-            <Tooltip content={<ChartTip />} />
-            <Area
-              type="monotone"
-              dataKey="count"
-              name="Detections"
-              stroke="#C44E54"
-              strokeWidth={2.5}
-              fill="url(#redGrad)"
-              dot={false}
-              activeDot={{ r:5, fill:'#E05555', stroke:'rgba(200,50,50,0.4)', strokeWidth:4 }}
-              style={{ filter:'drop-shadow(0 0 6px rgba(196,78,84,0.6))' }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   BATTERY STATUS PANEL — donut chart with hover shadow
-   ══════════════════════════════════════════════════════════════════ */
-function BatteryStatusPanel({ batteryTiers }) {
-  const { bind, style: hoverStyle } = usePanelHover()
-  return (
-    <div {...bind} style={{ ...panel, padding:'18px 20px', display:'flex', flexDirection:'column', ...hoverStyle }}>
-      <div style={{ fontSize:'15px', fontWeight:700, color:'#FFFFFF', letterSpacing:'-0.01em', marginBottom:'3px' }}>Battery Status</div>
-      <div style={{ fontSize:'11px', color:'#E0E0E0', marginBottom:'10px' }}>
-        {batteryTiers.noData ? 'No location data yet' : `${batteryTiers.total} devices reporting`}
-      </div>
-      <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'center', gap:'10px' }}>
-      {batteryTiers.noData ? (
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ textAlign:'center' }}>
-            <Battery style={{ width:'28px', height:'28px', color:'#A0A0A0', margin:'0 auto 8px' }} />
-            <div style={{ fontSize:'12px', color:'#B8B8B8' }}>Awaiting location data</div>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', marginTop: 6 }}>
+            {onlineRate >= 70 ? 'Fleet healthy' : onlineRate >= 40 ? 'Needs attention' : 'Critical — many offline'}
           </div>
         </div>
-      ) : (
-        <ResponsiveContainer width="100%" height={170}>
-          <PieChart>
-            <Pie
-              data={[
-                { name: 'High (≥60%)',     value: batteryTiers.high },
-                { name: 'Medium (20–59%)', value: batteryTiers.medium },
-                { name: 'Low (<20%)',      value: batteryTiers.low },
-              ]}
-              cx="50%" cy="50%"
-              innerRadius={52} outerRadius={82}
-              paddingAngle={3} dataKey="value" strokeWidth={0}
-            >
-              {BATT_COLORS.map((color, i) => <Cell key={i} fill={color} />)}
-            </Pie>
-            <Tooltip contentStyle={{ background:'rgba(12,12,12,0.95)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:'10px', fontSize:'12px', color:'#fff' }} />
-          </PieChart>
-        </ResponsiveContainer>
-      )}
-      <div style={{ display:'flex', flexDirection:'column', gap:'7px' }}>
-        {[
-          { name: 'High',   range: 'atleast 60%',  value: batteryTiers.high,   color: BATT_COLORS[0] },
-          { name: 'Medium', range: '20 to 50%', value: batteryTiers.medium, color: BATT_COLORS[1] },
-          { name: 'Low',    range: 'less than 20%',  value: batteryTiers.low,    color: BATT_COLORS[2] },
-        ].map(s => (
-          <div key={s.name} style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-              <span style={{ width:'8px', height:'8px', borderRadius:'50%', background:s.color, display:'block', flexShrink:0 }} />
-              <span style={{ fontSize:'12px', color:'#D8D8D8' }}>{s.name}</span>
-              <span style={{ fontSize:'10px', color:'#B8B8B8', fontFamily:'monospace' }}>{s.range}</span>
+
+        <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '10px 0', flexShrink: 0 }} />
+
+        {/* Device Mix — equal bottom half */}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={SECTION_HDR}>Device Mix</div>
+          <div style={{ display: 'flex', height: 7, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+            <div style={{ width: `${locPct}%`, background: '#00B4D8', transition: 'width 0.5s ease' }} />
+            <div style={{ flex: 1, background: '#FFB703' }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {[
+              { label: 'Locators',       value: locatorCount, color: '#00B4D8', pct: locPct },
+              { label: 'Smart Stickers', value: stickerCount, color: '#FFB703', pct: 100 - locPct },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, display: 'block', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: '#D0D0D0' }}>{item.label}</span>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', fontFamily: 'monospace' }}>{item.pct}%</span>
+                </div>
+                <span style={{ fontSize: 15, fontWeight: 800, color: item.color }}>{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   TOP ACTIVE ZONES + BATTERY — side-by-side card (top of 4th column)
+   ══════════════════════════════════════════════════════════════════ */
+function ZonesBatteryCard({ zones, devices, batteryTiers }) {
+  const { bind, style: hoverStyle } = usePanelHover()
+
+  const topZones = useMemo(() => {
+    const zoneCount = {}
+    devices.forEach(d => {
+      const dzones = d.fence_zone_ids?.length ? d.fence_zone_ids : (d.zone ? [d.zone] : [])
+      dzones.forEach(zid => { zoneCount[zid] = (zoneCount[zid] || 0) + 1 })
+    })
+    return zones
+      .map(z => ({ name: z.name || z.beat || 'Unnamed', count: zoneCount[z.zone_id] || 0 }))
+      .filter(z => z.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+  }, [zones, devices])
+
+  const totalCount = topZones.reduce((s, z) => s + z.count, 0)
+
+  const renderLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+    const RAD = Math.PI / 180
+    const r = innerRadius + (outerRadius - innerRadius) * 0.55
+    const x = cx + r * Math.cos(-midAngle * RAD)
+    const y = cy + r * Math.sin(-midAngle * RAD)
+    return (
+      <text x={x} y={y} fill="#FFFFFF" textAnchor="middle" dominantBaseline="central" style={{ fontSize: 11, fontWeight: 700 }}>
+        {value}
+      </text>
+    )
+  }
+
+  const halfTitle = { ...CARD_TTL, fontSize: 13, marginBottom: 8 }
+
+  return (
+    <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        {/* Top Active Zones */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '14px 12px 14px 16px', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={halfTitle}>Top Active Zones</div>
+          {topZones.length === 0 ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <p style={EMPTY_MSG}>No zone activity yet</p>
             </div>
-            <span style={{ fontSize:'12px', fontWeight:700, color:'#F5F5F5' }}>
-              {batteryTiers.noData ? '—' : s.value}
-            </span>
-          </div>
-        ))}
+          ) : (
+            <div style={{ flex: 1, minHeight: 96 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={topZones} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius="90%"
+                    labelLine={false} label={renderLabel} stroke="none" isAnimationActive={false}>
+                    {topZones.map((z, i) => <Cell key={z.name} fill={BAR_COLORS[i % BAR_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip
+                    cursor={false}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null
+                      const z = payload[0].payload
+                      const color = BAR_COLORS[topZones.indexOf(z) % BAR_COLORS.length]
+                      const pct = totalCount ? Math.round((z.count / totalCount) * 100) : 0
+                      return (
+                        <div style={{ background: '#161616', border: `1px solid ${color}40`, borderRadius: 8, padding: '8px 12px', pointerEvents: 'none', boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{z.name}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
+                            <span style={{ fontSize: 11, color, fontWeight: 700 }}>{z.count} device{z.count !== 1 ? 's' : ''}</span>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginLeft: 2 }}>{pct}%</span>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        {/* Battery */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '14px 16px 14px 12px' }}>
+          <div style={halfTitle}>Battery</div>
+          <BatteryRadial batteryTiers={batteryTiers} />
+        </div>
+        
       </div>
-      </div>
+      
     </div>
   )
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   ALERTS SUMMARY — executive bubble / network visualization of unread
-   alerts. Three bubbles (Critical / Battery / Fence) sized by log-scaled
-   count, connected with faint lines over a subtle gridded backdrop.
+   DASHBOARD — single scrollable page, fixed 4-column grid (2:4:5 rows)
    ══════════════════════════════════════════════════════════════════ */
-
-// Bubble radius: log-scaled against the largest bubble so the biggest
-// category fills MAX and every category stays visible at >= MIN.
-const BUBBLE_MIN_R = 42
-const BUBBLE_MAX_R = 78
-function bubbleRadius(count, maxCount) {
-  if (!maxCount || maxCount <= 0) return BUBBLE_MIN_R
-  const frac = Math.log2(1 + count) / Math.log2(1 + maxCount)
-  return Math.round(BUBBLE_MIN_R + (BUBBLE_MAX_R - BUBBLE_MIN_R) * frac)
-}
-
-function fmtPct(value, total) {
-  if (!total || total <= 0 || value <= 0) return '0%'
-  const pct = (value / total) * 100
-  return `${pct.toFixed(1).replace(/\.0$/, '')}%`
-}
-
-// Single floating bubble. Three nested layers keep transforms separate:
-// position (center on anchor) · float (idle bob) · scale (hover).
-function AlertBubble({ data, radius, pct, delay }) {
-  const [hov, setHov] = useState(false)
-  const d = radius * 2
-  return (
-    <div style={{ position: 'absolute', left: `${data.x}%`, top: `${data.y}%`, transform: 'translate(-50%, -50%)', zIndex: 2 }}>
-      <div style={{ animation: `alertBubbleFloat 6s ease-in-out ${delay}s infinite` }}>
-        <div
-          onMouseEnter={() => setHov(true)}
-          onMouseLeave={() => setHov(false)}
-          style={{
-            width: d, height: d, borderRadius: '50%',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            background: `radial-gradient(circle at 30% 30%, ${data.light}, ${data.base})`,
-            border: `1px solid ${data.border}`,
-            backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            boxShadow: hov ? `0 0 42px ${data.glowHover}, 0 8px 26px rgba(0,0,0,0.45)` : `0 0 25px ${data.glow}`,
-            transform: hov ? 'scale(1.08)' : 'scale(1)',
-            transition: 'transform 0.25s ease, box-shadow 0.25s ease',
-            cursor: 'default',
-          }}
-        >
-          <div style={{ fontSize: Math.max(18, Math.round(radius * 0.42)), fontWeight: 800, color: '#FFFFFF', lineHeight: 1, letterSpacing: '-0.02em' }}>{data.value}</div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: data.text, marginTop: 3 }}>{pct}</div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{data.label}</div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AlertSummaryCard({ stats, onView }) {
-  const { bind, style: hoverStyle } = usePanelHover()
-
-  // x/y are percentage anchors within the bubble field (translate -50% centers).
-  const bubbles = [
-    { key: 'critical', label: 'Critical', value: stats.critical, x: 40, y: 30,
-      base: '#7F1D1D', light: '#C2433F', border: 'rgba(248,113,113,0.55)', text: '#fca5a5',
-      glow: 'rgba(239,68,68,0.32)', glowHover: 'rgba(239,68,68,0.55)' },
-    { key: 'battery',  label: 'Battery',  value: stats.battery,  x: 72, y: 70,
-      base: '#5A3D08', light: '#B5841F', border: 'rgba(245,158,11,0.55)', text: '#FCD34D',
-      glow: 'rgba(245,158,11,0.28)', glowHover: 'rgba(245,158,11,0.50)' },
-    { key: 'fence',    label: 'Fence',    value: stats.fence,    x: 26, y: 72,
-      base: '#0B3A52', light: '#1E7FA8', border: 'rgba(34,211,238,0.55)', text: '#7DD3FC',
-      glow: 'rgba(34,211,238,0.26)', glowHover: 'rgba(34,211,238,0.48)' },
-  ]
-  const maxCount = Math.max(0, ...bubbles.map(b => b.value))
-  const critical = bubbles[0], battery = bubbles[1], fence = bubbles[2]
-
-  return (
-    <div {...bind} style={{ ...panel, padding: '18px 20px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', ...hoverStyle }}>
-      {/* keyframes for the idle float (spin is provided globally by Tailwind) */}
-      <style>{`@keyframes alertBubbleFloat { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }`}</style>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, position: 'relative', zIndex: 3 }}>
-        <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>Alerts Summary</div>
-        <button onClick={onView}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 700, padding: 0, transition: 'color 0.15s' }}
-          onMouseEnter={e => { e.currentTarget.style.color = '#fca5a5' }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)' }}
-        >
-          View all →
-        </button>
-      </div>
-
-      {stats.total === 0 ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 12px', borderRadius: 10, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
-          <Shield style={{ width: 16, height: 16, color: '#4ade80', flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>All clear — no active alerts</span>
-        </div>
-      ) : (
-        <div style={{
-          position: 'relative', flex: 1, minHeight: 300,
-          // subtle radial glow + faint grid backdrop
-          backgroundImage:
-            'radial-gradient(circle at 50% 40%, rgba(167,44,50,0.10), transparent 60%),' +
-            'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),' +
-            'linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
-          backgroundSize: '100% 100%, 28px 28px, 28px 28px',
-        }}>
-          {/* faint center label behind the bubbles */}
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 0, pointerEvents: 'none' }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: 'rgba(255,255,255,0.05)', letterSpacing: '0.04em' }}>Alerts</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.05)' }}>{stats.total} Total</div>
-          </div>
-
-          {/* connecting network lines (behind bubbles) */}
-          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
-            <line x1={`${critical.x}%`} y1={`${critical.y}%`} x2={`${fence.x}%`}   y2={`${fence.y}%`}   stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-            <line x1={`${critical.x}%`} y1={`${critical.y}%`} x2={`${battery.x}%`} y2={`${battery.y}%`} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-            <line x1={`${fence.x}%`}    y1={`${fence.y}%`}    x2={`${battery.x}%`} y2={`${battery.y}%`} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-          </svg>
-
-          {bubbles.map((b, i) => (
-            <AlertBubble
-              key={b.key}
-              data={b}
-              radius={bubbleRadius(b.value, maxCount)}
-              pct={fmtPct(b.value, stats.total)}
-              delay={-i * 1.8}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   METRIC CARD — compact stat card with hover shadow
-   ══════════════════════════════════════════════════════════════════ */
-function MetricCard({ m }) {
-  const { bind, style: hoverStyle } = usePanelHover()
-  return (
-    <div {...bind} style={{ ...panel, padding:'14px 18px', display:'flex', alignItems:'center', gap:'12px', cursor: m.onClick ? 'pointer' : 'default', ...hoverStyle }} onClick={m.onClick}>
-      <div style={{ width:'38px', height:'38px', borderRadius:'10px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-        <m.icon style={{ width:'17px', height:'17px', color: m.color }} />
-      </div>
-      <div>
-        <div style={{ fontSize:'22px', fontWeight:800, color:'#FFFFFF', letterSpacing:'-0.02em', lineHeight:1 }}>{m.value}</div>
-        <div style={{ fontSize:'12px', fontWeight:600, color:'#E2E2E2', marginTop:'3px' }}>{m.label}</div>
-        <div style={{ fontSize:'10px', color:'#BBBBBB', marginTop:'1px' }}>{m.sub}</div>
-      </div>
-    </div>
-  )
-}
-
 export default function Dashboard() {
   const { locations, activityData, devices: rawDevices, summary } = useHomePageCache()
   const navigate = useNavigate()
@@ -703,86 +610,57 @@ export default function Dashboard() {
   const { users } = useUserCache()
   const { zones } = useZoneCache()
   const chrome = useDashboardChrome()
-  const dashboardRef = useRef(null)
-  const page1Ref     = useRef(null)
-  const page2Ref     = useRef(null)
+  const gridRef = useRef(null)
 
-  const [exporting,    setExporting]    = useState(false)
-  const [isCapturing,  setIsCapturing]  = useState(false)
-  const [activePage,   setActivePage]   = useState(1)
+  const [exporting, setExporting] = useState(false)
+
+  // Responsive: 4 columns by default, collapse to 2 when the grid gets narrow.
+  const [cols, setCols] = useState(4)
+  useEffect(() => {
+    const el = gridRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0].contentRect.width
+      setCols(w < 900 ? 2 : 4)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const handleExportPDF = async () => {
     if (exporting) return
     setExporting(true)
-    const savedPage = activePage
-    setIsCapturing(true)
     await new Promise(r => setTimeout(r, 80))
-
     try {
-      const p1 = page1Ref.current
-      const p2 = page2Ref.current
-      if (!p1 || !p2) return
-
+      const el = gridRef.current
+      if (!el) return
       const PX_TO_MM = 25.4 / 96
-
-      async function captureEl(el) {
-        // Temporarily reveal full content so nothing is clipped
-        const prev = { overflow: el.style.overflow, height: el.style.height }
-        el.style.overflow = 'visible'
-        el.style.height   = 'auto'
-        await new Promise(r => requestAnimationFrame(r))
-        const w = el.scrollWidth
-        const h = el.scrollHeight
-        const dataUrl = await toPng(el, {
-          pixelRatio: 2,
-          backgroundColor: '#0d0d0d',
-          width: w, height: h,
-        })
-        el.style.overflow = prev.overflow
-        el.style.height   = prev.height
-        return { dataUrl, w, h }
-      }
-
-      // Capture page 1
-      setActivePage(1)
+      const prev = { height: el.style.height, overflow: el.style.overflow }
+      el.style.height = 'auto'
+      el.style.overflow = 'visible'
+      await new Promise(r => requestAnimationFrame(r))
       await new Promise(r => setTimeout(r, 120))
-      const r1 = await captureEl(p1)
+      const w = el.scrollWidth
+      const h = el.scrollHeight
+      const dataUrl = await toPng(el, { pixelRatio: 2, backgroundColor: '#0d0d0d', width: w, height: h })
+      el.style.height = prev.height
+      el.style.overflow = prev.overflow
 
-      // Capture page 2
-      setActivePage(2)
-      await new Promise(r => setTimeout(r, 120))
-      const r2 = await captureEl(p2)
-
-      // Single PDF page — both views stacked vertically, zero padding
-      const w1mm = r1.w * PX_TO_MM
-      const h1mm = r1.h * PX_TO_MM
-      const w2mm = r2.w * PX_TO_MM
-      const h2mm = r2.h * PX_TO_MM
-      const pageW = Math.max(w1mm, w2mm)
-      const pageH = h1mm + h2mm
-
-      const pdf = new jsPDF({
-        orientation: pageW >= pageH ? 'landscape' : 'portrait',
-        unit: 'mm',
-        format: [pageW, pageH],
-      })
-      pdf.addImage(r1.dataUrl, 'PNG', 0, 0, w1mm, h1mm)
-      pdf.addImage(r2.dataUrl, 'PNG', 0, h1mm, w2mm, h2mm)
-
+      const wmm = w * PX_TO_MM
+      const hmm = h * PX_TO_MM
+      const pdf = new jsPDF({ orientation: wmm >= hmm ? 'landscape' : 'portrait', unit: 'mm', format: [wmm, hmm] })
+      pdf.addImage(dataUrl, 'PNG', 0, 0, wmm, hmm)
       const now   = new Date()
       const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
       pdf.save(`TPL-Dashboard-${stamp}.pdf`)
     } catch (err) {
       console.error('PDF export failed:', err)
     } finally {
-      setIsCapturing(false)
       setExporting(false)
-      setActivePage(savedPage)
     }
   }
 
   // Register the Export PDF trigger so the topbar (Header) can render the button.
-  // Keep the latest handler in a ref so we register a stable runner only once.
   const exportRef       = useRef(handleExportPDF)
   exportRef.current     = handleExportPDF
   const registerExport  = chrome?.registerExport
@@ -832,11 +710,9 @@ export default function Dashboard() {
     return () => clearInterval(id)
   }, [])
 
-  // Device counts from lightweight summary endpoint — no giant array loaded
+  // Device counts from lightweight summary endpoint
   const activeNow      = summary.online
   const offlineDevices = summary.offline
-  const weeklyLocators = summary.weekly_new_locators
-  const weeklyStickers = summary.weekly_new_stickers
 
   // Battery tiers — sourced from GET /api/location/{sn} → batteryStatus field
   const batteryTiers = useMemo(() => {
@@ -863,8 +739,6 @@ export default function Dashboard() {
         const withinWindow = lastTs
           ? (Date.now() - new Date(lastTs).getTime()) < 12 * 60 * 60_000
           : false
-        // Also check device-level status field — catches devices the location
-        // batch API missed (they're online in the DB but missing from the cache)
         const devStatus = String(d.status ?? d.deviceStatus ?? '').toLowerCase()
         const isOnline = withinWindow || devStatus === 'online' || devStatus === 'on'
         const type = /^\d+$/.test(String(sn)) ? 'Sticker' : 'Locator'
@@ -883,7 +757,6 @@ export default function Dashboard() {
   }, [rawDevices, locations])
 
   // Executive alert aggregates — unread alerts from AlertsContext
-  // (severity: critical/high/medium · type: DEVICE_OFFLINE/BATTERY_LOW/GEOFENCE)
   const alertStats = useMemo(() => {
     const unread = alerts.filter(a => !a.isRead)
     return {
@@ -901,244 +774,65 @@ export default function Dashboard() {
   const assignedDevices = Number(summary?.assigned) || 0
   const unboundCount    = Math.max(0, totalDevices - assignedDevices)
 
-  const p1TransLock = useRef(false)
-  const p2TransLock = useRef(false)
-  const goToPage2 = () => setActivePage(2)
-  const goToPage1 = () => setActivePage(1)
+  // Cell 5 — stacked metrics
+  const stackMetrics = [
+    { label: 'Total Devices', value: totalDevices, icon: Layers, color: '#00B4D8', sub: `${summary.locators ?? 0} locators · ${summary.stickers ?? 0} stickers`, onClick: () => navigate('/devices') },
+    { label: 'Users',         value: users.length, icon: Users,  color: '#22D3EE', sub: 'under your account', onClick: () => navigate('/users') },
+    { label: 'Fences',        value: zones.length, icon: Shield, color: '#F59E0B', sub: 'active Fence zones', onClick: () => navigate('/fence') },
+  ]
 
-  const p1WheelAccum = useRef(0)
-  const p1WheelTimer = useRef(null)
-  const handlePage1Wheel = (e) => {
-    const el = page1Ref.current
-    const atBottom = !el || el.scrollTop + el.clientHeight >= el.scrollHeight - 5
-    if (!atBottom || e.deltaY <= 0 || p1TransLock.current) {
-      if (e.deltaY < 0) { p1WheelAccum.current = 0; clearTimeout(p1WheelTimer.current) }
-      return
-    }
-    p1WheelAccum.current += e.deltaY
-    clearTimeout(p1WheelTimer.current)
-    p1WheelTimer.current = setTimeout(() => { p1WheelAccum.current = 0 }, 200)
-    if (p1WheelAccum.current > 80) {
-      p1WheelAccum.current = 0
-      p1TransLock.current = true
-      goToPage2()
-      setTimeout(() => { p1TransLock.current = false }, 600)
-    }
-  }
-
-  const p2WheelAccum = useRef(0)
-  const p2WheelTimer = useRef(null)
-  const handlePage2Wheel = (e) => {
-    if (page2Ref.current?.scrollTop !== 0 || e.deltaY >= 0 || p2TransLock.current) {
-      if (e.deltaY > 0) { p2WheelAccum.current = 0; clearTimeout(p2WheelTimer.current) }
-      return
-    }
-    p2WheelAccum.current += e.deltaY
-    clearTimeout(p2WheelTimer.current)
-    p2WheelTimer.current = setTimeout(() => { p2WheelAccum.current = 0 }, 200)
-    if (p2WheelAccum.current < -80) {
-      p2WheelAccum.current = 0
-      p2TransLock.current = true
-      goToPage1()
-      setTimeout(() => { p2TransLock.current = false }, 600)
-    }
-  }
-
-
-
-  useEffect(() => {
-    const handler = (e) => {
-      const tag = document.activeElement?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
-        if (activePage === 1 && !p1TransLock.current) {
-          e.preventDefault()
-          p1TransLock.current = true
-          goToPage2()
-          setTimeout(() => { p1TransLock.current = false }, 600)
-        } else if (activePage === 2) {
-          page2Ref.current?.scrollBy({ top: 120, behavior: 'smooth' })
-        }
-      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
-        if (activePage === 2 && page2Ref.current?.scrollTop === 0 && !p2TransLock.current) {
-          e.preventDefault()
-          p2TransLock.current = true
-          goToPage1()
-          setTimeout(() => { p2TransLock.current = false }, 600)
-        } else if (activePage === 2) {
-          page2Ref.current?.scrollBy({ top: -120, behavior: 'smooth' })
-        }
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [activePage])
+  const isWide = cols === 4
+  const span2  = { gridColumn: 'span 2', height: '100%', minHeight: 0 }
 
   return (
-    <div ref={dashboardRef} style={{ position:'relative', height:'100%', overflow:'hidden', fontWeight: 400, letterSpacing: '0.04em' }}>
-      {/* ══════════════════════════════ PAGE 1 ══════════════════════════════ */}
-      {/* Outer wrapper owns the slide transform */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        transform: `translateY(${activePage === 1 ? '0' : '-100%'})`,
-        transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
-      }}>
-
-      {/* Inner content div — overflow hidden */}
-      <div
-        ref={page1Ref}
-        onWheel={handlePage1Wheel}
-        style={{
-          position: 'absolute', inset: 0,
-          overflowY: 'auto',
-          padding: '16px',
-          display: 'flex', flexDirection: 'column', gap: '10px',
-        }}
-      >
-
-        {/* ── KPI row ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'10px', flexShrink: 0 }}>
-          <KPICard
-            title="Assigned Devices"
-            value={assignedDevices}
-            sub=""
-            icon={Link2}
-            onClick={() => navigate('/devices?status=assigned')}
-            colors={{
-              gradient:    'linear-gradient(145deg, #2A2210 0%, #201A08 40%, #181206 70%, #100C03 100%)',
-              border:      'rgba(234,179,8,0.25)',
-              shadow:      '0 0 28px rgba(234,179,8,0.10), 0 12px 38px rgba(0,0,0,0.52)',
-              shadowHover: '0 0 44px rgba(234,179,8,0.40), 0 16px 46px rgba(0,0,0,0.60)',
-              shimmer:     'rgba(234,179,8,0.32)',
-              radialTL:    'rgba(234,179,8,0.14)',
-              iconBg:      'rgba(234,179,8,0.12)',
-              iconBorder:  'rgba(234,179,8,0.24)',
-              iconColor:   '#EAB308',
-              gloss:       0.034,
-            }}
-          />
-          <KPICard
-            title="Unassigned Devices"
-            value={unboundCount}
-            sub=""
-            icon={Unlink}
-            onClick={() => navigate('/devices?status=unassigned')}
-            colors={{
-              gradient:    'linear-gradient(145deg, #1C2A4A 0%, #18223C 40%, #121A2E 70%, #0C1220 100%)',
-              border:      'rgba(59,130,246,0.25)',
-              shadow:      '0 0 28px rgba(59,130,246,0.10), 0 12px 38px rgba(0,0,0,0.52)',
-              shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
-              shimmer:     'rgba(59,130,246,0.32)',
-              radialTL:    'rgba(59,130,246,0.14)',
-              iconBg:      'rgba(59,130,246,0.12)',
-              iconBorder:  'rgba(59,130,246,0.24)',
-              iconColor:   '#3B82F6',
-              gloss:       0.034,
-            }}
-          />
-          <KPICard
-            title="Active Devices"
-            value={activeNow}
-            sub=""
-            icon={Activity}
-            trend="up"
-            trendVal="Online now"
-            onClick={() => navigate('/devices?tab=locator&status=active')}
-            colors={{
-              gradient:    'linear-gradient(145deg, #1A3328 0%, #142820 40%, #0F2018 70%, #0A1810 100%)',
-              border:      'rgba(46,196,182,0.25)',
-              shadow:      '0 0 28px rgba(46,196,182,0.10), 0 12px 38px rgba(0,0,0,0.52)',
-              shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
-              shimmer:     'rgba(46,196,182,0.34)',
-              radialTL:    'rgba(46,196,182,0.14)',
-              iconBg:      'rgba(46,196,182,0.12)',
-              iconBorder:  'rgba(46,196,182,0.24)',
-              iconColor:   '#2EC4B6',
-              gloss:       0.032,
-            }}
-          />
-          <KPICard
-            title="Offline Devices"
-            value={offlineDevices}
-            sub=""
-            icon={WifiOff}
-            trend={offlineDevices > 0 ? 'down' : 'up'}
-            trendVal={offlineDevices > 0 ? 'Needs review' : 'All online'}
-            onClick={() => navigate('/devices?status=offline')}
-            colors={{
-              gradient:    'linear-gradient(145deg, #3D1D22 0%, #2D191E 40%, #231015 70%, #180C10 100%)',
-              border:      'rgba(255,77,109,0.25)',
-              shadow:      '0 0 28px rgba(255,77,109,0.10), 0 12px 38px rgba(0,0,0,0.52)',
-              shadowHover: '0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)',
-              shimmer:     'rgba(255,77,109,0.34)',
-              radialTL:    'rgba(255,77,109,0.14)',
-              iconBg:      'rgba(255,77,109,0.12)',
-              iconBorder:  'rgba(255,77,109,0.24)',
-              iconColor:   '#FF4D6D',
-              gloss:       0.028,
-            }}
-          />
-        </div>
-
-        {/* ── Platform metrics ── */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'10px', flexShrink: 0 }}>
-          {[
-            { label:'Total Devices',  value: totalDevices,     icon: Layers, color:'#00B4D8', sub:`${summary.locators ?? 0} locators · ${summary.stickers ?? 0} stickers`, onClick: () => navigate('/devices') },
-            { label:'Users',          value: users.length,     icon: Users,  color:'#22D3EE', sub:'under your account', onClick: () => navigate('/users') },
-            { label:'Fences',     value: zones.length,     icon: Shield, color:'#F59E0B', sub:'active Fence zones', onClick: () => navigate('/geofence') },
-            { label:'Smart Stickers', value: summary.stickers, icon: Tag,    color:'#FFB703', sub: weeklyStickers > 0 ? `+${weeklyStickers} this week` : '', onClick: () => navigate('/stickers') },
-          ].map(m => <MetricCard key={m.label} m={m} />)}
-        </div>
-
-        {/* ── Analytics ── */}
-        <div style={{ flex: '1 0 300px', display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'10px' }}>
-          <RecentTrendPanel generalBins={generalBins} peakLabel={peakLabel} />
-          <BatteryStatusPanel batteryTiers={batteryTiers} />
-        </div>
-
-
+    <div
+      ref={gridRef}
+      style={{
+        height: '100%', minHeight: 640,
+        display: 'grid', gap: 14,
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows: isWide ? '2fr 4fr 5fr' : undefined,
+        gridAutoRows: isWide ? undefined : 'minmax(210px, auto)',
+        fontWeight: 400, letterSpacing: '0.04em',
+      }}
+    >
+      {/* ── Row 1 — KPI cards (cells 1–4) ── */}
+      <KPICard
+        title="Assigned Devices" value={assignedDevices} sub="" icon={Link2}
+        onClick={() => navigate('/devices?status=assigned')}
+        colors={{ gradient:'linear-gradient(145deg, #2A2210 0%, #201A08 40%, #181206 70%, #100C03 100%)', border:'rgba(234,179,8,0.25)', shadow:'0 0 28px rgba(234,179,8,0.10), 0 12px 38px rgba(0,0,0,0.52)', shadowHover:'0 0 44px rgba(234,179,8,0.40), 0 16px 46px rgba(0,0,0,0.60)', shimmer:'rgba(234,179,8,0.32)', radialTL:'rgba(234,179,8,0.14)', iconBg:'rgba(234,179,8,0.12)', iconBorder:'rgba(234,179,8,0.24)', iconColor:'#EAB308', gloss:0.034 }}
+      />
+      <KPICard
+        title="Unassigned Devices" value={unboundCount} sub="" icon={Unlink}
+        onClick={() => navigate('/devices?status=unassigned')}
+        colors={{ gradient:'linear-gradient(145deg, #1C2A4A 0%, #18223C 40%, #121A2E 70%, #0C1220 100%)', border:'rgba(59,130,246,0.25)', shadow:'0 0 28px rgba(59,130,246,0.10), 0 12px 38px rgba(0,0,0,0.52)', shadowHover:'0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)', shimmer:'rgba(59,130,246,0.32)', radialTL:'rgba(59,130,246,0.14)', iconBg:'rgba(59,130,246,0.12)', iconBorder:'rgba(59,130,246,0.24)', iconColor:'#3B82F6', gloss:0.034 }}
+      />
+      <KPICard
+        title="Active Devices" value={activeNow} sub="" icon={Activity} trend="up" trendVal="Online now"
+        onClick={() => navigate('/devices?tab=locator&status=active')}
+        colors={{ gradient:'linear-gradient(145deg, #1A3328 0%, #142820 40%, #0F2018 70%, #0A1810 100%)', border:'rgba(46,196,182,0.25)', shadow:'0 0 28px rgba(46,196,182,0.10), 0 12px 38px rgba(0,0,0,0.52)', shadowHover:'0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)', shimmer:'rgba(46,196,182,0.34)', radialTL:'rgba(46,196,182,0.14)', iconBg:'rgba(46,196,182,0.12)', iconBorder:'rgba(46,196,182,0.24)', iconColor:'#2EC4B6', gloss:0.032 }}
+      />
+      <KPICard
+        title="Offline Devices" value={offlineDevices} sub="" icon={WifiOff}
+        trend={offlineDevices > 0 ? 'down' : 'up'} trendVal={offlineDevices > 0 ? 'Needs review' : 'All online'}
+        onClick={() => navigate('/devices?status=offline')}
+        colors={{ gradient:'linear-gradient(145deg, #3D1D22 0%, #2D191E 40%, #231015 70%, #180C10 100%)', border:'rgba(255,77,109,0.25)', shadow:'0 0 28px rgba(255,77,109,0.10), 0 12px 38px rgba(0,0,0,0.52)', shadowHover:'0 0 44px rgba(167,44,50,0.52), 0 16px 46px rgba(0,0,0,0.60)', shimmer:'rgba(255,77,109,0.34)', radialTL:'rgba(255,77,109,0.14)', iconBg:'rgba(255,77,109,0.12)', iconBorder:'rgba(255,77,109,0.24)', iconColor:'#FF4D6D', gloss:0.028 }}
+      />
+      {/* ── Row 2 — metrics (1 col) · trend wide (2 cols) · zones & battery inline (1 col) ── */}
+      <MetricsStackCard metrics={stackMetrics} />
+      <div style={span2}>
+        <RecentTrendPanel generalBins={generalBins} peakLabel={peakLabel} />
       </div>
+      {/* Ab ye card Row 2 ke andar hi inline align hoga aur side column khatam ho gaya */}
+      <ZonesBatteryCard zones={zones} devices={rawDevices} batteryTiers={batteryTiers} />
 
-      </div>{/* ── closes page 1 slide wrapper ── */}
-
-      {/* ══════════════════════════════ PAGE 2 ══════════════════════════════ */}
-      {/* Outer wrapper owns the slide transform; inner div owns the scroll */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        transform: `translateY(${activePage === 2 ? '0' : '100%'})`,
-        transition: isCapturing ? 'none' : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
-      }}>
-
-        {/* Scrollable content */}
-        <div
-          ref={page2Ref}
-          onWheel={handlePage2Wheel}
-          style={{
-            position: 'absolute', inset: 0,
-            overflowY: 'auto',
-            padding: '20px',
-            display: 'flex', flexDirection: 'column', gap: '14px',
-          }}
-        >
-
-          {/* ── Level 2 ── */}
-          <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(300px, 1fr)', gap:'14px' }}>
-            <RecentActivityPanel activityRows={activityRows} totalActive={summary.online} />
-            <AlertSummaryCard stats={alertStats} onView={() => navigate('/alerts')} />
-          </div>
-
-          {/* ── Level 3 ── */}
-          <FleetSnapshotCard
-            devices={rawDevices}
-            locations={locations}
-            activityData={activityData}
-            zones={zones}
-            summary={summary}
-          />
-
-        </div>
+      {/* ── Row 3 — recent activity wide (2 cols) · fleet (1 col) · alerts (1 col) ── */}
+      <div style={span2}>
+        <RecentActivityPanel activityRows={activityRows} totalActive={summary.online} />
       </div>
-
+      <FleetMixCard summary={summary} />
+      <AlertsCard stats={alertStats} onView={() => navigate('/alerts')} />
     </div>
+ 
   )
 }
