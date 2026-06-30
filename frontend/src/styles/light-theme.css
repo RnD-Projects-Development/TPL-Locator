@@ -13,17 +13,17 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --red-50:   #FEF2F2;
-  --red-100:  #FEE2E2;
-  --red-200:  #FECACA;
-  --red-300:  #FCA5A5;
-  --red-400:  #F87171;
-  --red-500:  #EF4444;
-  --red-600:  #DC2626;
-  --red-700:  #B91C1C;
-  --red-800:  #991B1B;
+  --red-50: #FEF2F2;
+  --red-100: #FEE2E2;
+  --red-200: #FECACA;
+  --red-300: #FCA5A5;
+  --red-400: #F87171;
+  --red-500: #EF4444;
+  --red-600: #DC2626;
+  --red-700: #B91C1C;
+  --red-800: #991B1B;
 
-  --slate-50:  #F8FAFC;
+  --slate-50: #F8FAFC;
   --slate-100: #F1F5F9;
   --slate-200: #E2E8F0;
   --slate-300: #CBD5E1;
@@ -38,9 +38,9 @@
 .page-theme-light {
   background: #A72C32;
   background: radial-gradient(ellipse 130% 130% at bottom right,
-    rgba(167,44,50,1) 0%,
-    rgba(230,230,230,1) 60%,
-    rgba(153,153,153,1) 100%);
+      rgba(167, 44, 50, 1) 0%,
+      rgba(230, 230, 230, 1) 60%,
+      rgba(153, 153, 153, 1) 100%);
   background-attachment: fixed;
   color: #111827;
   transition: background 0.4s ease, color 0.3s ease;
@@ -51,20 +51,34 @@
    Scoped to the class so it never leaks elsewhere. */
 .page-theme-dark {
   background: #000000;
-  background: linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(167,44,50,1) 50%, rgba(0,0,0,1) 100%);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 1) 0%, rgba(167, 44, 50, 1) 50%, rgba(0, 0, 0, 1) 100%);
   transition: background 0.4s ease, color 0.3s ease;
 }
 
 /* ── Scrollbar — minimal strip on the light surface ──────────────────────── */
-.page-theme-light ::-webkit-scrollbar { width: 3px; height: 3px; }
-.page-theme-light ::-webkit-scrollbar-track { background: transparent; }
-.page-theme-light ::-webkit-scrollbar-button { display: none; height: 0; }
+.page-theme-light ::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+.page-theme-light ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.page-theme-light ::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+}
+
 .page-theme-light ::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.22);
+  background: rgba(0, 0, 0, 0.22);
   border-radius: 999px;
   transition: background 0.25s ease;
 }
-.page-theme-light ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.45); }
+
+.page-theme-light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.45);
+}
 
 /* ── Text selection ───────────────────────────────────────────────────────── */
 .page-theme-light ::selection {
@@ -85,6 +99,7 @@
 .page-theme-light [style*="linear-gradient(145deg, #FFFFFF 0%, #F0F0F0"] {
   transition: box-shadow 0.22s ease, border-color 0.22s ease, transform 0.22s ease;
 }
+
 .page-theme-light [style*="linear-gradient(145deg, #FFFFFF 0%, #F0F0F0"]:hover {
   border-color: #8E0B0B !important;
   box-shadow:
@@ -105,6 +120,7 @@
 .page-theme-light button {
   transition: box-shadow 0.18s ease, transform 0.18s ease, filter 0.18s ease;
 }
+
 .page-theme-light button:hover:not(:disabled) {
   transform: translateY(-1px) !important;
   filter: brightness(0.92);
@@ -112,6 +128,7 @@
     0 4px 14px rgba(142, 11, 11, 0.28),
     0 1px 4px rgba(0, 0, 0, 0.12) !important;
 }
+
 .page-theme-light button:active:not(:disabled) {
   transform: translateY(0) !important;
   filter: brightness(0.88);

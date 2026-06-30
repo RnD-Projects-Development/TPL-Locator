@@ -236,7 +236,7 @@ export default function LocatorDetail() {
 
   const actionBtns = [
     { label: 'Live Tracking',  sub: 'View current position on map',   icon: MapPin,  onClick: () => navigate(`/map?device=${loc.id}`),        primary: true },
-    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => navigate(`/trajectory?device=${loc.id}`), primary: false },
+    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => navigate(`/playback?device=${loc.id}`), primary: false },
     { label: 'Export Report',  sub: 'Download location history',      icon: FileText,onClick: () => navigate(`/reports?device=${loc.id}`),    primary: false },
   ]
 
@@ -299,12 +299,21 @@ export default function LocatorDetail() {
       {assignModalOpen && (
         <AssignUserModal
           sn={loc.id}
+          deviceType="locator"
           currentUserName={loc.userName !== loc.id ? loc.userName : null}
           users={users}
-          onAssign={async (userId) => {
-            await adminAssignDeviceToUser(userId, id)
+          onSubmit={async ({ userId, name, client, category }) => {
+            const opts = { category }
+            if (name)   opts.name = name
+            if (client) opts.client = client
+            await adminAssignDeviceToUser(userId, id, opts)
             const d = await getDeviceBySn(id)
-            if (d) setLoc(prev => ({ ...prev, userName: d.assigned_user_name || d.name || d.sn || '—' }))
+            if (d) setLoc(prev => ({
+              ...prev,
+              userName: d.assigned_user_name || d.name || d.sn || '—',
+              category: d.category || prev.category,
+              company:  d.client || prev.company,
+            }))
           }}
           onClose={() => setAssignModalOpen(false)}
         />

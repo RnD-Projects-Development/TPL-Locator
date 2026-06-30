@@ -22,9 +22,9 @@ import { registerCacheResetListener } from '../utils/clearAppCaches.js'
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BATTERY_THRESHOLD = 25               // percent
-const OFFLINE_HOURS     = 24              // hours
-const GEO_WINDOW_MS     = 24 * 60 * 60 * 1000  // only show geofence events from last 24 h
-const LS_KEY            = 'tpl_alert_read_ids'
+const OFFLINE_HOURS = 24              // hours
+const GEO_WINDOW_MS = 24 * 60 * 60 * 1000  // only show geofence events from last 24 h
+const LS_KEY = 'tpl_alert_read_ids'
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ function loadReadIds() {
 
 function persistReadIds(set) {
   try { localStorage.setItem(LS_KEY, JSON.stringify([...set])) }
-  catch {}
+  catch { }
 }
 
 // ─── Alert builders ───────────────────────────────────────────────────────────
@@ -48,44 +48,44 @@ function buildBatteryAlert(device, readIds) {
   const battery = typeof device.battery === 'number' ? device.battery : -1
   if (battery <= 0 || battery >= BATTERY_THRESHOLD) return null
 
-  const id       = `BATT-${device.sn}`
-  const name     = deviceName(device)
+  const id = `BATT-${device.sn}`
+  const name = deviceName(device)
   const severity = battery < 10 ? 'critical' : 'high'
 
   return {
     id,
-    type:       'BATTERY_LOW',
+    type: 'BATTERY_LOW',
     severity,
-    deviceId:   device.sn,
+    deviceId: device.sn,
     deviceName: name,
-    message:    `Battery low for ${name} (${battery}%)`,
-    timestamp:  device.dataRetrievalTime || new Date().toISOString(),
-    isRead:     readIds.has(id),
+    message: `Battery low for ${name} (${battery}%)`,
+    timestamp: device.dataRetrievalTime || new Date().toISOString(),
+    isRead: readIds.has(id),
   }
 }
 
 function buildOfflineAlert(device, readIds) {
-  const ts      = device.dataRetrievalTime
+  const ts = device.dataRetrievalTime
   const hoursAgo = ts
     ? (Date.now() - new Date(ts).getTime()) / 3_600_000
     : Infinity
 
   if (hoursAgo < OFFLINE_HOURS) return null
 
-  const id       = `OFFLINE-${device.sn}`
-  const name     = deviceName(device)
-  const hLabel   = hoursAgo === Infinity ? 'an unknown duration' : `${Math.round(hoursAgo)} hours`
+  const id = `OFFLINE-${device.sn}`
+  const name = deviceName(device)
+  const hLabel = hoursAgo === Infinity ? 'an unknown duration' : `${Math.round(hoursAgo)} hours`
   const severity = hoursAgo > 48 ? 'critical' : 'high'
 
   return {
     id,
-    type:       'DEVICE_OFFLINE',
+    type: 'DEVICE_OFFLINE',
     severity,
-    deviceId:   device.sn,
+    deviceId: device.sn,
     deviceName: name,
-    message:    `${name} has been inactive for more than ${hLabel}`,
-    timestamp:  ts || new Date(0).toISOString(),
-    isRead:     readIds.has(id),
+    message: `${name} has been inactive for more than ${hLabel}`,
+    timestamp: ts || new Date(0).toISOString(),
+    isRead: readIds.has(id),
   }
 }
 
@@ -99,20 +99,20 @@ function buildGeofenceAlerts(zoneId, events, nameBySn, readIds) {
 
     // Compact timestamp for stable ID: strip non-alphanumeric chars
     const tsCompact = e.timestamp.replace(/\D/g, '')
-    const id        = `GEO-${e.sn}-${tsCompact}`
-    const name      = nameBySn[e.sn] || e.sn
-    const entered   = e.type === 'ENTER'
+    const id = `GEO-${e.sn}-${tsCompact}`
+    const name = nameBySn[e.sn] || e.sn
+    const entered = e.type === 'ENTER'
     const zoneLabel = zoneId.replace(/_/g, ' ').toUpperCase()
 
     alerts.push({
       id,
-      type:       'GEOFENCE',
-      severity:   entered ? 'medium' : 'high',
-      deviceId:   e.sn,
+      type: 'GEOFENCE',
+      severity: entered ? 'medium' : 'high',
+      deviceId: e.sn,
       deviceName: name,
-      message:    `${name} ${entered ? 'entered' : 'exited'} zone ${zoneLabel}`,
-      timestamp:  e.timestamp,
-      isRead:     readIds.has(id),
+      message: `${name} ${entered ? 'entered' : 'exited'} zone ${zoneLabel}`,
+      timestamp: e.timestamp,
+      isRead: readIds.has(id),
     })
   }
 
@@ -126,12 +126,12 @@ const AlertsCtx = createContext(null)
 export function AlertsProvider({ children }) {
   const { accessToken } = useAuth()
 
-  const [alerts,      setAlerts]      = useState([])
-  const [loading,     setLoading]     = useState(false)
+  const [alerts, setAlerts] = useState([])
+  const [loading, setLoading] = useState(false)
   const [lastFetched, setLastFetched] = useState(null)
-  const [error,       setError]       = useState(null)
+  const [error, setError] = useState(null)
 
-  const readIdsRef  = useRef(loadReadIds())
+  const readIdsRef = useRef(loadReadIds())
 
   const seenAlertIdsRef = useRef(null) // null until first fetch — avoids a notification burst on load
 
@@ -149,7 +149,7 @@ export function AlertsProvider({ children }) {
   // Ask for web-notification permission once the user is authenticated
   useEffect(() => {
     if (accessToken && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {})
+      Notification.requestPermission().catch(() => { })
     }
   }, [accessToken])
 
@@ -162,23 +162,23 @@ export function AlertsProvider({ children }) {
 
     const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
     const readIds = readIdsRef.current
-    const all     = []
+    const all = []
 
     try {
       // ── 1. Device anomalies (battery + offline) — first 200 devices only ──────
       let nameBySn = {}
       try {
-        const res  = await fetch('/api/devices?page=1&limit=200', { headers })
+        const res = await fetch('/api/devices?page=1&limit=200', { headers })
         if (res.ok) {
-          const raw     = await res.json()
+          const raw = await res.json()
           const devices = Array.isArray(raw) ? raw : (raw?.devices ?? [])
 
           for (const d of devices) {
             if (d.sn) nameBySn[d.sn] = deviceName(d)
 
-            const battAlert    = buildBatteryAlert(d, readIds)
+            const battAlert = buildBatteryAlert(d, readIds)
             const offlineAlert = buildOfflineAlert(d, readIds)
-            if (battAlert)    all.push(battAlert)
+            if (battAlert) all.push(battAlert)
             if (offlineAlert) all.push(offlineAlert)
           }
         }
@@ -191,7 +191,7 @@ export function AlertsProvider({ children }) {
         const statusRes = await fetch('/api/geofence/status', { headers })
         if (statusRes.ok) {
           const statusData = await statusRes.json()
-          const zoneIds    = Object.keys(statusData?.zones ?? {})
+          const zoneIds = Object.keys(statusData?.zones ?? {})
 
           // Fetch report for every zone in parallel (capped at 10 zones)
           const batch = zoneIds.slice(0, 10)
@@ -222,8 +222,8 @@ export function AlertsProvider({ children }) {
       all.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
       // ── 4. Prune stale read IDs (alerts that no longer exist) ─────────────
-      const activeIds   = new Set(all.map(a => a.id))
-      const cleanedIds  = new Set([...readIds].filter(id => activeIds.has(id)))
+      const activeIds = new Set(all.map(a => a.id))
+      const cleanedIds = new Set([...readIds].filter(id => activeIds.has(id)))
       readIdsRef.current = cleanedIds
       persistReadIds(cleanedIds)
 
@@ -237,10 +237,10 @@ export function AlertsProvider({ children }) {
           const fresh = all.filter(a => !seenAlertIdsRef.current.has(a.id) && !cleanedIds.has(a.id))
           if (canNotify) {
             fresh.slice(0, 4).forEach(a => {
-              try { new Notification('TPL Trakker — New Alert', { body: a.message, tag: a.id }) } catch {}
+              try { new Notification('TPL Trakker — New Alert', { body: a.message, tag: a.id }) } catch { }
             })
             if (fresh.length > 4) {
-              try { new Notification('TPL Trakker', { body: `${fresh.length} new alerts need attention` }) } catch {}
+              try { new Notification('TPL Trakker', { body: `${fresh.length} new alerts need attention` }) } catch { }
             }
           }
           all.forEach(a => seenAlertIdsRef.current.add(a.id))

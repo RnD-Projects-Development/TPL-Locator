@@ -11,21 +11,29 @@ import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
 
 const nav = [
-  { section: 'OVERVIEW', links: [
-    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  ]},
-  { section: 'DEVICES', links: [
-    { to: '/devices', icon: Layers, label: 'Devices' },
-  ]},
-  { section: 'INTELLIGENCE', links: [
-    { to: '/map',      icon: Map,        label: 'Map View' },
-    { to: '/playback', icon: PlayCircle, label: 'Playback' },
-    { to: '/fence',    icon: Shield,     label: 'Fence' },
-  ]},
-  { section: 'REPORTS & ADMIN', links: [
-    { to: '/users',   icon: UserCog,  label: 'Users' },
-    { to: '/reports', icon: FileText, label: 'Reports' },
-  ]},
+  {
+    section: 'OVERVIEW', links: [
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    ]
+  },
+  {
+    section: 'DEVICES', links: [
+      { to: '/devices', icon: Layers, label: 'Devices' },
+    ]
+  },
+  {
+    section: 'INTELLIGENCE', links: [
+      { to: '/map', icon: Map, label: 'Map View' },
+      { to: '/playback', icon: PlayCircle, label: 'Playback' },
+      { to: '/fence', icon: Shield, label: 'Fence' },
+    ]
+  },
+  {
+    section: 'REPORTS & ADMIN', links: [
+      { to: '/users', icon: UserCog, label: 'Users' },
+      { to: '/reports', icon: FileText, label: 'Reports' },
+    ]
+  },
 ]
 
 export default function Sidebar() {
@@ -175,12 +183,16 @@ export default function Sidebar() {
       {showLogoutConfirm && (
         <ModalPortal>
           <div onClick={() => setShowLogoutConfirm(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+            style={{
+              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
               backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24 }}>
+              display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24
+            }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: '#000000', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16,
-                boxShadow: '0 24px 64px rgba(0,0,0,0.72)', width: '100%', maxWidth: 380, padding: 22 }}>
+              style={{
+                background: '#000000', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16,
+                boxShadow: '0 24px 64px rgba(0,0,0,0.72)', width: '100%', maxWidth: 380, padding: 22
+              }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                 <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <LogOut style={{ width: 16, height: 16, color: '#C86068' }} />
@@ -192,14 +204,18 @@ export default function Sidebar() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <button onClick={() => setShowLogoutConfirm(false)}
-                  style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                  style={{
+                    padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)'
+                  }}>
                   Cancel
                 </button>
                 <button onClick={confirmLogout}
-                  style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  style={{
+                    padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
                     background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
-                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff' }}>
+                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff'
+                  }}>
                   Log out
                 </button>
               </div>

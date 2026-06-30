@@ -1,5 +1,21 @@
 import React, { useState } from 'react';
 import ModalPortal from './common/ModalPortal.jsx';
+import { categoriesFor } from '../utils/deviceCategories.js';
+
+const isStickerSN = (sn) => /^\d+$/.test(String(sn ?? ''));
+
+const FIELD_STYLE = {
+  width: '100%', background: '#18181b', border: '1px solid #3f3f46',
+  borderRadius: 8, padding: '10px 12px', color: '#f4f4f5', fontSize: 13,
+  outline: 'none', boxSizing: 'border-box',
+};
+const SELECT_STYLE = {
+  ...FIELD_STYLE, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none',
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='%2371717a'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
+};
+const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' };
+const LABEL_STYLE = { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 };
 
 function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg }) {
   const [q, setQ] = useState('');
@@ -73,25 +89,33 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
 }
 
 /**
+ * Add-device-to-user modal — same form as the device Bind modal, but the user
+ * is pre-selected and locked (we're adding from that user's row).
+ *
  * Props:
- *   user      — { _id, id, name, email } target user to bind device to
+ *   user      — { _id, id, name, email } target user (locked)
  *   devices   — array of unbound device objects from DeviceCacheContext
- *   onAssign  — async (sn: string) => void
+ *   onAssign  — async (sn: string, { name, client, category }) => void
  *   onClose   — () => void
  */
 export default function AddDeviceToUserModal({ user, devices, onAssign, onClose }) {
   const [selectedSn, setSelectedSn] = useState(devices[0]?.sn ?? null);
+  const [name,       setName]       = useState('');
+  const [client,     setClient]     = useState('');
+  const [category,   setCategory]   = useState('');
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
 
   const userName = user.name || user.email || 'this user';
+  const cats = categoriesFor(isStickerSN(selectedSn) ? 'sticker' : 'locator');
 
   async function handleConfirm() {
     if (!selectedSn) { setError('Select a device first'); return; }
+    if (!category)   { setError('Select a category'); return; }
     setLoading(true);
     setError('');
     try {
-      await onAssign(selectedSn);
+      await onAssign(selectedSn, { name: name.trim(), client: client.trim(), category });
       onClose();
     } catch (e) {
       setError(e?.message || 'Assignment failed');
@@ -100,7 +124,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
     }
   }
 
-  const isDisabled = loading || devices.length === 0 || !selectedSn;
+  const isDisabled = loading || devices.length === 0 || !selectedSn || !category;
 
   return (
     <ModalPortal>
@@ -109,8 +133,8 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
         style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
           backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 9999, padding: 24,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          zIndex: 9999, padding: 24, overflowY: 'auto',
         }}
       >
         <div
@@ -118,11 +142,11 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
           style={{
             background: '#000000', border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: 16, boxShadow: '0 24px 64px rgba(0,0,0,0.72)',
-            width: '100%', maxWidth: 420, padding: 22,
+            width: '100%', maxWidth: 420, padding: 24, marginTop: 40,
           }}
         >
           {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg style={{ width: 16, height: 16, color: '#C86068' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -146,38 +170,71 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
             </div>
           )}
 
-          {/* Device select */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
-              Select Device <span style={{ color: '#C86068' }}>*</span>
-            </label>
-            {devices.length === 0 ? (
-              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No unbound devices available</p>
-            ) : (
-              <SearchSelect
-                items={devices}
-                selectedValue={selectedSn}
-                onSelect={setSelectedSn}
-                labelOf={d => d.sn + (d.name && d.name !== d.sn ? ` — ${d.name}` : (d.client ? ` — ${d.client}` : ''))}
-                keyOf={d => d.sn}
-                placeholder="Type to search or select a device…"
-                emptyMsg="No matching devices"
-              />
-            )}
-          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Device */}
+            <div>
+              <label style={LABEL_STYLE}>Device SN <span style={{ color: '#C86068' }}>*</span></label>
+              {devices.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No unbound devices available</p>
+              ) : (
+                <SearchSelect
+                  items={devices}
+                  selectedValue={selectedSn}
+                  onSelect={(sn) => { setSelectedSn(sn); setCategory(''); }}
+                  labelOf={d => d.sn + (d.name && d.name !== d.sn ? ` — ${d.name}` : (d.client ? ` — ${d.client}` : ''))}
+                  keyOf={d => d.sn}
+                  placeholder="Type to search or select a device…"
+                  emptyMsg="No matching devices"
+                />
+              )}
+            </div>
 
-          {/* Footer */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
-              Cancel
-            </button>
-            <button
-              onClick={handleConfirm}
-              disabled={isDisabled}
-              style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isDisabled ? 'not-allowed' : 'pointer', background: isDisabled ? 'rgba(167,44,50,0.35)' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: isDisabled ? 0.6 : 1, transition: 'opacity 0.15s' }}
-            >
-              {loading ? 'Assigning…' : 'Add Device'}
-            </button>
+            {/* User — locked */}
+            <div>
+              <label style={LABEL_STYLE}>Assign to User</label>
+              <div style={{ ...FIELD_STYLE, color: 'rgba(255,255,255,0.55)', cursor: 'default' }}>
+                {userName}
+              </div>
+            </div>
+
+            {/* Display Name */}
+            <div>
+              <label style={LABEL_STYLE}>Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Office Locator" style={FIELD_STYLE}
+                onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+            </div>
+
+            {/* Category */}
+            <div>
+              <label style={LABEL_STYLE}>Category <span style={{ color: '#C86068' }}>*</span></label>
+              <select value={category} onChange={e => setCategory(e.target.value)} style={SELECT_STYLE}>
+                <option value="" disabled style={SELECT_OPT}>Select a category…</option>
+                {cats.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+              </select>
+            </div>
+
+            {/* Client */}
+            <div>
+              <label style={LABEL_STYLE}>Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+              <input value={client} onChange={e => setClient(e.target.value)} placeholder="e.g. Acme Corp" style={FIELD_STYLE}
+                onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={isDisabled}
+                style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isDisabled ? 'not-allowed' : 'pointer', background: isDisabled ? 'rgba(167,44,50,0.35)' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: isDisabled ? 0.6 : 1, transition: 'opacity 0.15s' }}
+              >
+                {loading ? 'Adding…' : 'Add Device'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
 import ModalPortal from './common/ModalPortal.jsx';
+import { categoriesFor } from '../utils/deviceCategories.js';
+
+const FIELD_STYLE = {
+  width: '100%', background: '#18181b', border: '1px solid #3f3f46',
+  borderRadius: 8, padding: '10px 12px', color: '#f4f4f5', fontSize: 13,
+  outline: 'none', boxSizing: 'border-box',
+};
+const SELECT_STYLE = {
+  ...FIELD_STYLE, cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none',
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='%2371717a'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
+};
+const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' };
+const LABEL_STYLE = { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 };
 
 function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg }) {
   const [q, setQ] = useState('');
@@ -73,24 +87,34 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
 }
 
 /**
+ * Assign-user modal for a device detail page. Same fields as the Bind modal,
+ * but the device SN is pre-selected and locked (we're already on that device).
+ *
  * Props:
- *   sn              — device serial number
+ *   sn              — device serial number (locked)
+ *   deviceType      — 'locator' | 'sticker' (drives the category list)
  *   currentUserName — name currently assigned (shown as subtitle), or null
  *   users           — array from UserCacheContext
- *   onAssign        — async (userId: string) => void
+ *   onSubmit        — async ({ userId, name, client, category }) => void
  *   onClose         — () => void
  */
-export default function AssignUserModal({ sn, currentUserName, users, onAssign, onClose }) {
-  const [selectedId, setSelectedId] = useState(users[0]?._id ?? users[0]?.id ?? null);
+export default function AssignUserModal({ sn, deviceType = 'locator', currentUserName, users, onSubmit, onClose }) {
+  const [selectedId, setSelectedId] = useState('');
+  const [name,       setName]       = useState('');
+  const [client,     setClient]     = useState('');
+  const [category,   setCategory]   = useState('');
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
 
+  const cats = categoriesFor(deviceType);
+
   async function handleConfirm() {
     if (!selectedId) { setError('Select a user first'); return; }
+    if (!category)   { setError('Select a category'); return; }
     setLoading(true);
     setError('');
     try {
-      await onAssign(selectedId);
+      await onSubmit({ userId: selectedId, name: name.trim(), client: client.trim(), category });
       onClose();
     } catch (e) {
       setError(e?.message || 'Assignment failed');
@@ -99,7 +123,7 @@ export default function AssignUserModal({ sn, currentUserName, users, onAssign, 
     }
   }
 
-  const isDisabled = loading || users.length === 0 || !selectedId;
+  const isDisabled = loading || users.length === 0 || !selectedId || !category;
 
   return (
     <ModalPortal>
@@ -108,8 +132,8 @@ export default function AssignUserModal({ sn, currentUserName, users, onAssign, 
         style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
           backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 9999, padding: 24,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          zIndex: 9999, padding: 24, overflowY: 'auto',
         }}
       >
         <div
@@ -117,11 +141,11 @@ export default function AssignUserModal({ sn, currentUserName, users, onAssign, 
           style={{
             background: '#000000', border: '1px solid rgba(255,255,255,0.12)',
             borderRadius: 16, boxShadow: '0 24px 64px rgba(0,0,0,0.72)',
-            width: '100%', maxWidth: 420, padding: 22,
+            width: '100%', maxWidth: 420, padding: 24, marginTop: 40,
           }}
         >
           {/* Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg style={{ width: 16, height: 16, color: '#C86068' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -140,53 +164,73 @@ export default function AssignUserModal({ sn, currentUserName, users, onAssign, 
             <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.40)', padding: 4, fontSize: 16, lineHeight: 1 }}>✕</button>
           </div>
 
-          {/* Device pill */}
-          <div style={{ marginBottom: 16, padding: '7px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 7 }}>
-            <svg style={{ width: 12, height: 12, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }} viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/>
-            </svg>
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', fontFamily: 'monospace' }}>{sn}</span>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div style={{ padding: '8px 12px', marginBottom: 12, background: 'rgba(127,29,29,0.2)', border: '1px solid rgba(127,29,29,0.4)', borderRadius: 6, color: '#fca5a5', fontSize: 12 }}>
-              {error}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Device SN — locked */}
+            <div>
+              <label style={LABEL_STYLE}>Device SN</label>
+              <div style={{ ...FIELD_STYLE, color: 'rgba(255,255,255,0.45)', fontFamily: 'monospace', cursor: 'default' }}>
+                {sn}
+              </div>
             </div>
-          )}
 
-          {/* User select */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
-              Select User <span style={{ color: '#C86068' }}>*</span>
-            </label>
-            {users.length === 0 ? (
-              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No users available</p>
-            ) : (
-              <SearchSelect
-                items={users}
-                selectedValue={selectedId}
-                onSelect={setSelectedId}
-                labelOf={u => (u.name || u.email || 'Unknown') + (u.email && u.name ? ` (${u.email})` : '')}
-                keyOf={u => u._id ?? u.id}
-                placeholder="Type to search or select a user…"
-                emptyMsg="No matching users"
-              />
+            {/* Assign to User */}
+            <div>
+              <label style={LABEL_STYLE}>Assign to User <span style={{ color: '#C86068' }}>*</span></label>
+              {users.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.32)' }}>No users available</p>
+              ) : (
+                <SearchSelect
+                  items={users}
+                  selectedValue={selectedId}
+                  onSelect={setSelectedId}
+                  labelOf={u => (u.email || u.name || 'Unknown') + (u.email && u.name ? ` (${u.name})` : '')}
+                  keyOf={u => u._id ?? u.id}
+                  placeholder="Type to search or select a user…"
+                  emptyMsg="No matching users"
+                />
+              )}
+            </div>
+
+            {/* Display Name */}
+            <div>
+              <label style={LABEL_STYLE}>Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Office Locator" style={FIELD_STYLE} />
+            </div>
+
+            {/* Category */}
+            <div>
+              <label style={LABEL_STYLE}>Category <span style={{ color: '#C86068' }}>*</span></label>
+              <select value={category} onChange={e => setCategory(e.target.value)} style={SELECT_STYLE}>
+                <option value="" disabled style={SELECT_OPT}>Select a category…</option>
+                {cats.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+              </select>
+            </div>
+
+            {/* Client */}
+            <div>
+              <label style={LABEL_STYLE}>Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+              <input value={client} onChange={e => setClient(e.target.value)} placeholder="e.g. Acme Corp" style={FIELD_STYLE} />
+            </div>
+
+            {error && (
+              <div style={{ padding: '8px 12px', background: 'rgba(127,29,29,0.2)', border: '1px solid rgba(127,29,29,0.4)', borderRadius: 6, color: '#fca5a5', fontSize: 12 }}>
+                {error}
+              </div>
             )}
-          </div>
 
-          {/* Footer */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
-              Cancel
-            </button>
-            <button
-              onClick={handleConfirm}
-              disabled={isDisabled}
-              style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isDisabled ? 'not-allowed' : 'pointer', background: isDisabled ? 'rgba(167,44,50,0.35)' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: isDisabled ? 0.6 : 1, transition: 'opacity 0.15s' }}
-            >
-              {loading ? 'Assigning…' : 'Assign User'}
-            </button>
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={isDisabled}
+                style={{ padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isDisabled ? 'not-allowed' : 'pointer', background: isDisabled ? 'rgba(167,44,50,0.35)' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: isDisabled ? 0.6 : 1, transition: 'opacity 0.15s' }}
+              >
+                {loading ? 'Assigning…' : 'Assign User'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

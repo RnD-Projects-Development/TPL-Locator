@@ -2,20 +2,23 @@ import React, { createContext, useContext, useState, useCallback } from 'react'
 
 /* ──────────────────────────────────────────────────────────────────
    DashboardChromeContext
-   Lets a page (e.g. Dashboard) register an action — the Export PDF
-   trigger — that lives in the page but is rendered in the topbar
-   (Header). The page registers a { run, exporting } pair; the Header
-   reads it to render the button. Cleared on unmount.
+   Lets the active page register a primary action (e.g. Export PDF on the
+   dashboard, Export CSV on devices) that lives in the page but renders in
+   the topbar (Header). The page registers { run, label, icon }; the Header
+   reads it to render the button. Only the mounted page registers, and it
+   clears on unmount, so the topbar always reflects the current page.
    ────────────────────────────────────────────────────────────────── */
 const DashboardChromeContext = createContext(null)
 
 export function DashboardChromeProvider({ children }) {
-  // exportAction = { run: () => void } | null
+  // exportAction = { run: () => void, label: string, icon: Component } | null
   const [exportAction, setExportAction] = useState(null)
   const [exporting,    setExporting]    = useState(false)
 
   const registerExport = useCallback((action) => {
-    setExportAction(action ? { run: action } : null)
+    setExportAction(
+      action && action.run ? { run: action.run, label: action.label, icon: action.icon } : null
+    )
   }, [])
 
   return (

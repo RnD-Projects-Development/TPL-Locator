@@ -66,5 +66,5 @@ export async function fetchFleetDevices(getDevices, { force = false } = {}) {
 /** Warm the fleet cache in the background after login. */
 export function prefetchFleetDevices(getDevices) {
   if (!getDevices || isFleetCacheValid() || _fleetInflight) return;
-  void fetchFleetDevices(getDevices).catch(() => {});
+  void fetchFleetDevices(getDevices).catch(() => { });
 }

@@ -89,11 +89,14 @@ export default function Header({ pageTheme, setPageTheme }) {
   const { user } = useApp()
   const { updateProfile, logout } = useAuth()
 
-  // Export PDF action registered by the Dashboard page (rendered here in the topbar)
+  // Page-registered topbar action (Export PDF on dashboard, Export CSV on devices, …).
+  // Only the mounted page registers, so showing it whenever present is correct.
   const chrome       = useDashboardChrome()
   const exportAction = chrome?.exportAction
   const exporting    = chrome?.exporting ?? false
-  const showExport   = pathname === '/dashboard' && !!exportAction
+  const showExport   = !!exportAction
+  const ExportIcon   = exportAction?.icon ?? FileDown
+  const exportLabel  = exportAction?.label ?? 'Export'
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [showProfileMenu,   setShowProfileMenu]   = useState(false)
@@ -207,7 +210,7 @@ export default function Header({ pageTheme, setPageTheme }) {
           </div>
         )}
 
-        {/* Export PDF — dashboard only, action registered by the Dashboard page */}
+        {/* Page-registered export action (Export PDF / Export CSV), rendered in the topbar */}
         {showExport && (
           <button
             onClick={() => { if (!exporting) exportAction.run() }}
@@ -226,8 +229,8 @@ export default function Header({ pageTheme, setPageTheme }) {
           >
             {exporting
               ? <Loader style={{ width:14, height:14, animation:'spin 1s linear infinite' }} />
-              : <FileDown style={{ width:14, height:14 }} />}
-            {exporting ? 'Exporting…' : 'Export PDF'}
+              : <ExportIcon style={{ width:14, height:14 }} />}
+            {exporting ? 'Exporting…' : exportLabel}
           </button>
         )}
 

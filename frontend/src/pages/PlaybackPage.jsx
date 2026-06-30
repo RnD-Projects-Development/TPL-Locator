@@ -7,7 +7,7 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
-import { landmarkDisplayFromPoint, landmarkFromPoint, parseLandmarkDisplay, clientReverseGeocode } from "../utils/landmark.js";
+import { landmarkDisplayFromPoint, landmarkFromPoint, parseLandmarkDisplay, clientReverseGeocode, mapboxReverseGeocode, mapboxGeoLabelString } from "../utils/landmark.js";
 import "./PlaybackPage.css";
 
 const PLAYBACK_SCOPE = "playback";
@@ -21,14 +21,18 @@ function isDuplicate(p1, p2) {
   return lat(p1) === lat(p2) && lng(p1) === lng(p2) && ts(p1) === ts(p2);
 }
 
-function todayStr() { return new Date().toISOString().split("T")[0]; }
+const pad2 = (n) => String(n).padStart(2, "0");
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
 
-// Pakistan Time (PKT) offset: UTC+5, so subtract 5 hours to align queries with stored data
-const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
-
-function toPktTime(utcDateStr, timeStr) {
-  const utc = new Date(`${utcDateStr}T${timeStr}Z`);
-  return new Date(utc.getTime() - PKT_OFFSET_MS);
+// Stored timestamps are naive Pakistan local time (the vendor sync applies the
+// offset on ingest). Queries therefore send the picker's wall-clock as a NAIVE
+// datetime string (no 'Z', no offset) so the window matches stored values exactly
+// — starting at the selected day's min with no bleed into the previous day.
+function naiveLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
 function formatTs(point) {
@@ -68,7 +72,7 @@ const TIME_SHORTCUTS = [
 
 export default function PlaybackPage() {
   const [searchParams] = useSearchParams();
-  const { getLatestLocation, getPlayback } = useCityTag();
+  const { getLatestLocation, getPlayback, getGeocode } = useCityTag();
   const { ensureDevice } = useSidebarDevices(PLAYBACK_SCOPE);
   const [label, setLabel] = useState("");
   const { zones } = useZoneCache();
@@ -138,12 +142,23 @@ export default function PlaybackPage() {
     if (key in geocodeCache || pendingGeoRef.current.has(key)) return;
 
     pendingGeoRef.current.add(key);
-    clientReverseGeocode(lat, lng)
-      .then(result => {
-        pendingGeoRef.current.delete(key);
-        setGeocodeCache(prev => ({ ...prev, [key]: result ? parseLandmarkDisplay(result) : null }));
-      })
-      .catch(() => pendingGeoRef.current.delete(key));
+    // Same fallback chain as the device detail / map view pages:
+    // TPLMaps client geocode → backend getGeocode → Mapbox reverse geocode.
+    ;(async () => {
+      let label = null;
+      try { label = await clientReverseGeocode(lat, lng); } catch {}
+      if (!label) {
+        try { const geo = await getGeocode(lat, lng); if (geo?.landmark) label = geo.landmark; } catch {}
+      }
+      if (!label) {
+        try {
+          const mbx = await mapboxReverseGeocode(lat, lng, import.meta.env.VITE_MAPBOX_TOKEN);
+          if (mbx) label = mapboxGeoLabelString(mbx);
+        } catch {}
+      }
+      pendingGeoRef.current.delete(key);
+      setGeocodeCache(prev => ({ ...prev, [key]: label ? parseLandmarkDisplay(label) : null }));
+    })();
   }, [visitedPoints, isLiveMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshLive = useCallback(async (target) => {
@@ -198,9 +213,9 @@ export default function PlaybackPage() {
     setHistError("");
     setHistLoading(true);
     try {
-      // Convert picker values to Pakistan time for database alignment
-      const start = overrideStart ?? toPktTime(startDate, `${startTime}:00`);
-      const end   = overrideEnd   ?? toPktTime(endDate, `${endTime}:59`);
+      // Naive PKT wall-clock strings — match the naive-local stored timestamps
+      const start = overrideStart ?? `${startDate}T${startTime}:00`;
+      const end   = overrideEnd   ?? `${endDate}T${endTime}:59`;
       if (start >= end) throw new Error("Start must be before end");
       const res    = await getPlayback(sn, start, end);
       const points = normalisePlayback(res);
@@ -221,15 +236,15 @@ export default function PlaybackPage() {
     if (!sn) { setHistError("Select a device first"); return; }
     const now   = new Date();
     const start = new Date(now.getTime() - shortcut.hours * 60 * 60 * 1000);
-    const toDateStr = (d) => d.toISOString().split("T")[0];
-    const toTimeStr = (d) => d.toTimeString().slice(0, 5);
+    const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const toTimeStr = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
     setStartDate(toDateStr(start));
     setStartTime(toTimeStr(start));
     setEndDate(toDateStr(now));
     setEndTime(toTimeStr(now));
     setActiveShortcut(shortcut.label);
-    // Shortcut uses real Date objects — no PKT adjustment needed
-    loadHistorical(start, now);
+    // Send naive local (PKT wall-clock) strings to match stored timestamps
+    loadHistorical(naiveLocal(start), naiveLocal(now));
   };
 
   /* ── Playback engine ──────────────────────────── */

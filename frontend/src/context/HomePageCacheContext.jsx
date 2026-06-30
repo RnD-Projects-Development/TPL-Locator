@@ -35,7 +35,7 @@ function dayRange(dateStr, isLive) {
   // Subtract 5 hours to convert from UTC to Pakistan time for database alignment
   const startUtc = new Date(`${dateStr}T00:00:00.000Z`);
   const start = new Date(startUtc.getTime() - PKT_OFFSET_MS);
-  
+
   let end;
   if (isLive) {
     end = new Date(Date.now() + 2 * 3600 * 1000);
@@ -53,21 +53,21 @@ export function HomePageCacheProvider({ children }) {
   const { getDevices, getDevicesSummary, getLatestLocationsBatch, getPlaybackBatch } = useCityTag();
   const { updateFromDevices } = useBindCache();
 
-  const [filters, setFilters]           = useState({ region: 'all', area: 'all', areaId: null, date: todayStr() });
-  const [devices, setDevices]           = useState([]);
-  const [devLoading, setDevLoading]     = useState(false);
-  const [summary, setSummary]           = useState(EMPTY_SUMMARY);
+  const [filters, setFilters] = useState({ region: 'all', area: 'all', areaId: null, date: todayStr() });
+  const [devices, setDevices] = useState([]);
+  const [devLoading, setDevLoading] = useState(false);
+  const [summary, setSummary] = useState(EMPTY_SUMMARY);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const [locations, setLocations]       = useState({});
-  const [locSync, setLocSync]           = useState(null);
+  const [locations, setLocations] = useState({});
+  const [locSync, setLocSync] = useState(null);
   const [activityData, setActivityData] = useState({});
   const [chartLoading, setChartLoading] = useState(false);
-  const [kmlAreas, setKmlAreas]         = useState([]);
+  const [kmlAreas, setKmlAreas] = useState([]);
 
   // Stable refs so callbacks don't need devices/filters in their dep arrays
   const devicesRef = useRef([]);
   const filtersRef = useRef(filters);
-  useEffect(() => { devicesRef.current = devices; },  [devices]);
+  useEffect(() => { devicesRef.current = devices; }, [devices]);
   useEffect(() => { filtersRef.current = filters; }, [filters]);
 
   const deviceCacheRef = useRef({ key: '', fetchedAt: 0, data: [] });
@@ -170,8 +170,8 @@ export function HomePageCacheProvider({ children }) {
     fetch('/areas.kml')
       .then(r => r.text())
       .then(text => setKmlAreas(parseKMLText(text)))
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch(() => { });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Internal: fetch locations only ───────────────────────────────────────

@@ -12,7 +12,9 @@ import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useBindCache } from '../context/BindCacheContext.jsx'
 import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
+import { useDashboardChrome } from '../context/DashboardChromeContext.jsx'
 import { deviceDisplayName } from '../utils/deviceDisplayName.js'
+import { BIND_CATS, STICKER_CATS } from '../utils/deviceCategories.js'
 import {
   fetchFleetDevices,
   getFleetCache,
@@ -58,18 +60,7 @@ const SELECT_STYLE = {
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
 }
 const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
-const BIND_CATS = [
-  'wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus',
-  'laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack',
-  'pallet','carton','container','parcel','equipment','other',
-]
-
-const STICKER_CATS = [
-  'Mobile Phone','Tablet','Laptop','Camera','Drone','Gaming Console',
-  'Power Bank','Headphones','Portable Speaker','Monitor','Printer',
-  'Projector','Router','POS Terminal','Toolbox','Equipment',
-  'Asset','Inventory Item','Package','Other',
-]
+// BIND_CATS / STICKER_CATS now live in ../utils/deviceCategories.js (shared with AssignUserModal)
 
 // ── Search + dropdown combo for bind modal ────────────────────────────────────
 function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg, allowFreeText = false, onFreeTextChange }) {
@@ -376,7 +367,7 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
    AllDevices: fixed 4×5 grid for All / Locators / Stickers tabs.
    Fetches the full fleet ONCE; tab + status switches are pure client-side.
 ────────────────────────────────────────────────────────────────────────────── */
-function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal }) {
+function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser } = useCityTag()
@@ -421,9 +412,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   useEffect(() => () => clearTimeout(toastTimer.current), [])
 
   const PAGE_SIZE  = 20
-  const debRef      = useRef(null)
-  const prevSignal  = useRef(refreshSignal)
-  const isSilentRef = useRef(false)
+  const debRef       = useRef(null)
+  const prevSignal   = useRef(refreshSignal)
+  const isSilentRef  = useRef(false)
+  const gridScrollRef = useRef(null)
 
   // Debounce search
   useEffect(() => {
@@ -434,6 +426,11 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
 
   // Reset page on filter/search change
   useEffect(() => { setPage(1) }, [deviceType, externalStatus, debQ])
+
+  // Reset the grid scroll to the top on any tab / filter / search / page change
+  useEffect(() => {
+    if (gridScrollRef.current) gridScrollRef.current.scrollTop = 0
+  }, [deviceType, externalStatus, debQ, page])
 
   // Auto-refresh every 60s when Online filter is active — silently (no loader)
   useEffect(() => {
@@ -628,6 +625,20 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400 }}>
           {fetching ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}
         </span>
+        {onBind && (
+          <button onClick={onBind}
+            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, cursor: 'pointer', flexShrink: 0,
+              background: isLight ? '#A72C32' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+              border: isLight ? '1px solid #8B2328' : '1px solid rgba(167,44,50,0.45)',
+              color: '#fff', fontSize: 13, fontWeight: 700,
+              boxShadow: isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)',
+              transition: 'box-shadow 0.2s, transform 0.2s' }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = isLight ? '0 4px 16px rgba(167,44,50,0.35)' : '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)' }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)' }}
+          >
+            <Plus style={{ width: 14, height: 14 }} /> {bindLabel}
+          </button>
+        )}
       </div>
 
       {/* Device grid — fills remaining height, fixed 4 col × 5 row.
@@ -637,7 +648,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           <TPLLoader label="Loading devices…" />
         </div>
       ) : (
-        <div style={{
+        <div ref={gridScrollRef} style={{
           flex: 1, minHeight: 0, overflow: 'auto',
           display: 'grid',
           gridTemplateColumns: 'repeat(4, minmax(200px, 1fr))',
@@ -924,6 +935,7 @@ export default function Devices() {
   const { devices: cacheDevices } = useDeviceCache()
   const { recordBind } = useBindCache()
   const { users } = useUserCache()
+  const chrome = useDashboardChrome()
 
   // ── Bind modal state ───────────────────────────────────────────────────────
   const [availableDevices, setAvailableDevices] = useState([])
@@ -1005,6 +1017,20 @@ export default function Devices() {
     finally { setExporting(false) }
   }, [exporting, getDevices, getLatestLocationsBatch])
 
+  // Register Export CSV in the topbar (Header) while the Devices page is mounted
+  const exportRef = useRef(handleExportCSV)
+  exportRef.current = handleExportCSV
+  const registerExport     = chrome?.registerExport
+  const setChromeExporting  = chrome?.setExporting
+  useEffect(() => {
+    if (!registerExport) return
+    registerExport({ run: () => exportRef.current?.(), label: 'Export CSV', icon: Download })
+    return () => registerExport(null)
+  }, [registerExport])
+  useEffect(() => {
+    setChromeExporting?.(exporting)
+  }, [exporting, setChromeExporting])
+
   const setTab = (key) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('tab', key); return p }, { replace: true })
   const setStatus = (s) => {
     setStatusTab(s)
@@ -1025,69 +1051,11 @@ export default function Devices() {
   const offlineDeviceType = activeTab !== 'all' ? activeTab : undefined
   const isOfflineView = statusTab === 'Offline'
 
+  const bindLabel = activeTab === 'sticker' ? 'Bind Sticker' : 'Bind Locator'
+  const canBind   = !isOfflineView && (activeTab === 'locator' || activeTab === 'sticker')
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 24px' }}>
-
-      {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: isLight ? 12 : 10 }}>
-          {isLight ? (
-            <div style={{ width: 44, height: 44, borderRadius: 12, background: '#A72C32', border: '1px solid #8B2328', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Layers style={{ width: 20, height: 20, color: '#FFFFFF' }} />
-            </div>
-          ) : (
-            <div style={{ padding: 9, background: 'rgba(167,44,50,0.14)', borderRadius: 12, border: '1px solid rgba(167,44,50,0.24)', display: 'flex' }}>
-              <Layers style={{ width: 18, height: 18, color: '#C86A6A' }} />
-            </div>
-          )}
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: T.txt1, margin: 0, letterSpacing: isLight ? '-0.02em' : '-0.03em' }}>
-            Devices
-          </h1>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Bind Locator — Locator tab only */}
-          {activeTab === 'locator' && !isOfflineView && (
-            isLight ? (
-              <button onClick={() => openBindModal('locator')}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: '#A72C32', border: '1px solid #8B2328', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(167,44,50,0.25)', transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = '#8B2328'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(167,44,50,0.35)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = '#A72C32'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(167,44,50,0.25)' }}
-              ><Plus style={{ width: 15, height: 15 }} /> Bind Locator</button>
-            ) : (
-              <button onClick={() => openBindModal('locator')}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.45)', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 14px rgba(167,44,50,0.28)', transition: 'box-shadow 0.2s, transform 0.2s' }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(167,44,50,0.28)'; e.currentTarget.style.transform = 'translateY(0)' }}
-              ><Plus style={{ width: 14, height: 14 }} /> Bind Locator</button>
-            )
-          )}
-          {/* Bind Sticker — Sticker tab only */}
-          {activeTab === 'sticker' && !isOfflineView && (
-            isLight ? (
-              <button onClick={() => openBindModal('sticker')}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: '#A72C32', border: '1px solid #8B2328', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 2px 8px rgba(167,44,50,0.25)', transition: 'background 0.15s, box-shadow 0.15s, transform 0.15s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = '#8B2328'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(167,44,50,0.35)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = '#A72C32'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(167,44,50,0.25)' }}
-              ><Plus style={{ width: 15, height: 15 }} /> Bind Sticker</button>
-            ) : (
-              <button onClick={() => openBindModal('sticker')}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 10, cursor: 'pointer', background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)', border: '1px solid rgba(167,44,50,0.45)', color: '#fff', fontSize: 13, fontWeight: 700, boxShadow: '0 4px 14px rgba(167,44,50,0.28)', transition: 'box-shadow 0.2s, transform 0.2s' }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(167,44,50,0.28)'; e.currentTarget.style.transform = 'translateY(0)' }}
-              ><Plus style={{ width: 14, height: 14 }} /> Bind Sticker</button>
-            )
-          )}
-          {/* Export CSV — All tab only */}
-          {activeTab === 'all' && !isOfflineView && (
-            <button onClick={handleExportCSV} disabled={exporting}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 10, cursor: exporting ? 'wait' : 'pointer', background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)', border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)', color: isLight ? '#333333' : 'rgba(255,255,255,0.70)', fontSize: 13, fontWeight: 600, opacity: exporting ? 0.6 : 1, transition: 'all 0.15s' }}
-              onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = isLight ? '#000' : '#FFFFFF' }}}
-              onMouseLeave={e => { e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = isLight ? '#333333' : 'rgba(255,255,255,0.70)' }}
-            ><Download style={{ width: 13, height: 13 }} /> {exporting ? 'Exporting…' : 'Export CSV'}</button>
-          )}
-        </div>
-      </div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
 
       {/* ── Type tabs (left) + status filters (right), single row ────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
@@ -1163,6 +1131,8 @@ export default function Devices() {
             isLight={isLight}
             T={T}
             refreshSignal={refreshKey}
+            onBind={canBind ? () => openBindModal(activeTab) : undefined}
+            bindLabel={bindLabel}
           />
         </div>
       </div>

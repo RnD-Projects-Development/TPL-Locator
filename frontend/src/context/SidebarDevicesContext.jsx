@@ -13,6 +13,8 @@ const SEARCH_CACHE_TTL_MS = 60_000;
 
 const SidebarDevicesContext = createContext(null);
 
+const isSticker = (sn) => /^\d+$/.test(String(sn ?? ""));
+
 function normalizeList(payload) {
   return Array.isArray(payload) ? payload : payload?.devices ?? [];
 }
@@ -415,8 +417,15 @@ export function SidebarDevicesProvider({ children }) {
 
   const recentDevices = useMemo(() => {
     void registryTick;
-    return recentSns.map((sn) => registryRef.current.get(sn)).filter(Boolean);
-  }, [recentSns, registryTick]);
+    const list = recentSns.map((sn) => registryRef.current.get(sn)).filter(Boolean);
+    if (deviceTypeFilter === "sticker") {
+      return list.filter((d) => isSticker(d.sn));
+    }
+    if (deviceTypeFilter === "locator") {
+      return list.filter((d) => !isSticker(d.sn));
+    }
+    return list;
+  }, [recentSns, registryTick, deviceTypeFilter]);
 
   const displayDevices = useMemo(() => {
     if (debouncedSearch) return searchResults;

@@ -1,7 +1,17 @@
 {
   "devices": [
     {
+      "sn": "2UXqG9noR",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
       "sn": "2UXqG9nof",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9tNc",
       "admin": "tpl@gmail.com",
       "vendor": "zoqin"
     },
@@ -114,6 +124,61 @@
       "sn": "780901807619229",
       "admin": "tpl@gmail.com",
       "vendor": "tracksolid"
+    },
+    {
+      "sn": "2UXqG9kcD",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9lgm",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9mkE",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9osJ",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9pwC",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9qAO",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9tNd",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9uQo",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9uR7",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9uR9",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
+    },
+    {
+      "sn": "2UXqG9vVp",
+      "admin": "tpl@gmail.com",
+      "vendor": "zoqin"
     }
   ]
 }

@@ -7,22 +7,25 @@ import { clientReverseGeocode } from "../utils/landmark.js";
 import "./ReportPage.css";
 import * as XLSX from "xlsx";
 
-function todayStr() { return new Date().toISOString().split("T")[0]; }
+const pad2 = (n) => String(n).padStart(2, "0");
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
 
-const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
-
-function toPktTime(utcDateStr, timeStr) {
-  const utc = new Date(`${utcDateStr}T${timeStr}Z`);
-  return new Date(utc.getTime() - PKT_OFFSET_MS);
+// Stored timestamps are naive Pakistan local time (the vendor sync applies the
+// offset on ingest). Send the picker's wall-clock as a NAIVE datetime string so
+// the window matches stored values exactly (no day bleed, no ±5h skew).
+function naiveLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
 function formatTs(point) {
   const ts = point?.timestamp ?? point?.time ?? point?.locTime;
   if (!ts) return "—";
   try {
-    // Handle both "2026-06-14T14:07:37" (no Z) and proper ISO strings
-    const raw = typeof ts === 'string' && !ts.endsWith('Z') && !ts.includes('+') ? ts + 'Z' : ts;
-    const d = new Date(raw);
+    // Stored values are naive PKT — parse as local time (do NOT append 'Z'/treat as UTC).
+    const d = new Date(ts);
     if (isNaN(d.getTime())) return String(ts);
     const p = n => String(n).padStart(2, '0');
     return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
@@ -198,8 +201,8 @@ export default function Reports() {
     setGeoOverrides({});
     setLoading(true);
     try {
-      const start = overrideStart ?? toPktTime(startDate, `${startTime}:00`);
-      const end   = overrideEnd   ?? toPktTime(endDate,   `${endTime}:59`);
+      const start = overrideStart ?? `${startDate}T${startTime}:00`;
+      const end   = overrideEnd   ?? `${endDate}T${endTime}:59`;
       if (start >= end) throw new Error("Start must be before end");
       setQueryRange({ start, end });
       const res = await getPlayback(sn, start, end);
@@ -217,14 +220,14 @@ export default function Reports() {
     if (!sn) { setError("Select a device first"); return; }
     const now   = new Date();
     const start = new Date(now.getTime() - shortcut.hours * 60 * 60 * 1000);
-    const toDateStr = (d) => d.toISOString().split("T")[0];
-    const toTimeStr = (d) => d.toTimeString().slice(0, 5);
+    const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const toTimeStr = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
     setStartDate(toDateStr(start));
     setStartTime(toTimeStr(start));
     setEndDate(toDateStr(now));
     setEndTime(toTimeStr(now));
     setActiveShortcut(shortcut.label);
-    loadReport(start, now);
+    loadReport(naiveLocal(start), naiveLocal(now));
   };
 
   const getLocationLabel = (point) => {
@@ -293,8 +296,8 @@ export default function Reports() {
   };
 
   const stats      = computeStats(points);
-  const rangeStart = queryRange.start ? queryRange.start.toLocaleString() : "—";
-  const rangeEnd   = queryRange.end   ? queryRange.end.toLocaleString()   : "—";
+  const rangeStart = queryRange.start ? new Date(queryRange.start).toLocaleString() : "—";
+  const rangeEnd   = queryRange.end   ? new Date(queryRange.end).toLocaleString()   : "—";
 
   return (
     <div className="rp-page">

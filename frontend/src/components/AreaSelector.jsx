@@ -1,16 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import './AreaSelector.css';
 
-/**
- * Searchable area/zone dropdown.
- *
- * Props:
- *   value      – selected area id (string) or null for "All Areas"
- *   onChange   – called with area id (string) or null
- *   areas      – array of { id, name, tehsil, ucNo } from useKmlAreas / parseKMLText
- *   loading    – bool, shows loading state while KML is being fetched
- *   placeholder – override default "All Areas" label
- */
+
 export default function AreaSelector({ value, onChange, areas = [], loading = false, placeholder = 'All Areas' }) {
   const [open, setOpen]           = useState(false);
   const [search, setSearch]       = useState('');

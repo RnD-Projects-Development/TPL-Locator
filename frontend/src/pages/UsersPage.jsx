@@ -963,9 +963,9 @@ export default function UsersPage() {
         <AddDeviceToUserModal
           user={addDeviceTarget}
           devices={unboundDevices}
-          onAssign={async (sn) => {
+          onAssign={async (sn, opts) => {
             const userId = addDeviceTarget._id ?? addDeviceTarget.id
-            await adminAssignDeviceToUser(userId, sn)
+            await adminAssignDeviceToUser(userId, sn, opts)
             await silentRefresh()
             await silentRefreshDevices()
           }}

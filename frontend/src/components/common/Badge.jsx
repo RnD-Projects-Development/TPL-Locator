@@ -1,3 +1,10 @@
+
+// Badge component for displaying status indicators
+// Props:
+// - status: string representing the status (e.g., 'Active', 'Idle', 'Delivered')
+// - size: string representing the size (e.g., 'sm', 'xs')
+// The component uses a configuration object to map statuses to their corresponding styles and dot colors.
+
 import React from 'react'
 
 const cfg = {
