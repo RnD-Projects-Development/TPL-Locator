@@ -323,6 +323,22 @@ export function useCityTag() {
     [accessToken, logout]
   );
 
+  const getCategories = useCallback(
+    async (deviceType) => {
+      const params = new URLSearchParams();
+      if (deviceType != null && deviceType !== "all") params.set("device_type", String(deviceType));
+      const query = params.toString();
+      return apiFetch(query ? `/api/categories?${query}` : "/api/categories", {}, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
+  const createCategory = useCallback(
+    async ({ name, device_type }) =>
+      apiFetch("/api/categories", { method: "POST", body: { name, device_type: device_type || undefined } }, accessToken, logout),
+    [accessToken, logout]
+  );
+
   const getFieldStaffLiveDevices = useCallback(
     async ({ page, limit, search, zoneId, lastSeenFrom, lastSeenTo } = {}) => {
       const params = new URLSearchParams();
@@ -352,5 +368,6 @@ export function useCityTag() {
     searchDevice, getLatestLocation, getTrajectory, getPlayback, getGeocode,
     getLatestLocationsBatch, getPlaybackBatch,
     getFieldStaffLiveDevices,
+    getCategories, createCategory,
   };
 }

@@ -60,7 +60,6 @@ const SELECT_STYLE = {
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
 }
 const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
-// BIND_CATS / STICKER_CATS now live in ../utils/deviceCategories.js (shared with AssignUserModal)
 
 // ── Search + dropdown combo for bind modal ────────────────────────────────────
 function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg, allowFreeText = false, onFreeTextChange }) {
@@ -370,9 +369,17 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser } = useCityTag()
+  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, getCategories } = useCityTag()
   const { user, isAdmin } = useAuth()
   const { users, loading: usersLoading } = useUserCache()
+  const [categories, setCategories] = useState([]);
+    useEffect(() => {
+      let cancelled = false;
+      getCategories()
+        .then((data) => { if (!cancelled) setCategories(Array.isArray(data) ? data : []); })
+        .catch(() => { if (!cancelled) setCategories([]); });
+      return () => { cancelled = true; };
+    }, [getCategories]);
 
   const cacheValid = () => isFleetCacheValid()
 
@@ -799,7 +806,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>Category</label>
                   <select value={editCategory} onChange={e => setEditCategory(e.target.value)} style={SELECT_STYLE}>
                     <option value="" disabled style={SELECT_OPT}>Select a category…</option>
-                    {BIND_CATS.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                    {categories.map(cat => <option key={cat.id} value={cat.slug} style={SELECT_OPT}>{cat.name}</option>)}
                   </select>
                 </div>
 
@@ -931,11 +938,18 @@ export default function Devices() {
   }), [isLight])
 
   const { isAdmin } = useAuth()
-  const { bindDevice, adminAssignDeviceToUser, getAvailableDevices, getDevices, getLatestLocationsBatch } = useCityTag()
+  const { bindDevice, adminAssignDeviceToUser, getAvailableDevices, getDevices, getLatestLocationsBatch, getCategories } = useCityTag()
   const { devices: cacheDevices } = useDeviceCache()
   const { recordBind } = useBindCache()
   const { users } = useUserCache()
-  const chrome = useDashboardChrome()
+  const [categories, setCategories] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    getCategories()
+      .then((data) => { if (!cancelled) setCategories(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setCategories([]); });
+    return () => { cancelled = true; };
+  }, [getCategories]);
 
   // ── Bind modal state ───────────────────────────────────────────────────────
   const [availableDevices, setAvailableDevices] = useState([])
@@ -1220,7 +1234,9 @@ export default function Devices() {
                   </label>
                   <select value={bindCategory} onChange={e => setBindCategory(e.target.value)} style={SELECT_STYLE}>
                     <option value="" disabled style={SELECT_OPT}>Select a category…</option>
-                    {(bindDeviceType === 'sticker' ? STICKER_CATS : BIND_CATS).map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                    {categories
+                        .filter(cat => !cat.device_type || cat.device_type === bindDeviceType)
+                        .map(cat => <option key={cat.id} value={cat.slug} style={SELECT_OPT}>{cat.name}</option>)}
                   </select>
                 </div>
 

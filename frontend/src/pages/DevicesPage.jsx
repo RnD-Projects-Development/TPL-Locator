@@ -39,7 +39,17 @@ const HomePage = () => {
     adminCreateUser, adminAssignDeviceToUser, adminUpdateDevice,
     updateDevice,
     getAvailableDevices,
+    getCategories,
   } = useCityTag();
+
+  const [categories, setCategories] = useState([]);
+  useEffect(() => {
+  let cancelled = false;
+  getCategories()
+    .then((data) => { if (!cancelled) setCategories(Array.isArray(data) ? data : []); })
+    .catch(() => { if (!cancelled) setCategories([]); });
+  return () => { cancelled = true; };
+}, [getCategories]);
 
   const [searchTerm, setSearchTerm]     = useState(restoredState.searchTerm);
   const [filterStatus, setFilterStatus] = useState(restoredState.filterStatus);
@@ -526,8 +536,8 @@ const HomePage = () => {
                     <label>Category <span className="required">*</span></label>
                     <select value={bindCategory} onChange={(e) => setBindCategory(e.target.value)} style={SELECT_STYLE}>
                       <option value="" disabled style={SELECT_OPTION_STYLE}>— Select category —</option>
-                      {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
-                        <option key={cat} value={cat} style={SELECT_OPTION_STYLE}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                      {categories.map((cat) => (
+                        <option key={cat.id} value={cat.slug} style={SELECT_OPTION_STYLE}>{cat.name}</option>
                       ))}
                     </select>
                   </div>
@@ -589,9 +599,9 @@ const HomePage = () => {
                     <label>Category <span className="required">*</span></label>
                     <select value={bindCategory} onChange={(e) => setBindCategory(e.target.value)} style={SELECT_STYLE}>
                       <option value="" disabled style={SELECT_OPTION_STYLE}>— Select category —</option>
-                      {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
-                        <option key={cat} value={cat} style={SELECT_OPTION_STYLE}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
-                      ))}
+                     {categories.map((cat) => (
+                          <option key={cat.id} value={cat.slug} style={SELECT_OPTION_STYLE}>{cat.name}</option>
+                        ))}
                     </select>
                   </div>
                 </>
@@ -671,8 +681,8 @@ const HomePage = () => {
                 <label>Category</label>
                 <select value={editDeviceCategory} onChange={(e) => setEditDeviceCategory(e.target.value)} style={SELECT_STYLE}>
                   <option value="" style={SELECT_OPTION_STYLE}>— Select category —</option>
-                  {['wallet','bag','purse','car','motorcycle','bicycle','van','truck','bus','laptop','phone','keys','pet tracker','child tracker','asset','luggage','backpack','other'].map((cat) => (
-                    <option key={cat} value={cat} style={SELECT_OPTION_STYLE}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.slug} style={SELECT_OPTION_STYLE}>{cat.name}</option>
                   ))}
                 </select>
               </div>
