@@ -4,6 +4,7 @@ import Sidebar from './Sidebar.jsx'
 import Header from './Header.jsx'
 import { HomePageCacheProvider } from '../../context/HomePageCacheContext.jsx'
 import { BindCacheProvider } from '../../context/BindCacheContext.jsx'
+import { DashboardChromeProvider } from '../../context/DashboardChromeContext.jsx'
 import '../../styles/light-theme.css'
 
 export const ThemeContext = React.createContext(null)
@@ -39,21 +40,23 @@ export default function Layout({ children }) {
   return (
     <BindCacheProvider>
       <HomePageCacheProvider>
-        <div className="flex h-screen overflow-hidden" style={{ background: '#000000' }}>
-          <Sidebar />
-          <div className="flex flex-col flex-1 overflow-hidden">
-            <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
-            <main
-              key={pathname}
-              className={`page-anim flex-1 ${isMapPage ? 'overflow-hidden p-0' : isDevicesPage ? 'overflow-hidden p-5' : 'overflow-y-auto p-5'} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
-            style={{ borderTopLeftRadius: 28 }}
-            >
-              <ThemeContext.Provider value={pageTheme}>
-                {children}
-              </ThemeContext.Provider>
-            </main>
+        <DashboardChromeProvider>
+          <div className="flex h-screen overflow-hidden" style={{ background: '#000000' }}>
+            <Sidebar />
+            <div className="flex flex-col flex-1 overflow-hidden">
+              <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
+              <main
+                key={pathname}
+                className={`page-anim flex-1 ${isMapPage ? 'overflow-hidden p-0' : isDevicesPage ? 'overflow-hidden p-5' : 'overflow-y-auto p-5'} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
+              style={{ borderTopLeftRadius: 28 }}
+              >
+                <ThemeContext.Provider value={pageTheme}>
+                  {children}
+                </ThemeContext.Provider>
+              </main>
+            </div>
           </div>
-        </div>
+        </DashboardChromeProvider>
       </HomePageCacheProvider>
     </BindCacheProvider>
   )

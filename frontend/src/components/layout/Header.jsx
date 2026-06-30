@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronRight, Bell, Moon, Sun, BatteryLow, WifiOff, MapPin, ArrowRight, CheckCheck, LogOut, Settings } from 'lucide-react'
-import FieldStaffPill from '../FieldStaffPill.jsx'
+import { ChevronRight, Bell, Moon, Sun, BatteryLow, WifiOff, MapPin, ArrowRight, CheckCheck, LogOut, Settings, FileDown, Loader } from 'lucide-react'
+import DashboardSwitcher from '../common/DashboardSwitcher.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../App.jsx'
+import { useDashboardChrome } from '../../context/DashboardChromeContext.jsx'
 import Switch from '../Switch.jsx'
 import ModalPortal from '../common/ModalPortal.jsx'
 
@@ -88,6 +89,12 @@ export default function Header({ pageTheme, setPageTheme }) {
   const { user } = useApp()
   const { updateProfile, logout } = useAuth()
 
+  // Export PDF action registered by the Dashboard page (rendered here in the topbar)
+  const chrome       = useDashboardChrome()
+  const exportAction = chrome?.exportAction
+  const exporting    = chrome?.exporting ?? false
+  const showExport   = pathname === '/dashboard' && !!exportAction
+
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [showProfileMenu,   setShowProfileMenu]   = useState(false)
   const profileMenuRef = useRef(null)
@@ -169,15 +176,12 @@ export default function Header({ pageTheme, setPageTheme }) {
       <header className="h-[60px] flex items-center px-5 gap-5 bg-black flex-shrink-0">
 
         {/* Breadcrumb */}
-        {pathname === '/dashboard' ? (
-          <div className="flex items-center gap-1.5 text-xs flex-1">
+        {(pathname === '/dashboard' || pathname === '/field-staff') ? (
+          <div className="flex items-center gap-2.5 text-xs flex-1">
             <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
               onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
             <ChevronRight className="w-3 h-3 text-gray-700" />
-            <span className="text-white font-semibold">Dashboard</span>
-            <div style={{ marginLeft: 8 }}>
-              <FieldStaffPill onClick={() => navigate('/field-staff')} />
-            </div>
+            <DashboardSwitcher />
           </div>
         ) : (
           <div className="flex items-center gap-1.5 text-xs flex-1">
@@ -201,6 +205,30 @@ export default function Header({ pageTheme, setPageTheme }) {
               )
             })}
           </div>
+        )}
+
+        {/* Export PDF — dashboard only, action registered by the Dashboard page */}
+        {showExport && (
+          <button
+            onClick={() => { if (!exporting) exportAction.run() }}
+            disabled={exporting}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '8px 16px', borderRadius: 10, flexShrink: 0,
+              background: exporting ? 'rgba(167,44,50,0.25)' : 'rgba(167,44,50,0.14)',
+              border: '1px solid rgba(167,44,50,0.35)',
+              color: exporting ? 'rgba(255,255,255,0.45)' : '#FFFFFF',
+              fontSize: 13, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer',
+              transition: 'all 0.18s', letterSpacing: '0.01em',
+            }}
+            onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background='rgba(167,44,50,0.30)'; e.currentTarget.style.borderColor='rgba(167,44,50,0.60)' }}}
+            onMouseLeave={e => { e.currentTarget.style.background= exporting ? 'rgba(167,44,50,0.25)' : 'rgba(167,44,50,0.14)'; e.currentTarget.style.borderColor='rgba(167,44,50,0.35)' }}
+          >
+            {exporting
+              ? <Loader style={{ width:14, height:14, animation:'spin 1s linear infinite' }} />
+              : <FileDown style={{ width:14, height:14 }} />}
+            {exporting ? 'Exporting…' : 'Export PDF'}
+          </button>
         )}
 
         {/* Alerts bell + drawer */}

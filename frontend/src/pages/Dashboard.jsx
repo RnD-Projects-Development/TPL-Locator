@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield, Layers, Link2, Unlink, FileDown, Loader } from 'lucide-react'
+import { Radio, Tag, WifiOff, Battery, Activity, AlertOctagon, Users, Shield, Layers, Link2, Unlink } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { toPng } from 'html-to-image'
 import jsPDF from 'jspdf'
@@ -8,6 +8,7 @@ import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
 import { useAlerts } from '../context/AlertsContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
+import { useDashboardChrome } from '../context/DashboardChromeContext.jsx'
 import KPICard from '../components/common/KPICard.jsx'
 
 
@@ -546,47 +547,83 @@ function BatteryStatusPanel({ batteryTiers }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   ALERTS SUMMARY — executive aggregate of unread alerts by severity
-   and category (offline / battery / geofence), from AlertsContext
+   ALERTS SUMMARY — executive bubble / network visualization of unread
+   alerts. Three bubbles (Critical / Battery / Fence) sized by log-scaled
+   count, connected with faint lines over a subtle gridded backdrop.
    ══════════════════════════════════════════════════════════════════ */
-function AlertSummaryCard({ stats, alerts = [], onView }) {
+
+// Bubble radius: log-scaled against the largest bubble so the biggest
+// category fills MAX and every category stays visible at >= MIN.
+const BUBBLE_MIN_R = 42
+const BUBBLE_MAX_R = 78
+function bubbleRadius(count, maxCount) {
+  if (!maxCount || maxCount <= 0) return BUBBLE_MIN_R
+  const frac = Math.log2(1 + count) / Math.log2(1 + maxCount)
+  return Math.round(BUBBLE_MIN_R + (BUBBLE_MAX_R - BUBBLE_MIN_R) * frac)
+}
+
+function fmtPct(value, total) {
+  if (!total || total <= 0 || value <= 0) return '0%'
+  const pct = (value / total) * 100
+  return `${pct.toFixed(1).replace(/\.0$/, '')}%`
+}
+
+// Single floating bubble. Three nested layers keep transforms separate:
+// position (center on anchor) · float (idle bob) · scale (hover).
+function AlertBubble({ data, radius, pct, delay }) {
+  const [hov, setHov] = useState(false)
+  const d = radius * 2
+  return (
+    <div style={{ position: 'absolute', left: `${data.x}%`, top: `${data.y}%`, transform: 'translate(-50%, -50%)', zIndex: 2 }}>
+      <div style={{ animation: `alertBubbleFloat 6s ease-in-out ${delay}s infinite` }}>
+        <div
+          onMouseEnter={() => setHov(true)}
+          onMouseLeave={() => setHov(false)}
+          style={{
+            width: d, height: d, borderRadius: '50%',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: `radial-gradient(circle at 30% 30%, ${data.light}, ${data.base})`,
+            border: `1px solid ${data.border}`,
+            backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+            boxShadow: hov ? `0 0 42px ${data.glowHover}, 0 8px 26px rgba(0,0,0,0.45)` : `0 0 25px ${data.glow}`,
+            transform: hov ? 'scale(1.08)' : 'scale(1)',
+            transition: 'transform 0.25s ease, box-shadow 0.25s ease',
+            cursor: 'default',
+          }}
+        >
+          <div style={{ fontSize: Math.max(18, Math.round(radius * 0.42)), fontWeight: 800, color: '#FFFFFF', lineHeight: 1, letterSpacing: '-0.02em' }}>{data.value}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: data.text, marginTop: 3 }}>{pct}</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{data.label}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AlertSummaryCard({ stats, onView }) {
   const { bind, style: hoverStyle } = usePanelHover()
 
-  const severities = [
-    { label: 'Critical', value: stats.critical, color: '#f87171', bg: 'rgba(248,113,113,0.10)', border: 'rgba(248,113,113,0.25)' },
-    { label: 'Warning',  value: stats.warning,  color: '#FBBF24', bg: 'rgba(251,191,36,0.10)',  border: 'rgba(251,191,36,0.25)' },
-    { label: 'Info',     value: stats.info,     color: '#60A5FA', bg: 'rgba(96,165,250,0.10)',  border: 'rgba(96,165,250,0.25)' },
+  // x/y are percentage anchors within the bubble field (translate -50% centers).
+  const bubbles = [
+    { key: 'critical', label: 'Critical', value: stats.critical, x: 40, y: 30,
+      base: '#7F1D1D', light: '#C2433F', border: 'rgba(248,113,113,0.55)', text: '#fca5a5',
+      glow: 'rgba(239,68,68,0.32)', glowHover: 'rgba(239,68,68,0.55)' },
+    { key: 'battery',  label: 'Battery',  value: stats.battery,  x: 72, y: 70,
+      base: '#5A3D08', light: '#B5841F', border: 'rgba(245,158,11,0.55)', text: '#FCD34D',
+      glow: 'rgba(245,158,11,0.28)', glowHover: 'rgba(245,158,11,0.50)' },
+    { key: 'fence',    label: 'Fence',    value: stats.fence,    x: 26, y: 72,
+      base: '#0B3A52', light: '#1E7FA8', border: 'rgba(34,211,238,0.55)', text: '#7DD3FC',
+      glow: 'rgba(34,211,238,0.26)', glowHover: 'rgba(34,211,238,0.48)' },
   ]
-  const categories = [
-    { icon: WifiOff, label: 'Offline alerts', value: stats.offline, color: '#f87171' },
-    { icon: Battery, label: 'Low battery',    value: stats.battery, color: '#F59E0B' },
-    { icon: Shield,  label: 'Fence activity', value: stats.fence,   color: '#22D3EE' },
-  ]
-
-  // Device names/IDs from unread critical alerts
-  const criticalDevices = useMemo(() => {
-    const unreadCritical = alerts.filter(a => !a.isRead && a.severity === 'critical')
-    // deduplicate by device
-    const seen = new Set()
-    return unreadCritical
-      .map(a => ({ name: a.deviceName || a.deviceId || '—', type: a.type }))
-      .filter(({ name }) => { if (seen.has(name)) return false; seen.add(name); return true })
-  }, [alerts])
-
-  const SHOW_LIMIT = 6
-  const visibleDevices = criticalDevices.slice(0, SHOW_LIMIT)
-  const overflow       = criticalDevices.length - SHOW_LIMIT
-
-  const typeLabel = t => {
-    if (t === 'DEVICE_OFFLINE') return 'Offline'
-    if (t === 'BATTERY_LOW')    return 'Battery'
-    if (t === 'GEOFENCE')       return 'Fence'
-    return null
-  }
+  const maxCount = Math.max(0, ...bubbles.map(b => b.value))
+  const critical = bubbles[0], battery = bubbles[1], fence = bubbles[2]
 
   return (
-    <div {...bind} style={{ ...panel, padding: '18px 20px', ...hoverStyle }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+    <div {...bind} style={{ ...panel, padding: '18px 20px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', ...hoverStyle }}>
+      {/* keyframes for the idle float (spin is provided globally by Tailwind) */}
+      <style>{`@keyframes alertBubbleFloat { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }`}</style>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, position: 'relative', zIndex: 3 }}>
         <div style={{ fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }}>Alerts Summary</div>
         <button onClick={onView}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 700, padding: 0, transition: 'color 0.15s' }}
@@ -603,55 +640,38 @@ function AlertSummaryCard({ stats, alerts = [], onView }) {
           <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>All clear — no active alerts</span>
         </div>
       ) : (
-        <>
-          {/* Severity chips */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
-            {severities.map(s => (
-              <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 10, padding: '8px 10px', textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: s.color, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>{s.label}</div>
-              </div>
-            ))}
+        <div style={{
+          position: 'relative', flex: 1, minHeight: 300,
+          // subtle radial glow + faint grid backdrop
+          backgroundImage:
+            'radial-gradient(circle at 50% 40%, rgba(167,44,50,0.10), transparent 60%),' +
+            'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),' +
+            'linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+          backgroundSize: '100% 100%, 28px 28px, 28px 28px',
+        }}>
+          {/* faint center label behind the bubbles */}
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 0, pointerEvents: 'none' }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: 'rgba(255,255,255,0.05)', letterSpacing: '0.04em' }}>Alerts</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.05)' }}>{stats.total} Total</div>
           </div>
 
-          {/* Critical device list */}
-          {visibleDevices.length > 0 && (
-            <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.14)' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.09em', marginBottom: 8 }}>
-                Critical devices
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {visibleDevices.map(({ name, type }) => (
-                  <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#f87171', flexShrink: 0, display: 'block' }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#FFFFFF', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                    {typeLabel(type) && (
-                      <span style={{ fontSize: 9, fontWeight: 700, color: '#f87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.22)', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
-                        {typeLabel(type)}
-                      </span>
-                    )}
-                  </div>
-                ))}
-                {overflow > 0 && (
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', paddingLeft: 11, fontStyle: 'italic' }}>
-                    +{overflow} more
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {/* connecting network lines (behind bubbles) */}
+          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
+            <line x1={`${critical.x}%`} y1={`${critical.y}%`} x2={`${fence.x}%`}   y2={`${fence.y}%`}   stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+            <line x1={`${critical.x}%`} y1={`${critical.y}%`} x2={`${battery.x}%`} y2={`${battery.y}%`} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+            <line x1={`${fence.x}%`}    y1={`${fence.y}%`}    x2={`${battery.x}%`} y2={`${battery.y}%`} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+          </svg>
 
-          {/* Category breakdown */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            {categories.map(c => (
-              <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <c.icon style={{ width: 12, height: 12, color: c.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 12, color: '#D8D8D8', flex: 1 }}>{c.label}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F5F5' }}>{c.value}</span>
-              </div>
-            ))}
-          </div>
-        </>
+          {bubbles.map((b, i) => (
+            <AlertBubble
+              key={b.key}
+              data={b}
+              radius={bubbleRadius(b.value, maxCount)}
+              pct={fmtPct(b.value, stats.total)}
+              delay={-i * 1.8}
+            />
+          ))}
+        </div>
       )}
     </div>
   )
@@ -682,10 +702,10 @@ export default function Dashboard() {
   const { alerts } = useAlerts()
   const { users } = useUserCache()
   const { zones } = useZoneCache()
+  const chrome = useDashboardChrome()
   const dashboardRef = useRef(null)
   const page1Ref     = useRef(null)
   const page2Ref     = useRef(null)
-  const exportBtnRef = useRef(null)
 
   const [exporting,    setExporting]    = useState(false)
   const [isCapturing,  setIsCapturing]  = useState(false)
@@ -705,11 +725,6 @@ export default function Dashboard() {
 
       const PX_TO_MM = 25.4 / 96
 
-      const nodeFilter = node => {
-        if (exportBtnRef.current && node === exportBtnRef.current) return false
-        return true
-      }
-
       async function captureEl(el) {
         // Temporarily reveal full content so nothing is clipped
         const prev = { overflow: el.style.overflow, height: el.style.height }
@@ -722,7 +737,6 @@ export default function Dashboard() {
           pixelRatio: 2,
           backgroundColor: '#0d0d0d',
           width: w, height: h,
-          filter: nodeFilter,
         })
         el.style.overflow = prev.overflow
         el.style.height   = prev.height
@@ -766,6 +780,21 @@ export default function Dashboard() {
       setActivePage(savedPage)
     }
   }
+
+  // Register the Export PDF trigger so the topbar (Header) can render the button.
+  // Keep the latest handler in a ref so we register a stable runner only once.
+  const exportRef       = useRef(handleExportPDF)
+  exportRef.current     = handleExportPDF
+  const registerExport  = chrome?.registerExport
+  const setChromeExport = chrome?.setExporting
+  useEffect(() => {
+    if (!registerExport) return
+    registerExport(() => exportRef.current?.())
+    return () => registerExport(null)
+  }, [registerExport])
+  useEffect(() => {
+    setChromeExport?.(exporting)
+  }, [exporting, setChromeExport])
 
   // Hourly activity bins from real playback data
   const generalBins = useMemo(() => {
@@ -962,36 +991,10 @@ export default function Dashboard() {
         style={{
           position: 'absolute', inset: 0,
           overflowY: 'auto',
-          padding: '14px 16px',
+          padding: '16px',
           display: 'flex', flexDirection: 'column', gap: '10px',
         }}
       >
-
-        {/* ── Dashboard header ──────────────────────────────────── */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
-          <h1 style={{ fontSize:22, fontWeight:800, color:'#FFFFFF', margin:0, letterSpacing:'-0.01em' }}>Dashboard</h1>
-          <button
-            ref={exportBtnRef}
-            onClick={handleExportPDF}
-            disabled={exporting}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              padding: '8px 16px', borderRadius: 10,
-              background: exporting ? 'rgba(167,44,50,0.25)' : 'rgba(167,44,50,0.14)',
-              border: '1px solid rgba(167,44,50,0.35)',
-              color: exporting ? 'rgba(255,255,255,0.45)' : '#FFFFFF',
-              fontSize: 13, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer',
-              transition: 'all 0.18s', letterSpacing: '0.01em',
-            }}
-            onMouseEnter={e => { if (!exporting) { e.currentTarget.style.background='rgba(167,44,50,0.30)'; e.currentTarget.style.borderColor='rgba(167,44,50,0.60)' }}}
-            onMouseLeave={e => { e.currentTarget.style.background= exporting ? 'rgba(167,44,50,0.25)' : 'rgba(167,44,50,0.14)'; e.currentTarget.style.borderColor='rgba(167,44,50,0.35)' }}
-          >
-            {exporting
-              ? <Loader style={{ width:14, height:14, animation:'spin 1s linear infinite' }} />
-              : <FileDown style={{ width:14, height:14 }} />}
-            {exporting ? 'Exporting…' : 'Export PDF'}
-          </button>
-        </div>
 
         {/* ── KPI row ── */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:'10px', flexShrink: 0 }}>
@@ -1121,7 +1124,7 @@ export default function Dashboard() {
           {/* ── Level 2 ── */}
           <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 2fr) minmax(300px, 1fr)', gap:'14px' }}>
             <RecentActivityPanel activityRows={activityRows} totalActive={summary.online} />
-            <AlertSummaryCard stats={alertStats} alerts={alerts} onView={() => navigate('/alerts')} />
+            <AlertSummaryCard stats={alertStats} onView={() => navigate('/alerts')} />
           </div>
 
           {/* ── Level 3 ── */}
