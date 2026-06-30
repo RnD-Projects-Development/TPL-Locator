@@ -458,24 +458,22 @@ function FleetMixCard({ summary }) {
   return (
     <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
       <div style={CARD_HDR}>
-        <div style={CARD_TTL}>Fleet Health</div>
+        <div style={CARD_TTL}>Device Health</div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '4px 18px 16px' }}>
-        {/* Fleet Uptime — equal top half */}
-        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={SECTION_HDR}>Fleet Uptime</div>
+        {/* Device Uptime — equal top half, centered */}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'center' }}>
+          <div style={SECTION_HDR}>Device Uptime</div>
           <div style={{ fontSize: 42, fontWeight: 800, color: '#4ade80', lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
           <div style={{ fontSize: 12, color: '#C0C0C0', marginTop: 5 }}>{onlineNow} of {total} online</div>
           <div style={{ marginTop: 9, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${onlineRate}%`, background: '#4ade80', borderRadius: 3, transition: 'width 0.5s ease' }} />
           </div>
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', marginTop: 6 }}>
-            {onlineRate >= 70 ? 'Fleet healthy' : onlineRate >= 40 ? 'Needs attention' : 'Critical — many offline'}
+            {onlineRate >= 70 ? 'Devices healthy' : onlineRate >= 40 ? 'Needs attention' : 'Critical — many offline'}
           </div>
         </div>
-
-        <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '10px 0', flexShrink: 0 }} />
 
         {/* Device Mix — equal bottom half */}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
