@@ -938,7 +938,7 @@ export default function Devices() {
   }), [isLight])
 
   const { isAdmin } = useAuth()
-  const { bindDevice, adminAssignDeviceToUser, getAvailableDevices, getDevices, getLatestLocationsBatch, getCategories } = useCityTag()
+  const { bindDevice, adminAssignDeviceToUser, checkDeviceAvailability, getDevices, getLatestLocationsBatch, getCategories } = useCityTag()
   const { devices: cacheDevices } = useDeviceCache()
   const { recordBind } = useBindCache()
   const { users } = useUserCache()
@@ -952,7 +952,6 @@ export default function Devices() {
   }, [getCategories]);
 
   // ── Bind modal state ───────────────────────────────────────────────────────
-  const [availableDevices, setAvailableDevices] = useState([])
   const [showBindModal,    setShowBindModal]     = useState(false)
   const [bindDeviceType,   setBindDeviceType]    = useState('locator')
   const [bindSn,           setBindSn]            = useState('')
@@ -964,13 +963,37 @@ export default function Devices() {
   const [bindError,        setBindError]         = useState('')
   const [exporting,        setExporting]         = useState(false)
 
+  // ── SN availability check (non-admin bind flow: typed SN, no dropdown) ────
+  const [snCheck, setSnCheck] = useState({ status: 'idle', name: null }) // idle | checking | available | taken | notfound
+  const snCheckRef = useRef(null)
+
   useEffect(() => {
-    if (!isAdmin) {
-      getAvailableDevices().then(setAvailableDevices).catch(() => setAvailableDevices([]))
-    }
-  }, [isAdmin, getAvailableDevices])
+    if (isAdmin) return
+    const sn = bindSn.trim()
+    clearTimeout(snCheckRef.current)
+    if (!sn) { setSnCheck({ status: 'idle', name: null }); return }
+    setSnCheck({ status: 'checking', name: null })
+    snCheckRef.current = setTimeout(() => {
+      checkDeviceAvailability(sn)
+        .then(res => {
+          if (!res.exists) setSnCheck({ status: 'notfound', name: null })
+          else if (!res.available) setSnCheck({ status: 'taken', name: null })
+          else setSnCheck({ status: 'available', name: res.name || null })
+        })
+        .catch(() => setSnCheck({ status: 'notfound', name: null }))
+    }, 350)
+    return () => clearTimeout(snCheckRef.current)
+  }, [bindSn, isAdmin, checkDeviceAvailability])
 
   const unboundDevices = (cacheDevices || []).filter(d => !d.assigned_user_name && !d.user_id)
+
+  // Non-admins only get the Locators/Stickers differentiator once they've
+  // bound at least one of each type — otherwise it's a single unified list.
+  const hasLocatorDevice = (cacheDevices || []).some(d => isBound(d) && !isStickerSN(d.sn))
+  const hasStickerDevice = (cacheDevices || []).some(d => isBound(d) && isStickerSN(d.sn))
+  const showTypeTabs = isAdmin || (hasLocatorDevice && hasStickerDevice)
+  const visibleTypeTabs = showTypeTabs ? TYPE_TABS : [{ key: 'all', label: 'Devices', icon: Layers }]
+  const visibleStatusTabs = isAdmin ? STATUS_FILTER_TABS : STATUS_FILTER_TABS.filter(s => s !== 'Assigned' && s !== 'Unassigned')
 
   const openBindModal = (type = 'locator') => {
     setBindDeviceType(type)
@@ -1007,13 +1030,13 @@ export default function Devices() {
       } catch (err) { setBindError(err.message || 'Failed to bind device.') }
       finally { setBindLoading(false) }
     } else {
-      if (!bindSn.trim() || !bindCategory) { setBindError('Please select a device and a category.'); return }
+      if (!bindSn.trim() || !bindCategory) { setBindError('Please enter a device SN and a category.'); return }
+      if (snCheck.status !== 'available') { setBindError('Enter a valid, unassigned device SN before binding.'); return }
       setBindError('')
       setBindLoading(true)
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory })
         recordBind(bindSn.trim())
-        getAvailableDevices().then(setAvailableDevices).catch(() => {})
         invalidateFleetCache()
         setRefreshKey(k => k + 1)
         closeBindModal()
@@ -1046,6 +1069,13 @@ export default function Devices() {
   }, [exporting, setChromeExporting])
 
   const setTab = (key) => setSearchParams(prev => { const p = new URLSearchParams(prev); p.set('tab', key); return p }, { replace: true })
+
+  // If the Locators/Stickers split disappears (e.g. the user unbinds their
+  // only device of one type), snap back to the unified "Devices" view.
+  useEffect(() => {
+    if (!showTypeTabs && activeTab !== 'all') setTab('all')
+  }, [showTypeTabs, activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const setStatus = (s) => {
     setStatusTab(s)
     setSearchParams(prev => { const p = new URLSearchParams(prev); if (s === 'All') p.delete('status'); else p.set('status', s.toLowerCase()); return p }, { replace: true })
@@ -1065,8 +1095,11 @@ export default function Devices() {
   const offlineDeviceType = activeTab !== 'all' ? activeTab : undefined
   const isOfflineView = statusTab === 'Offline'
 
-  const bindLabel = activeTab === 'sticker' ? 'Bind Sticker' : 'Bind Locator'
-  const canBind   = !isOfflineView && (activeTab === 'locator' || activeTab === 'sticker')
+  // In the unified (no type-tabs) view, binding isn't tied to a locator/sticker
+  // tab — the SN itself determines the type once typed.
+  const bindLabel = showTypeTabs ? (activeTab === 'sticker' ? 'Bind Sticker' : 'Bind Locator') : 'Bind Device'
+  const canBind   = !isOfflineView && (showTypeTabs ? (activeTab === 'locator' || activeTab === 'sticker') : true)
+  const effectiveBindType = showTypeTabs ? bindDeviceType : (isStickerSN(bindSn.trim()) ? 'sticker' : 'locator')
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
@@ -1074,7 +1107,7 @@ export default function Devices() {
       {/* ── Type tabs (left) + status filters (right), single row ────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
         <div style={{ display: 'flex', gap: 4, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 12, width: 'fit-content' }}>
-          {TYPE_TABS.map(({ key, label, icon: Icon }) => {
+          {visibleTypeTabs.map(({ key, label, icon: Icon }) => {
             const active = activeTab === key
             return (
               <button key={key} onClick={() => setTab(key)}
@@ -1090,7 +1123,7 @@ export default function Devices() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap', width: 'fit-content' }}>
-          {STATUS_FILTER_TABS.map(s => {
+          {visibleStatusTabs.map(s => {
             const active = statusTab === s
             return (
               <button key={s} onClick={() => setStatus(s)}
@@ -1145,7 +1178,7 @@ export default function Devices() {
             isLight={isLight}
             T={T}
             refreshSignal={refreshKey}
-            onBind={canBind ? () => openBindModal(activeTab) : undefined}
+            onBind={canBind ? () => openBindModal(showTypeTabs ? activeTab : 'locator') : undefined}
             bindLabel={bindLabel}
           />
         </div>
@@ -1161,7 +1194,7 @@ export default function Devices() {
                   <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(167,44,50,0.14)', border: '1px solid rgba(167,44,50,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Link2 style={{ width: 16, height: 16, color: '#C86A6A' }} />
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>{bindDeviceType === 'sticker' ? 'Bind Sticker' : 'Bind Locator'}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>{showTypeTabs ? (bindDeviceType === 'sticker' ? 'Bind Sticker' : 'Bind Locator') : 'Bind Device'}</div>
                 </div>
                 <button onClick={closeBindModal} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4, display: 'flex' }}>
                   <X style={{ width: 18, height: 18 }} />
@@ -1186,17 +1219,28 @@ export default function Devices() {
                           emptyMsg="No matching devices"
                         />
                   ) : (
-                    <SearchSelect
-                      items={availableDevices}
-                      selectedValue={bindSn}
-                      onSelect={setBindSn}
-                      labelOf={d => d.sn + ((d.name || d.client) ? ` — ${d.name || d.client}` : '')}
-                      keyOf={d => d.sn}
-                      placeholder="Type to search or enter device SN…"
-                      emptyMsg="No matching devices"
-                      allowFreeText
-                      onFreeTextChange={setBindSn}
-                    />
+                    <>
+                      <input
+                        value={bindSn}
+                        onChange={e => setBindSn(e.target.value)}
+                        placeholder="Type or scan the device serial number…"
+                        autoComplete="off"
+                        style={{ ...SELECT_STYLE, appearance: 'none', WebkitAppearance: 'none', backgroundImage: 'none', cursor: 'text' }}
+                      />
+                      {snCheck.status !== 'idle' && (
+                        <p style={{
+                          margin: '6px 0 0', fontSize: 12,
+                          color: snCheck.status === 'available' ? '#86efac'
+                               : snCheck.status === 'checking'  ? 'rgba(255,255,255,0.45)'
+                               : '#fca5a5',
+                        }}>
+                          {snCheck.status === 'checking'  && 'Checking…'}
+                          {snCheck.status === 'available' && `Device found${snCheck.name ? ` — ${snCheck.name}` : ''}, ready to bind.`}
+                          {snCheck.status === 'taken'      && 'This device is already bound to another user.'}
+                          {snCheck.status === 'notfound'   && 'No device found with this SN.'}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -1235,7 +1279,7 @@ export default function Devices() {
                   <select value={bindCategory} onChange={e => setBindCategory(e.target.value)} style={SELECT_STYLE}>
                     <option value="" disabled style={SELECT_OPT}>Select a category…</option>
                     {categories
-                        .filter(cat => !cat.device_type || cat.device_type === bindDeviceType)
+                        .filter(cat => !cat.device_type || cat.device_type === effectiveBindType)
                         .map(cat => <option key={cat.id} value={cat.slug} style={SELECT_OPT}>{cat.name}</option>)}
                   </select>
                 </div>

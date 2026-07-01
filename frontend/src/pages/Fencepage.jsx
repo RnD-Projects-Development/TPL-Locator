@@ -63,7 +63,7 @@ class ErrorBoundary extends Component {
 // ─── Main page ────────────────────────────────────────────────────────────────
 function FencePageInner() {
   const { devices, refresh } = useDeviceCache();
-  const { accessToken, isAdmin } = useAuth();
+  const { accessToken } = useAuth();
   const { zones, refreshZones, zonesLoading } = useZoneCache();
 
   const mapRef             = useRef(null);
@@ -395,18 +395,18 @@ function FencePageInner() {
           onSelect={setSelectedZoneId}
           zoneStatuses={displayStatuses}
           assignments={assignments}
-          onOpenAssign={isAdmin ? (zone) => setAssignModal({ zone }) : null}
-          onUnassign={isAdmin ? handleUnassign : null}
+          onOpenAssign={(zone) => setAssignModal({ zone })}
+          onUnassign={handleUnassign}
           assigningZoneId={assigningZoneId}
           deviceTracks={deviceTracks}
           tracksLoading={tracksLoading}
           zonesLoading={zonesLoading}
-          onCreateZone={isAdmin ? () => {
+          onCreateZone={() => {
             setEditingZone(null);
             setToolboxMode('create');
-          } : null}
-          onEditZone={isAdmin ? handleEditZone : null}
-          onDeleteZone={isAdmin ? handleDeleteZone : null}
+          }}
+          onEditZone={handleEditZone}
+          onDeleteZone={handleDeleteZone}
         />
         <div className="fp-map-wrap" ref={mapWrapRef}>
           <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />

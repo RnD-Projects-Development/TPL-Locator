@@ -126,15 +126,21 @@ function ensurePulseStyle() {
   document.head.appendChild(s);
 }
 
-// ── Active playback pin — same lollipop as the regular pin + pulsing ring ────
-function buildPlaybackPinHtml(innerColor = '#E8192C', outerColor = '#8B0000') {
+// ── Active playback pin — same lollipop as the regular pin + pulsing ring + directional arrow ────
+function buildPlaybackPinHtml(innerColor = '#E8192C', outerColor = '#8B0000', bearing = 0) {
   ensurePulseStyle();
   return `
   <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:30px;height:48px;">
     <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;
       background:${outerColor};display:flex;align-items:center;justify-content:center;
       animation:pbPinPulse 1.4s ease-out infinite;">
-      <div style="width:16px;height:16px;border-radius:50%;background:${innerColor};"></div>
+      <div style="width:16px;height:16px;border-radius:50%;background:${innerColor};
+        display:flex;align-items:center;justify-content:center;
+        transform:rotate(${bearing}deg);transition:transform 0.2s linear;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="white" style="transform: translateY(-1px);">
+          <path d="M12 2L20 20L12 17L4 20L12 2Z"/>
+        </svg>
+      </div>
     </div>
     <div style="width:4px;height:18px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 3px 3px;"></div>
     <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);
@@ -587,16 +593,8 @@ export default function MapView({
     };
   }, [retryTick]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── PLAY START ZOOM — zoom to 18 at pin when playback begins ── */
+  /* ── PLAY START ZOOM — (Removed to keep map fully visible and preloaded) ── */
   useEffect(() => {
-    if (!isPlaybackPage) { prevIsPlayingRef.current = isPlaying; return; }
-    if (isPlaying && !prevIsPlayingRef.current) {
-      const map = mapRef.current;
-      const c   = coordsRef.current;
-      if (map && c) {
-        try { map.setView([c.lat, c.lng], 18, { animate: true, duration: 0.6 }); } catch {}
-      }
-    }
     prevIsPlayingRef.current = isPlaying;
   }, [isPlaying, isPlaybackPage]);
 
@@ -631,7 +629,7 @@ export default function MapView({
         if (isPlaybackPage) {
           try {
             markerRef.current?.setIcon(window.L.divIcon({
-              html: buildPlaybackPinHtml(), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
+              html: buildPlaybackPinHtml('#E8192C', '#8B0000', 0), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
             }));
           } catch {}
         }
@@ -650,7 +648,7 @@ export default function MapView({
         if (isPlaybackPage) {
           try {
             markerRef.current?.setIcon(window.L.divIcon({
-              html: buildPlaybackPinHtml(), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
+              html: buildPlaybackPinHtml('#E8192C', '#8B0000', bearing), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
             }));
           } catch {}
           if (pbTipLineRef.current) {
@@ -671,7 +669,7 @@ export default function MapView({
       if (isPlaybackPage) {
         try {
           markerRef.current?.setIcon(window.L.divIcon({
-            html: buildPlaybackPinHtml(), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
+            html: buildPlaybackPinHtml('#E8192C', '#8B0000', bearing), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
           }));
         } catch {}
       }
@@ -712,14 +710,31 @@ export default function MapView({
       }, tweenDuration);
 
       if (isPlaybackPage) {
-        // Pan the map to follow the pin — stay zoomed in, don't zoom to full path.
+        // Smart pan: Only pan if the pin approaches the viewport edge.
         try {
-          map.stop();
-          map.panTo([to.lat, to.lng], {
-            animate: true,
-            duration: tweenDuration / 1000,
-            easeLinearity: 0.5,
-          });
+          const bounds = map.getBounds();
+          const targetPoint = map.project([to.lat, to.lng]);
+          const nw = map.project(bounds.getNorthWest());
+          const se = map.project(bounds.getSouthEast());
+          
+          const paddingX = (se.x - nw.x) * 0.15;
+          const paddingY = (se.y - nw.y) * 0.15;
+
+          const isNearEdge = (
+            targetPoint.x < nw.x + paddingX ||
+            targetPoint.x > se.x - paddingX ||
+            targetPoint.y < nw.y + paddingY ||
+            targetPoint.y > se.y - paddingY
+          );
+
+          if (isNearEdge) {
+            map.stop();
+            map.panTo([to.lat, to.lng], {
+              animate: true,
+              duration: tweenDuration / 1000,
+              easeLinearity: 0.5,
+            });
+          }
         } catch {}
       } else {
         const targetZoom = Math.max(map.getZoom(), 15);
@@ -964,24 +979,32 @@ export default function MapView({
 
   }, [playbackIndex, trajectory, mapLoaded, isPlayback, isPlaybackPage, clearPlaybackLayers]);
 
-  /* ── STATIC PREVIEW DOTS (playback page — full trajectory shown immediately) ── */
+  /* ── STATIC PREVIEW LINE & DOTS (playback page — full trajectory shown dimly) ── */
+  const staticLineRef = useRef(null);
+  
   useEffect(() => {
     if (!isPlaybackPage) return;
     const map = mapRef.current;
     if (!map || !window.L) return;
 
+    if (staticLineRef.current) {
+      try { map.removeLayer(staticLineRef.current); } catch {}
+      staticLineRef.current = null;
+    }
     staticDotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
     staticDotsRef.current = [];
     staticDotMapRef.current.clear();
 
     const items = (staticDots ?? [])
-      .map(p => { const c = extractCoords(p); return c ? c : null; })
+      .map(p => { const c = extractCoords(p); return c ? [c.lat, c.lng] : null; })
       .filter(Boolean);
 
     if (items.length === 0) return;
 
-    const MAX_STATIC = 500;
-    const step = items.length > MAX_STATIC ? Math.ceil(items.length / MAX_STATIC) : 1;
+    staticLineRef.current = window.L.polyline(items, {
+      color: '#666666', weight: 2.5, opacity: 0.35, interactive: false, dashArray: '4, 4'
+    }).addTo(map);
+
     const smallPinIcon = window.L.divIcon({
       html: buildSmallPinHtml(),
       className: '',
@@ -990,8 +1013,7 @@ export default function MapView({
     });
 
     items.forEach((c, i) => {
-      if (i % step !== 0 && i !== items.length - 1) return;
-      const dot = window.L.marker([c.lat, c.lng], {
+      const dot = window.L.marker(c, {
         icon: smallPinIcon,
         interactive: false,
         keyboard: false,
@@ -1003,12 +1025,19 @@ export default function MapView({
     // Fit map to show all points on load
     if (items.length > 1) {
       try {
-        const bounds = window.L.latLngBounds(items.map(c => [c.lat, c.lng]));
+        const bounds = window.L.latLngBounds(items);
         if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
       } catch {}
     } else if (items.length === 1) {
-      try { map.setView([items[0].lat, items[0].lng], Math.max(map.getZoom(), 15)); } catch {}
+      try { map.setView(items[0], Math.max(map.getZoom(), 15)); } catch {}
     }
+
+    return () => {
+      if (staticLineRef.current && map) {
+        try { map.removeLayer(staticLineRef.current); } catch {}
+        staticLineRef.current = null;
+      }
+    };
   }, [staticDots, mapLoaded, isPlaybackPage]);
 
   /* ── FENCE OVERLAY ── */

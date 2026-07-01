@@ -683,24 +683,16 @@ async def list_available_devices(
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ) -> List[dict]:
     """
-    Return unbound devices that the current account can bind.
-
-    - Admin: only their own unbound devices.
-    - User with admin_id: unbound devices under their admin.
-    - User without admin_id (new user): all unbound devices in the system —
-      the binding service auto-links the user to the device's admin on first bind,
-      so no admin restriction is needed at discovery time.
+    Return unbound devices the current admin can bind (dropdown source for
+    the admin bind modal). Admin-only: regular users bind by typing an exact
+    SN (see GET /devices/{sn}/check) rather than browsing a full device list,
+    so this endpoint would otherwise let a user enumerate every unbound
+    device in the system.
     """
-    if isinstance(account, AdminInDB):
-        # Admin sees only their own unbound devices
-        query = {"admin_id": account.id, "user_id": None}
-    elif account.admin_id:
-        # User already linked to an admin — show that admin's unbound devices
-        query = {"admin_id": account.admin_id, "user_id": None}
-    else:
-        # New user not yet linked to any admin — show all unbound devices
-        query = {"user_id": None}
+    if not isinstance(account, AdminInDB):
+        raise HTTPException(status_code=403, detail="Admin access required")
 
+    query = {"admin_id": account.id, "user_id": None}
     docs = await mongo.devices.find(query).to_list(None)
 
     return [
@@ -712,6 +704,32 @@ async def list_available_devices(
         for d in docs
         if d.get("sn")
     ]
+
+
+@router.get("/devices/{sn}/check")
+async def check_device_available(
+    sn: str,
+    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+) -> dict:
+    """
+    Lightweight SN lookup for the user bind flow's search input. Confirms
+    whether a single, exact SN exists and is bindable without exposing the
+    surrounding device list — a user can only ever check one SN at a time.
+    """
+    sn = (sn or "").strip()
+    doc = await mongo.devices.find_one({"sn": sn}, {"sn": 1, "user_id": 1, "name": 1})
+    if not doc:
+        return {"sn": sn, "exists": False, "available": False, "name": None}
+
+    is_bound = bool(doc.get("user_id"))
+    is_mine = is_bound and str(doc.get("user_id")) == str(account.id)
+    return {
+        "sn":        doc.get("sn"),
+        "exists":    True,
+        "available": (not is_bound) or is_mine,
+        "name":      doc.get("name") if (not is_bound or is_mine) else None,
+    }
 
 
 @router.get("/devices/summary")

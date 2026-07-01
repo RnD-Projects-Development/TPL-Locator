@@ -12,6 +12,88 @@ import "./PlaybackPage.css";
 
 const PLAYBACK_SCOPE = "playback";
 
+// ── Shared Cache for Reverse Geocoding ──
+// Kept outside React state so we don't trigger re-renders.
+const globalGeocodeCache = new Map();
+const pendingGeocodes = new Set();
+
+const VisitLogItem = React.memo(({ pt, index, isLatest, getGeocode }) => {
+  const [geo, setGeo] = useState(() => {
+    const backend = landmarkDisplayFromPoint(pt);
+    if (backend) return backend;
+    const lat = Number(pt?.lat ?? pt?.latitude ?? pt?.gpsLat ?? pt?.wgLat);
+    const lng = Number(pt?.lng ?? pt?.lon ?? pt?.longitude ?? pt?.gpsLng ?? pt?.wgLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+    return globalGeocodeCache.get(key) || null;
+  });
+
+  useEffect(() => {
+    if (geo) return;
+    const lat = Number(pt?.lat ?? pt?.latitude ?? pt?.gpsLat ?? pt?.wgLat);
+    const lng = Number(pt?.lng ?? pt?.lon ?? pt?.longitude ?? pt?.gpsLng ?? pt?.wgLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+    if (globalGeocodeCache.has(key)) {
+      setGeo(globalGeocodeCache.get(key));
+      return;
+    }
+    if (pendingGeocodes.has(key)) {
+      // Simplistic retry loop if it's currently fetching
+      let timer;
+      const check = () => {
+        if (globalGeocodeCache.has(key)) {
+          setGeo(globalGeocodeCache.get(key));
+        } else if (pendingGeocodes.has(key)) {
+          timer = setTimeout(check, 500);
+        }
+      };
+      timer = setTimeout(check, 100);
+      return () => clearTimeout(timer);
+    }
+
+    pendingGeocodes.add(key);
+    let isMounted = true;
+
+    (async () => {
+      let label = null;
+      try { label = await clientReverseGeocode(lat, lng); } catch {}
+      if (!label) {
+        try { const res = await getGeocode(lat, lng); if (res?.landmark) label = res.landmark; } catch {}
+      }
+      if (!label) {
+        try {
+          const mbx = await mapboxReverseGeocode(lat, lng, import.meta.env.VITE_MAPBOX_TOKEN);
+          if (mbx) label = mapboxGeoLabelString(mbx);
+        } catch {}
+      }
+      pendingGeocodes.delete(key);
+      const parsed = label ? parseLandmarkDisplay(label) : null;
+      globalGeocodeCache.set(key, parsed);
+      if (isMounted) setGeo(parsed);
+    })();
+
+    return () => { isMounted = false; };
+  }, [pt, geo, getGeocode]);
+
+  const ts = formatTs(pt);
+  return (
+    <div className={`pb-vl-item${isLatest ? " pb-vl-item-active" : ""}`}>
+      <div className="pb-vl-item-num">{index + 1}</div>
+      <div className="pb-vl-item-body">
+        <div className="pb-vl-item-loc">
+          {geo?.primary
+            ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
+            : <span className="pb-vl-muted">No landmark</span>}
+        </div>
+        {geo?.secondary && <div className="pb-vl-item-area">{geo.secondary}</div>}
+        <div className="pb-vl-item-ts">{ts}</div>
+      </div>
+    </div>
+  );
+});
+
 
 function isDuplicate(p1, p2) {
   if (!p1 || !p2) return false;
@@ -103,10 +185,10 @@ export default function PlaybackPage() {
   const [lastUpdated, setLastUpdated]       = useState(null);
   const [activeShortcut, setActiveShortcut] = useState(null);
 
-
   const visitLogRef    = useRef(null);
-  const pendingGeoRef  = useRef(new Set());
-  const [geocodeCache, setGeocodeCache] = useState({});
+  
+  // ── Virtualization State ──
+  const [logScrollTop, setLogScrollTop] = useState(0);
 
   // Stable staticDots ref so MapView only re-renders dots when data actually changes
   const staticDots = useMemo(
@@ -123,43 +205,16 @@ export default function PlaybackPage() {
 
   // Auto-scroll visit log to the latest entry
   useEffect(() => {
-    if (visitLogRef.current) {
+    if (visitLogRef.current && playing) {
+      // Only force scroll when playing. If user stops, let them scroll.
       visitLogRef.current.scrollTop = visitLogRef.current.scrollHeight;
     }
-  }, [playbackIndex]);
+  }, [playbackIndex, playing]);
 
-  // Client-side reverse geocode for the current active point when backend landmark is missing
-  useEffect(() => {
-    if (isLiveMode || visitedPoints.length === 0) return;
-    const pt = visitedPoints[visitedPoints.length - 1];
-    if (!pt || landmarkFromPoint(pt)) return; // already has backend landmark
+  const handleLogScroll = useCallback((e) => {
+    setLogScrollTop(e.currentTarget.scrollTop);
+  }, []);
 
-    const lat = Number(pt.lat ?? pt.latitude ?? pt.gpsLat ?? pt.wgLat);
-    const lng = Number(pt.lng ?? pt.lon ?? pt.longitude ?? pt.gpsLng ?? pt.wgLng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-    if (key in geocodeCache || pendingGeoRef.current.has(key)) return;
-
-    pendingGeoRef.current.add(key);
-    // Same fallback chain as the device detail / map view pages:
-    // TPLMaps client geocode → backend getGeocode → Mapbox reverse geocode.
-    ;(async () => {
-      let label = null;
-      try { label = await clientReverseGeocode(lat, lng); } catch {}
-      if (!label) {
-        try { const geo = await getGeocode(lat, lng); if (geo?.landmark) label = geo.landmark; } catch {}
-      }
-      if (!label) {
-        try {
-          const mbx = await mapboxReverseGeocode(lat, lng, import.meta.env.VITE_MAPBOX_TOKEN);
-          if (mbx) label = mapboxGeoLabelString(mbx);
-        } catch {}
-      }
-      pendingGeoRef.current.delete(key);
-      setGeocodeCache(prev => ({ ...prev, [key]: label ? parseLandmarkDisplay(label) : null }));
-    })();
-  }, [visitedPoints, isLiveMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshLive = useCallback(async (target) => {
     const dev = target ?? sn;
@@ -203,8 +258,7 @@ export default function PlaybackPage() {
     setDataSource("session");
     setHistError("");
     setActiveShortcut(null);
-    setGeocodeCache({});
-    pendingGeoRef.current.clear();
+    setLogScrollTop(0);
     refreshLive(newSn);
   };
 
@@ -290,6 +344,25 @@ export default function PlaybackPage() {
 
   const progress  = trajectory.length > 1 ? Math.round((playbackIndex / (trajectory.length - 1)) * 100) : 0;
   const infoPoint = isLiveMode ? latest : (trajectory[playbackIndex] ?? null);
+
+  // ── Simple Virtualization Calculation ──
+  // Approximate item height (padding + content + border) ~ 72px
+  const ITEM_HEIGHT = 72;
+  const VISIBLE_COUNT = 15; 
+  const OVERSCAN = 10;
+  const startIndex = Math.max(0, Math.floor(logScrollTop / ITEM_HEIGHT) - OVERSCAN);
+  const endIndex = Math.min(visitedPoints.length, startIndex + VISIBLE_COUNT + OVERSCAN * 2);
+
+  const virtualItems = useMemo(() => {
+    const items = [];
+    for (let i = startIndex; i < endIndex; i++) {
+      items.push({ index: i, pt: visitedPoints[i] });
+    }
+    return items;
+  }, [visitedPoints, startIndex, endIndex]);
+
+  const totalHeight = visitedPoints.length * ITEM_HEIGHT;
+  const topPadding = startIndex * ITEM_HEIGHT;
 
   return (
     <div className="pb-page">
@@ -484,7 +557,7 @@ export default function PlaybackPage() {
                 </div>
               </div>
 
-              <div className="pb-vl-list" ref={visitLogRef}>
+              <div className="pb-vl-list" ref={visitLogRef} onScroll={handleLogScroll}>
                 {visitedPoints.length === 0 ? (
                   <div className="pb-vl-hint">
                     {dataSource === "historical"
@@ -494,33 +567,19 @@ export default function PlaybackPage() {
                         : "Waiting for points…"}
                   </div>
                 ) : (
-                  visitedPoints.map((pt, i) => {
-                    // Use backend landmark if present, else fall back to client geocode cache
-                    const geo = (() => {
-                      const backend = landmarkDisplayFromPoint(pt);
-                      if (backend) return backend;
-                      const lat = Number(pt?.lat ?? pt?.latitude ?? pt?.gpsLat ?? pt?.wgLat);
-                      const lng = Number(pt?.lng ?? pt?.lon ?? pt?.longitude ?? pt?.gpsLng ?? pt?.wgLng);
-                      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-                      return geocodeCache[`${lat.toFixed(5)},${lng.toFixed(5)}`] ?? null;
-                    })();
-                    const ts  = formatTs(pt);
-                    const isLatest = i === visitedPoints.length - 1;
-                    return (
-                      <div key={i} className={`pb-vl-item${isLatest ? " pb-vl-item-active" : ""}`}>
-                        <div className="pb-vl-item-num">{i + 1}</div>
-                        <div className="pb-vl-item-body">
-                          <div className="pb-vl-item-loc">
-                            {geo?.primary
-                              ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
-                              : <span className="pb-vl-muted">No landmark</span>}
-                          </div>
-                          {geo?.secondary && <div className="pb-vl-item-area">{geo.secondary}</div>}
-                          <div className="pb-vl-item-ts">{ts}</div>
-                        </div>
-                      </div>
-                    );
-                  })
+                  <div style={{ height: totalHeight, position: 'relative' }}>
+                    <div style={{ transform: `translateY(${topPadding}px)`, position: 'absolute', top: 0, left: 0, right: 0 }}>
+                      {virtualItems.map(({ index, pt }) => (
+                        <VisitLogItem
+                          key={index}
+                          index={index}
+                          pt={pt}
+                          isLatest={index === visitedPoints.length - 1}
+                          getGeocode={getGeocode}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </>

@@ -298,16 +298,15 @@ async def get_zone_tracks(
     if not zone_oid:
         raise HTTPException(status_code=404, detail="Zone not found")
 
-    # Resolve the admin scope so users can only see their admin's zone
-    admin_oid = None
-    if isinstance(account, AdminInDB):
-        admin_oid = _to_oid(account.id)
-    elif getattr(account, "admin_id", None):
-        admin_oid = _to_oid(account.admin_id)
-
+    # Resolve scope so users can only see zones they personally created;
+    # admins may see any zone under their own admin_id.
     query = {"_id": zone_oid}
-    if admin_oid:
+    if isinstance(account, AdminInDB):
+        query["admin_id"] = _to_oid(account.id)
+    else:
+        admin_oid = _to_oid(account.admin_id) if getattr(account, "admin_id", None) else None
         query["admin_id"] = admin_oid
+        query["user_id"] = _to_oid(account.id)
 
     zone_doc = await mongo.zones.find_one(query)
     if not zone_doc:

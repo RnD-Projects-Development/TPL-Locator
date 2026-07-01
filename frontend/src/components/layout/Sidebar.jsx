@@ -10,37 +10,40 @@ import {
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
 
-const nav = [
-  {
-    section: 'OVERVIEW', links: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    ]
-  },
-  {
-    section: 'DEVICES', links: [
-      { to: '/devices', icon: Layers, label: 'Devices' },
-    ]
-  },
-  {
-    section: 'INTELLIGENCE', links: [
-      { to: '/map', icon: Map, label: 'Map View' },
-      { to: '/playback', icon: PlayCircle, label: 'Playback' },
-      { to: '/fence', icon: Shield, label: 'Fence' },
-    ]
-  },
-  {
-    section: 'REPORTS & ADMIN', links: [
-      { to: '/users', icon: UserCog, label: 'Users' },
-      { to: '/reports', icon: FileText, label: 'Reports' },
-    ]
-  },
-]
+function getNav(isAdmin) {
+  return [
+    {
+      section: 'OVERVIEW', links: [
+        { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      ]
+    },
+    {
+      section: 'DEVICES', links: [
+        { to: '/devices', icon: Layers, label: 'Devices' },
+      ]
+    },
+    {
+      section: 'INTELLIGENCE', links: [
+        { to: '/map', icon: Map, label: 'Map View' },
+        { to: '/playback', icon: PlayCircle, label: 'Playback' },
+        { to: '/fence', icon: Shield, label: 'Fence' },
+      ]
+    },
+    {
+      section: 'REPORTS & ADMIN', links: [
+        ...(isAdmin ? [{ to: '/users', icon: UserCog, label: 'Users' }] : []),
+        { to: '/reports', icon: FileText, label: 'Reports' },
+      ]
+    },
+  ]
+}
 
 export default function Sidebar() {
-  const { user, setUser, sidebarOpen, setSidebarOpen, unreadAlerts } = useApp()
+  const { user, setUser, isAdmin, sidebarOpen, setSidebarOpen, unreadAlerts } = useApp()
   const { alerts } = useAlerts()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const nav = getNav(isAdmin)
 
   const confirmLogout = () => {
     setShowLogoutConfirm(false)

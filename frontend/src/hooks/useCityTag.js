@@ -155,6 +155,12 @@ export function useCityTag() {
     [accessToken, logout]
   );
 
+  // Lightweight single-SN lookup for the user bind flow's search-by-SN input.
+  const checkDeviceAvailability = useCallback(
+    async (sn) => apiFetch(`/api/devices/${encodeURIComponent(sn)}/check`, {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
   // User bind — hits /api/devices (user endpoint)
   const bindDevice = useCallback(
     async ({ sn, label, client, category }) =>
@@ -361,7 +367,7 @@ export function useCityTag() {
 
   return {
     login, adminLogin, signup, requestSignupVerification, requestPasswordReset, resetPasswordWithOtp,
-    getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, getUsers, adminGetUsers, adminCreateUser,
+    getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, checkDeviceAvailability, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,
     bindDevice, bindDeviceByIdentifier, unbindDevice, adminUnbindDevice,

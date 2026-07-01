@@ -37,6 +37,7 @@ def _zone_out(doc: dict) -> dict:
         "center":      doc.get("center"),
         "radius":      doc.get("radius"),
         "device_sns":  doc.get("device_sns") or [],
+        "user_id":     str(doc["user_id"]) if doc.get("user_id") else None,
         # compat: zonePolygonManager reads zone.polygon, sidebar reads zone.beat
         "polygon":     coords,
         "beat":        doc.get("name", ""),
@@ -44,6 +45,39 @@ def _zone_out(doc: dict) -> dict:
         "tehsil":      "",
         "isUserZone":  True,
     }
+
+
+async def _resolve_admin_scope(account, mongo: MongoService):
+    """Resolve the admin_id a non-admin account is scoped under.
+
+    Mirrors the fallback used in geofence._get_assigned_devices: prefer the
+    admin_id already stamped on the account, else fall back to whichever
+    admin owns a device already bound to this user.
+    """
+    if isinstance(account, AdminInDB):
+        return _to_oid(account.id)
+    if account.admin_id:
+        return _to_oid(account.admin_id)
+    user_oid = _to_oid(account.id)
+    dev = await mongo.devices.find_one({"user_id": user_oid}, {"admin_id": 1})
+    if dev and dev.get("admin_id"):
+        return _to_oid(dev["admin_id"])
+    return None
+
+
+async def _zone_ownership_filter(oid, account, mongo: MongoService):
+    """Query filter that scopes a zone lookup to what this account may touch.
+
+    Admins may touch any zone under their admin_id; users may only touch
+    zones they personally created. Returns None if a non-admin has no
+    resolvable admin scope (i.e. they could not own any zone).
+    """
+    if isinstance(account, AdminInDB):
+        return {"_id": oid, "admin_id": _to_oid(account.id)}
+    admin_oid = await _resolve_admin_scope(account, mongo)
+    if not admin_oid:
+        return None
+    return {"_id": oid, "admin_id": admin_oid, "user_id": _to_oid(account.id)}
 
 
 class ZoneCreate(BaseModel):
@@ -65,15 +99,18 @@ async def list_zones(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    if isinstance(account, AdminInDB):
-        admin_oid = _to_oid(account.id)
-    else:
-        admin_oid = _to_oid(account.admin_id) if account.admin_id else None
-
+    admin_oid = await _resolve_admin_scope(account, mongo)
     if not admin_oid:
         return []
 
-    docs = await mongo.zones.find({"admin_id": admin_oid}).to_list(500)
+    if isinstance(account, AdminInDB):
+        # Admins see every zone created by themselves or any of their users.
+        query = {"admin_id": admin_oid}
+    else:
+        # Users only ever see zones they personally created.
+        query = {"admin_id": admin_oid, "user_id": _to_oid(account.id)}
+
+    docs = await mongo.zones.find(query).to_list(500)
     return [_zone_out(d) for d in docs]
 
 
@@ -83,12 +120,14 @@ async def create_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    if not isinstance(account, AdminInDB):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    admin_oid = await _resolve_admin_scope(account, mongo)
+    if not admin_oid:
+        raise HTTPException(status_code=400, detail="Bind a device before creating zones")
 
-    admin_oid = _to_oid(account.id)
+    user_oid = None if isinstance(account, AdminInDB) else _to_oid(account.id)
     doc = {
         "admin_id":    admin_oid,
+        "user_id":     user_oid,
         "name":        body.name.strip(),
         "company":     body.company.strip() if body.company else None,
         "color":       body.color,
@@ -101,7 +140,7 @@ async def create_zone(
     }
     result = await mongo.zones.insert_one(doc)
     doc["_id"] = result.inserted_id
-    logger.info("[zones] created zone_id=%s admin=%s", str(result.inserted_id), account.email)
+    logger.info("[zones] created zone_id=%s owner=%s", str(result.inserted_id), account.email)
     return _zone_out(doc)
 
 
@@ -112,16 +151,16 @@ async def update_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    if not isinstance(account, AdminInDB):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
 
-    admin_oid = _to_oid(account.id)
+    query_filter = await _zone_ownership_filter(oid, account, mongo)
+    if not query_filter:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
     updated = await mongo.zones.find_one_and_update(
-        {"_id": oid, "admin_id": admin_oid},
+        query_filter,
         {"$set": {
             "name":        body.name.strip(),
             "company":     body.company.strip() if body.company else None,
@@ -147,24 +186,26 @@ async def delete_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    if not isinstance(account, AdminInDB):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
 
-    admin_oid = _to_oid(account.id)
-    result = await mongo.zones.delete_one({"_id": oid, "admin_id": admin_oid})
+    query_filter = await _zone_ownership_filter(oid, account, mongo)
+    if not query_filter:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    result = await mongo.zones.delete_one(query_filter)
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Zone not found")
 
-    # Remove this zone_id from every device in the admin's fleet
+    # Remove this zone_id from whichever devices carried it. Scoped to the
+    # zone's own device_sns rather than the whole admin fleet so a user
+    # deleting their own zone can't touch devices outside their zone.
     await mongo.devices.update_many(
-        {"admin_id": admin_oid},
+        {"fence_zone_ids": zone_id},
         {"$pull": {"fence_zone_ids": zone_id}},
     )
-    logger.info("[zones] deleted zone_id=%s admin=%s", zone_id, account.email)
+    logger.info("[zones] deleted zone_id=%s owner=%s", zone_id, account.email)
 
 
 @router.post("/{zone_id}/assign", status_code=200)
@@ -174,9 +215,6 @@ async def assign_device_to_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    if not isinstance(account, AdminInDB):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
@@ -185,8 +223,11 @@ async def assign_device_to_zone(
     if not sn:
         raise HTTPException(status_code=400, detail="Device SN is required")
 
-    admin_oid = _to_oid(account.id)
-    zone = await mongo.zones.find_one({"_id": oid, "admin_id": admin_oid})
+    query_filter = await _zone_ownership_filter(oid, account, mongo)
+    if not query_filter:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    zone = await mongo.zones.find_one(query_filter)
     if not zone:
         raise HTTPException(status_code=404, detail="Zone not found")
 
@@ -194,9 +235,13 @@ async def assign_device_to_zone(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
+    # Users may only assign devices bound to themselves into their own zone.
+    if not isinstance(account, AdminInDB) and str(device.get("user_id")) != str(account.id):
+        raise HTTPException(status_code=403, detail="You can only assign your own devices")
+
     await mongo.zones.update_one({"_id": oid}, {"$addToSet": {"device_sns": sn}})
     await mongo.devices.update_one({"sn": sn}, {"$addToSet": {"fence_zone_ids": zone_id}})
-    logger.info("[zones] assigned sn=%s to zone_id=%s admin=%s", sn, zone_id, account.email)
+    logger.info("[zones] assigned sn=%s to zone_id=%s owner=%s", sn, zone_id, account.email)
     return {"status": "ok", "zone_id": zone_id, "sn": sn}
 
 
@@ -207,21 +252,24 @@ async def unassign_device_from_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    if not isinstance(account, AdminInDB):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
 
-    admin_oid = _to_oid(account.id)
-    await mongo.zones.update_one(
-        {"_id": oid, "admin_id": admin_oid},
+    query_filter = await _zone_ownership_filter(oid, account, mongo)
+    if not query_filter:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
+    result = await mongo.zones.update_one(
+        query_filter,
         {"$pull": {"device_sns": sn}},
     )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Zone not found")
+
     await mongo.devices.update_one(
         {"sn": sn},
         {"$pull": {"fence_zone_ids": zone_id}},
     )
-    logger.info("[zones] unassigned sn=%s from zone_id=%s admin=%s", sn, zone_id, account.email)
+    logger.info("[zones] unassigned sn=%s from zone_id=%s owner=%s", sn, zone_id, account.email)
     return {"status": "ok", "zone_id": zone_id, "sn": sn}

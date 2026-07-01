@@ -12,6 +12,7 @@ import { useAlerts } from '../context/AlertsContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useDashboardChrome } from '../context/DashboardChromeContext.jsx'
+import { useAuth } from '../context/AuthContext.jsx'
 import KPICard from '../components/common/KPICard.jsx'
 
 
@@ -603,6 +604,7 @@ export default function Dashboard() {
   const { locations, activityData, devices: rawDevices, summary } = useHomePageCache()
   const navigate = useNavigate()
   const { alerts } = useAlerts()
+  const { isAdmin } = useAuth()
   const { users } = useUserCache()
   const { zones } = useZoneCache()
   const chrome = useDashboardChrome()
@@ -770,11 +772,15 @@ export default function Dashboard() {
   const assignedDevices = Number(summary?.assigned) || 0
   const unboundCount = Math.max(0, totalDevices - assignedDevices)
 
+  // Only count zones that actually have a device assigned — an empty zone
+  // (drawn but not yet wired to a device) isn't "active" yet.
+  const activeZonesCount = zones.filter(z => (z.device_sns?.length || 0) > 0).length
+
   // Cell 5 — stacked metrics
   const stackMetrics = [
     { label: 'Total Devices', value: totalDevices, icon: Layers, color: '#00B4D8', sub: `${summary.locators ?? 0} locators · ${summary.stickers ?? 0} stickers`, onClick: () => navigate('/devices') },
-    { label: 'Users', value: users.length, icon: Users, color: '#22D3EE', sub: 'under your account', onClick: () => navigate('/users') },
-    { label: 'Fences', value: zones.length, icon: Shield, color: '#F59E0B', sub: 'active Fence zones', onClick: () => navigate('/fence') },
+    ...(isAdmin ? [{ label: 'Users', value: users.length, icon: Users, color: '#22D3EE', sub: 'under your account', onClick: () => navigate('/users') }] : []),
+    { label: 'Fences', value: activeZonesCount, icon: Shield, color: '#F59E0B', sub: 'active Fence zones', onClick: () => navigate('/fence') },
   ]
 
   const isWide = cols === 4

@@ -118,11 +118,17 @@ export function HomePageCacheProvider({ children }) {
       let list = Array.isArray(first) ? first : (first?.devices ?? []);
       const total = Number(first?.total) || list.length;
       const pages = Math.min(MAX_PAGES, Math.ceil(total / PAGE));
-      for (let p = 2; p <= pages; p += 1) {
-        const res = await getDevices({ page: p, limit: PAGE });
-        const more = Array.isArray(res) ? res : (res?.devices ?? []);
-        if (!more.length) break;
-        list = list.concat(more);
+      
+      if (pages > 1) {
+        const promises = [];
+        for (let p = 2; p <= pages; p += 1) {
+          promises.push(getDevices({ page: p, limit: PAGE }));
+        }
+        const results = await Promise.all(promises);
+        for (const res of results) {
+          const more = Array.isArray(res) ? res : (res?.devices ?? []);
+          list = list.concat(more);
+        }
       }
       setDevices(list);
       updateFromDevices(list);

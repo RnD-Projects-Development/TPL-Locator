@@ -77,7 +77,7 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
           <Route path="/trajectory"   element={<Navigate to="/dashboard" replace />} />
           <Route path="/playback"     element={<PlaybackPage />} />
           <Route path="/fence"        element={<FencePage />} />
-          <Route path="/users"        element={<UsersPage />} />
+          <Route path="/users"        element={isAdmin ? <UsersPage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/field-staff"  element={<FieldStaffDashboard />} />
           <Route path="/alerts"       element={<Alerts />} />
           <Route path="/reports"      element={<Reports />} />
