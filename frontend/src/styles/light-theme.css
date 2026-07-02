@@ -46,12 +46,23 @@
   transition: background 0.4s ease, color 0.3s ease;
 }
 
-/* Dark theme page surface — auburn glow anchored in the bottom-right corner,
-   fading through charcoal into black. Applied to every dark page's <main>.
-   Scoped to the class so it never leaks elsewhere. */
+/* Dark theme page surface — futuristic minimal command-center aesthetic.
+   Deep charcoal base with a faint radial auburn accent anchored at the
+   bottom-center and a subtle grid-dot overlay for depth. Scoped to the
+   class so it never leaks elsewhere. */
 .page-theme-dark {
-  background: #000000;
-  background: linear-gradient(90deg, rgba(0, 0, 0, 1) 0%, rgba(167, 44, 50, 1) 50%, rgba(0, 0, 0, 1) 100%);
+  --grid-color: rgba(255, 255, 255, 0.025);
+  background-color: #070707;
+  background-image:
+    /* radial auburn accent — very low opacity, bottom-center */
+    radial-gradient(ellipse 80% 50% at 50% 100%, rgba(167, 44, 50, 0.12) 0%, transparent 70%),
+    /* secondary cool accent — top-left corner hint */
+    radial-gradient(ellipse 60% 40% at 5% 0%, rgba(30, 60, 90, 0.08) 0%, transparent 60%),
+    /* fine grid lines */
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
+  background-attachment: fixed;
   transition: background 0.4s ease, color 0.3s ease;
 }
 

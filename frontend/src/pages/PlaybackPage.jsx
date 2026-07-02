@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import MapView from "../components/MapView.jsx";
 import DeviceSidebar from "../components/Devicesidebar.jsx";
@@ -203,13 +203,19 @@ export default function PlaybackPage() {
     return traj.slice(0, playbackIndex + 1);
   }, [isLiveMode, dataSource, historicalTraj, sessionTraj, playbackIndex]);
 
-  // Auto-scroll visit log to the latest entry
-  useEffect(() => {
-    if (visitLogRef.current && playing) {
-      // Only force scroll when playing. If user stops, let them scroll.
-      visitLogRef.current.scrollTop = visitLogRef.current.scrollHeight;
-    }
-  }, [playbackIndex, playing]);
+  // Auto-scroll visit log to keep the newest entry pinned at the bottom while
+  // playing. Setting scrollTop alone only updates the DOM — the virtualized
+  // window (logScrollTop) only followed on the next native 'scroll' event, so
+  // there was a render where the rendered rows didn't match the scroll
+  // position yet, which showed up as the list jumping/scrolling back up.
+  // Updating both synchronously in a layout effect keeps them always in sync.
+  useLayoutEffect(() => {
+    const el = visitLogRef.current;
+    if (!el || !playing) return; // If user stops, let them scroll freely.
+    const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = bottom;
+    setLogScrollTop(bottom);
+  }, [visitedPoints.length, playing]);
 
   const handleLogScroll = useCallback((e) => {
     setLogScrollTop(e.currentTarget.scrollTop);

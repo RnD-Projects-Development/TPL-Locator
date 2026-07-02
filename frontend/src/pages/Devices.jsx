@@ -938,6 +938,7 @@ export default function Devices() {
   }), [isLight])
 
   const { isAdmin } = useAuth()
+  const chrome = useDashboardChrome()
   const { bindDevice, adminAssignDeviceToUser, checkDeviceAvailability, getDevices, getLatestLocationsBatch, getCategories } = useCityTag()
   const { devices: cacheDevices } = useDeviceCache()
   const { recordBind } = useBindCache()
@@ -1076,6 +1077,24 @@ export default function Devices() {
     if (!showTypeTabs && activeTab !== 'all') setTab('all')
   }, [showTypeTabs, activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Register the All/Locators/Stickers switcher in the topbar (Header),
+  // same slot the Dashboard/Field Staff switcher uses, instead of an inline
+  // row on the page. Only registered when there's actually a choice to make
+  // (showTypeTabs) — a unified single-tab view falls back to the plain
+  // "Devices" breadcrumb.
+  const setTabRef = useRef(setTab)
+  setTabRef.current = setTab
+  useEffect(() => {
+    if (!chrome?.registerTabSwitcher) return
+    if (!showTypeTabs) { chrome.registerTabSwitcher(null); return undefined }
+    chrome.registerTabSwitcher({
+      tabs: visibleTypeTabs,
+      activeKey: activeTab,
+      onSelect: (key) => setTabRef.current(key),
+    })
+    return () => chrome.registerTabSwitcher(null)
+  }, [chrome, showTypeTabs, visibleTypeTabs, activeTab])
+
   const setStatus = (s) => {
     setStatusTab(s)
     setSearchParams(prev => { const p = new URLSearchParams(prev); if (s === 'All') p.delete('status'); else p.set('status', s.toLowerCase()); return p }, { replace: true })
@@ -1104,24 +1123,8 @@ export default function Devices() {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
 
-      {/* ── Type tabs (left) + status filters (right), single row ────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 4, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 12, width: 'fit-content' }}>
-          {visibleTypeTabs.map(({ key, label, icon: Icon }) => {
-            const active = activeTab === key
-            return (
-              <button key={key} onClick={() => setTab(key)}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 18px', borderRadius: 9, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
-                  background: active ? '#A72C32' : 'transparent',
-                  color:      active ? '#FFFFFF' : T.txt2,
-                  boxShadow:  active ? '0 2px 8px rgba(167,44,50,0.30)' : 'none',
-                }}>
-                <Icon style={{ width: 14, height: 14 }} />{label}
-              </button>
-            )
-          })}
-        </div>
-
+      {/* ── Status filters — type tabs (All/Locators/Stickers) now live in the topbar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap', width: 'fit-content' }}>
           {visibleStatusTabs.map(s => {
             const active = statusTab === s

@@ -48,7 +48,7 @@ export default function Layout({ children }) {
               <main
                 key={pathname}
                 className={`page-anim flex-1 ${isMapPage ? 'overflow-hidden p-0' : isDevicesPage ? 'overflow-hidden p-5' : 'overflow-y-auto p-5'} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
-              style={{ borderTopLeftRadius: 28 }}
+              style={{ borderTopLeftRadius: 0 }}
               >
                 <ThemeContext.Provider value={pageTheme}>
                   {children}

@@ -18,16 +18,13 @@ import KPICard from '../components/common/KPICard.jsx'
 
 /* ── shared panel style ─────────────────────────────────────────── */
 const panel = {
-  // Darker base with a subtle diagonal gloss sheen
+  // Flat glossy surface — no rounded corners, no 3D depth
   background: 'linear-gradient(157deg, #201F1F 0%, #1A1919 58%, #151414 100%)',
   border: '1px solid rgba(255,255,255,0.06)',
-  borderRadius: '16px',
+  borderRadius: 0,
 }
 
-/* ── hover shadow helper ────────────────────────────────────────── */
-const PANEL_SHADOW = '0 4px 24px rgba(0,0,0,0.35)'
-const PANEL_SHADOW_HOVER = '0 0 44px rgba(167,44,50,0.52), 0 12px 40px rgba(0,0,0,0.55)'
-
+/* ── hover helper (flat — no shadows) ───────────────────────────── */
 function usePanelHover() {
   const [hov, setHov] = React.useState(false)
   const bind = {
@@ -35,8 +32,9 @@ function usePanelHover() {
     onMouseLeave: () => setHov(false),
   }
   const style = {
-    boxShadow: hov ? PANEL_SHADOW_HOVER : PANEL_SHADOW,
-    transition: 'box-shadow 0.22s ease, transform 0.22s ease',
+    boxShadow: 'none',
+    borderColor: hov ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.06)',
+    transition: 'border-color 0.22s ease',
   }
   return { bind, style }
 }
@@ -45,7 +43,7 @@ function usePanelHover() {
 const ChartTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
   return (
-    <div style={{ background: 'rgba(12,12,12,0.95)', border: '1px solid rgba(180,20,20,0.3)', borderRadius: '10px', padding: '8px 12px', fontSize: '12px' }}>
+    <div style={{ background: 'rgba(12,12,12,0.95)', border: '1px solid rgba(180,20,20,0.3)', borderRadius: 0, padding: '8px 12px', fontSize: '12px' }}>
       <div style={{ color: '#CFCFCF', marginBottom: '4px' }}>{label}</div>
       {payload.map((p, i) => (
         <div key={i} style={{ color: '#E05555', fontWeight: 700 }}>{p.name}: {p.value}</div>
@@ -58,9 +56,9 @@ const ChartTip = ({ active, payload, label }) => {
 const BATT_COLORS = ['#4ade80', '#F59E0B', '#f87171']   // High / Medium / Low
 const BAR_COLORS = ['#3A86FF', '#4CAF50', '#F4A261', '#8E7DBE', '#2A9D8F']
 
-const CARD_ROOT = { ...panel, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }
-const CARD_HDR = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '14px 18px 8px', flexShrink: 0 }
-const CARD_TTL = { fontSize: '15px', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }
+const CARD_ROOT = { ...panel, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', boxSizing: 'border-box' }
+const CARD_HDR = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '14px 18px 8px', flexShrink: 0, flexWrap: 'wrap' }
+const CARD_TTL = { fontSize: 'clamp(13px, 1.1vw, 15px)', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }
 const CARD_SUB = { fontSize: '11px', color: '#E0E0E0', marginTop: '2px' }
 const SECTION_HDR = { fontSize: 10, fontWeight: 700, color: '#909090', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 10 }
 const EMPTY_MSG = { color: '#D0D0D0', fontSize: '12px', textAlign: 'center', padding: '20px 0', margin: 0 }
@@ -109,13 +107,13 @@ function MetricsStackCard({ metrics }) {
           key={m.label}
           onClick={m.onClick}
           style={{
-            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px',
+            display: 'flex', alignItems: 'center', gap: 'clamp(8px, 1vw, 12px)', padding: 'clamp(6px, 0.8vw, 10px) clamp(12px, 1.4vw, 18px)',
             cursor: m.onClick ? 'pointer' : 'default',
             borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)',
           }}
         >
           {/* Left — icon */}
-          <div style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 38, height: 38, borderRadius: 0, flexShrink: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <m.icon style={{ width: 17, height: 17, color: m.color }} />
           </div>
           {/* Center — label + subtitle */}
@@ -124,7 +122,7 @@ function MetricsStackCard({ metrics }) {
             {m.sub && <div style={{ fontSize: 10, color: '#BBBBBB', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
           </div>
           {/* Right — value */}
-          <div style={{ flexShrink: 0, fontSize: 22, fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1 }}>{m.value}</div>
+          <div style={{ flexShrink: 0, fontSize: 'clamp(18px, 1.8vw, 22px)', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1 }}>{m.value}</div>
         </div>
       ))}
     </div>
@@ -140,7 +138,7 @@ function RecentTrendPanel({ generalBins, peakLabel }) {
     <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
       <div style={CARD_HDR}>
         <div style={CARD_TTL}>Recent Trend</div>
-        <span style={{ fontSize: '11px', fontWeight: 700, color: '#C44E54', background: 'rgba(164,44,50,0.12)', border: '1px solid rgba(164,44,50,0.22)', borderRadius: '6px', padding: '3px 10px' }}>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: '#C44E54', background: 'rgba(164,44,50,0.12)', border: '1px solid rgba(164,44,50,0.22)', borderRadius: 0, padding: '3px 10px' }}>
           {peakLabel}
         </span>
       </div>
@@ -261,7 +259,7 @@ function AlertBubble({ data, radius, pct, delay }) {
             background: `radial-gradient(circle at 30% 30%, ${data.light}, ${data.base})`,
             border: `1px solid ${data.border}`,
             backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            boxShadow: hov ? `0 0 42px ${data.glowHover}, 0 8px 26px rgba(0,0,0,0.45)` : `0 0 22px ${data.glow}`,
+            boxShadow: 'none',
             transform: hov ? 'scale(1.08)' : 'scale(1)',
             transition: 'transform 0.25s ease, box-shadow 0.25s ease',
             cursor: 'default',
@@ -299,7 +297,7 @@ function AlertBubbleField({ stats }) {
 
   if (stats.total === 0) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 12px', borderRadius: 10, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 12px', borderRadius: 0, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
         <Shield style={{ width: 16, height: 16, color: '#4ade80', flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>All clear — no active alerts</span>
       </div>
@@ -372,8 +370,8 @@ function RecentActivityPanel({ activityRows, totalActive }) {
 
   return (
     <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 12, flexShrink: 0 }}>
-        <div style={{ minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0, flex: '1 1 140px' }}>
           <div style={CARD_TTL}>Recent Activity</div>
           <div style={CARD_SUB}>
             {isSearching
@@ -390,14 +388,14 @@ function RecentActivityPanel({ activityRows, totalActive }) {
           style={{
             flexShrink: 0, height: '28px', padding: '0 12px', fontSize: '11px',
             background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
-            borderRadius: '999px', color: '#F5F5F5', outline: 'none',
-            width: '140px', transition: 'border-color 0.15s, width 0.2s',
+            borderRadius: 0, color: '#F5F5F5', outline: 'none',
+            width: 'min(140px, 100%)', maxWidth: '100%', transition: 'border-color 0.15s, width 0.2s',
           }}
-          onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = '180px' }}
-          onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = '140px' }}
+          onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = 'min(180px, 100%)' }}
+          onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = 'min(140px, 100%)' }}
         />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr', padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(60px, 0.8fr) minmax(0, 1fr)', padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
         {['Device Name', 'User / Label', 'Status', 'Last Reported'].map(h => (
           <span key={h} style={{ fontSize: '9px', fontWeight: 700, color: '#B8B8B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</span>
         ))}
@@ -410,8 +408,8 @@ function RecentActivityPanel({ activityRows, totalActive }) {
         ) : visibleRows.map((row, idx) => (
           <div key={row.id}
             style={{
-              display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 130px 1fr',
-              padding: '10px 20px', borderBottom: '1px solid rgba(255,255,255,0.03)',
+              display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(60px, 0.8fr) minmax(0, 1fr)',
+              padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)',
               background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)',
               transition: 'background 0.12s', cursor: 'default',
             }}
@@ -422,7 +420,7 @@ function RecentActivityPanel({ activityRows, totalActive }) {
               <span style={{ fontSize: '12px', fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</span>
               <span style={{
                 flexShrink: 0, fontSize: '9px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
-                padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
+                padding: '1px 6px', borderRadius: 0, whiteSpace: 'nowrap',
                 ...(row.type === 'Sticker'
                   ? { background: 'rgba(255,183,3,0.12)', color: '#FFB703', border: '1px solid rgba(255,183,3,0.24)' }
                   : { background: 'rgba(0,180,216,0.12)', color: '#00B4D8', border: '1px solid rgba(0,180,216,0.24)' })
@@ -432,7 +430,7 @@ function RecentActivityPanel({ activityRows, totalActive }) {
             </span>
             <span style={{ fontSize: '12px', color: '#F0F0F0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '8px' }}>{row.user}</span>
             <span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, background: 'rgba(74,222,128,0.10)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.22)' }}>● Active</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: 0, fontSize: '11px', fontWeight: 700, background: 'rgba(74,222,128,0.10)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.22)' }}>● Active</span>
             </span>
             <span style={{ fontSize: '12px', color: '#D4D4D4', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{fmtRelTime(row.lastSeen)}</span>
           </div>
@@ -462,14 +460,14 @@ function FleetMixCard({ summary }) {
         <div style={CARD_TTL}>Device Health</div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '4px 18px 16px' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: 'clamp(2px, 0.4vw, 4px) clamp(12px, 1.4vw, 18px) clamp(10px, 1.2vw, 16px)' }}>
         {/* Device Uptime — equal top half, centered */}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'center' }}>
           <div style={SECTION_HDR}>Device Uptime</div>
-          <div style={{ fontSize: 42, fontWeight: 800, color: '#4ade80', lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
+          <div style={{ fontSize: 'clamp(28px, 3.5vw, 42px)', fontWeight: 800, color: '#4ade80', lineHeight: 1, letterSpacing: '-0.04em' }}>{onlineRate}%</div>
           <div style={{ fontSize: 12, color: '#C0C0C0', marginTop: 5 }}>{onlineNow} of {total} online</div>
-          <div style={{ marginTop: 9, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${onlineRate}%`, background: '#4ade80', borderRadius: 3, transition: 'width 0.5s ease' }} />
+          <div style={{ marginTop: 9, height: 5, borderRadius: 0, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${onlineRate}%`, background: '#4ade80', borderRadius: 0, transition: 'width 0.5s ease' }} />
           </div>
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.30)', marginTop: 6 }}>
             {onlineRate >= 70 ? 'Devices healthy' : onlineRate >= 40 ? 'Needs attention' : 'Critical — many offline'}
@@ -479,7 +477,7 @@ function FleetMixCard({ summary }) {
         {/* Device Mix — equal bottom half */}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div style={SECTION_HDR}>Device Mix</div>
-          <div style={{ display: 'flex', height: 7, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+          <div style={{ display: 'flex', height: 7, borderRadius: 0, overflow: 'hidden', marginBottom: 12 }}>
             <div style={{ width: `${locPct}%`, background: '#00B4D8', transition: 'width 0.5s ease' }} />
             <div style={{ flex: 1, background: '#FFB703' }} />
           </div>
@@ -541,9 +539,9 @@ function ZonesBatteryCard({ zones, devices, batteryTiers }) {
 
   return (
     <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexWrap: 'wrap' }}>
         {/* Top Active Zones */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '10px 8px 8px 14px', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ flex: '1 1 140px', minWidth: 0, display: 'flex', flexDirection: 'column', padding: '10px 8px 8px 14px', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
           <div style={halfTitle}>Top Active Zones</div>
           {topZones.length === 0 ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -565,7 +563,7 @@ function ZonesBatteryCard({ zones, devices, batteryTiers }) {
                       const color = BAR_COLORS[topZones.indexOf(z) % BAR_COLORS.length]
                       const pct = totalCount ? Math.round((z.count / totalCount) * 100) : 0
                       return (
-                        <div style={{ background: '#161616', border: `1px solid ${color}40`, borderRadius: 8, padding: '8px 12px', pointerEvents: 'none', boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}>
+                        <div style={{ background: '#161616', border: `1px solid ${color}40`, borderRadius: 0, padding: '8px 12px', pointerEvents: 'none', boxShadow: 'none' }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 4 }}>{z.name}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
@@ -586,7 +584,7 @@ function ZonesBatteryCard({ zones, devices, batteryTiers }) {
         </div>
 
         {/* Battery */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '10px 14px 8px 8px' }}>
+        <div style={{ flex: '1 1 140px', minWidth: 0, display: 'flex', flexDirection: 'column', padding: '10px 14px 8px 8px' }}>
           <div style={halfTitle}>Battery</div>
           <BatteryRadial batteryTiers={batteryTiers} />
         </div>
@@ -612,14 +610,14 @@ export default function Dashboard() {
 
   const [exporting, setExporting] = useState(false)
 
-  // Responsive: 4 columns by default, collapse to 2 when the grid gets narrow.
+  // Responsive: 4 → 2 → 1 columns based on available width.
   const [cols, setCols] = useState(4)
   useEffect(() => {
     const el = gridRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(entries => {
       const w = entries[0].contentRect.width
-      setCols(w < 900 ? 2 : 4)
+      setCols(w < 540 ? 1 : w < 900 ? 2 : 4)
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -784,17 +782,19 @@ export default function Dashboard() {
   ]
 
   const isWide = cols === 4
-  const span2 = { gridColumn: 'span 2', height: '100%', minHeight: 0 }
+  const isSingle = cols === 1
+  // span2 adapts: spans 2 at 2+ cols, spans 1 in single-column mode
+  const span2 = { gridColumn: isSingle ? 'span 1' : 'span 2', height: '100%', minHeight: 0 }
 
   return (
     <div
       ref={gridRef}
       style={{
-        height: '100%', minHeight: 640,
-        display: 'grid', gap: 14,
+        height: isWide ? '100%' : 'auto', minHeight: isWide ? 640 : undefined,
+        display: 'grid', gap: isSingle ? 10 : 14,
         gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
         gridTemplateRows: isWide ? '2fr 4fr 5fr' : undefined,
-        gridAutoRows: isWide ? undefined : 'minmax(210px, auto)',
+        gridAutoRows: isWide ? undefined : 'minmax(180px, auto)',
         fontWeight: 400, letterSpacing: '0.04em',
       }}
     >

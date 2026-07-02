@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ChevronRight, Bell, Moon, Sun, BatteryLow, WifiOff, MapPin, ArrowRight, CheckCheck, LogOut, Settings, FileDown, Loader } from 'lucide-react'
 import DashboardSwitcher from '../common/DashboardSwitcher.jsx'
+import PillTabSwitcher from '../common/PillTabSwitcher.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../App.jsx'
@@ -97,6 +98,7 @@ export default function Header({ pageTheme, setPageTheme }) {
   const showExport   = !!exportAction
   const ExportIcon   = exportAction?.icon ?? FileDown
   const exportLabel  = exportAction?.label ?? 'Export'
+  const tabSwitcher  = chrome?.tabSwitcher
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [showProfileMenu,   setShowProfileMenu]   = useState(false)
@@ -185,6 +187,13 @@ export default function Header({ pageTheme, setPageTheme }) {
               onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
             <ChevronRight className="w-3 h-3 text-gray-700" />
             <DashboardSwitcher />
+          </div>
+        ) : tabSwitcher ? (
+          <div className="flex items-center gap-2.5 text-xs flex-1">
+            <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
+              onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
+            <ChevronRight className="w-3 h-3 text-gray-700" />
+            <PillTabSwitcher tabs={tabSwitcher.tabs} activeKey={tabSwitcher.activeKey} onSelect={tabSwitcher.onSelect} />
           </div>
         ) : (
           <div className="flex items-center gap-1.5 text-xs flex-1">
