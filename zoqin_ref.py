@@ -72,43 +72,51 @@ def _parse_report_ts(value: Any) -> Optional[datetime]:
     return None
 
 
-async def zoqin_login(client: httpx.AsyncClient, login_url: str, email: str, pwd: str) -> str:
-    # Zoqin login is disabled in this environment; caller should use a static user code.
-    # If this function is accidentally called, return the well-known static code.
-    logger.info("zoqin_login called but login flow disabled; returning static user code")
-    return "2RDVQQT1C"
+def _report_key(sn: str, report: Dict[str, Any]) -> Tuple[str, str, float, float]:
+    """Stable dedup key: (sn, timestamp-string, lat, lng)."""
+    ts  = report.get("timestamp") or ""
+    lat = float(report.get("latitude")  or 0)
+    lng = float(report.get("longitude") or 0)
+    return sn, str(ts), lat, lng
 
 
-async def get_zoqin_user_code(
+def fmt_zoqin_time(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+# ── HTTP with retry ────────────────────────────────────────────────────────────
+
+async def _post_json_with_retry(
     client: httpx.AsyncClient,
     *,
-    login_url: str,
-    email: str,
-    password: str,
-    force_refresh: bool = False,
-    static_code: str | None = None,
-) -> str:
-    # Simplified: always prefer provided static_code, otherwise use a hard-coded fallback.
-    if static_code and str(static_code).strip():
-        return str(static_code).strip()
-    return "2RDVQQT1C"
+    url: str,
+    body: dict[str, Any],
+    headers: dict[str, str],
+) -> httpx.Response:
+    """
+    POST with exponential back-off + full jitter.
 
+    Retries: up to ZOQIN_MAX_RETRIES (6) attempts.
+    Back-off: base=3 s, doubles each attempt, capped at 45 s, plus jitter.
+    Retryable: all network-level errors + HTTP 429/502/503/504.
+    Non-retryable HTTP errors are raised immediately so callers can log them.
+    """
+    last_exc: Exception | None = None
 
-def parse_bind_devices(payload: Any) -> List[Dict[str, Any]]:
-    """Normalize allBind JSON into dict rows with at least `sn`."""
-    if payload is None:
-        return []
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if data is None and isinstance(payload, dict):
-        data = payload.get("Data")
-    candidates: List[Any] = []
-    if isinstance(data, list):
-        candidates = data
-    elif isinstance(data, dict):
-        for key in ("list", "bindList", "devices", "rows", "records"):
-            v = data.get(key)
-            if isinstance(v, list):
-                candidates = v
+    for attempt in range(1, ZOQIN_MAX_RETRIES + 1):
+        try:
+            resp = await client.post(
+                url,
+                json=body,
+                headers=headers,
+                timeout=httpx.Timeout(connect=20.0, read=90.0, write=20.0, pool=10.0),
+            )
+            resp.raise_for_status()
+            return resp
+
+        except _RETRYABLE_ERRORS as exc:
+            last_exc = exc
+            if attempt >= ZOQIN_MAX_RETRIES:
                 break
             delay   = ZOQIN_RETRY_BASE_DELAY_SEC * (2 ** (attempt - 1))
             jitter  = random.uniform(0.0, delay * 0.5)

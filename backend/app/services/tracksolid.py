@@ -149,3 +149,29 @@ class TrackSolidClient:
         if isinstance(result, list):
             return [x for x in result if isinstance(x, dict)]
         return []
+
+    async def list_device_track_history(
+        self,
+        token: str,
+        *,
+        imei: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> List[Dict[str, Any]]:
+        body = await self._api_call(
+            "jimi.device.track.list",
+            {
+                "imei": imei,
+                "begin_time": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+            token,
+        )
+        if not isinstance(body, dict):
+            raise TrackSolidError("invalid response")
+        if body.get("code") != 0:
+            raise TrackSolidError(body.get("message") or "jimi.device.track.list failed")
+        result = body.get("result")
+        if isinstance(result, list):
+            return [x for x in result if isinstance(x, dict)]
+        return []

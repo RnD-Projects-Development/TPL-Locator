@@ -22,7 +22,7 @@ def _to_naive_utc(dt: datetime) -> datetime:
 class LocationService:
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
-        self.collection = db["locations"]
+        self.collection = db["location-test"]
 
     async def get_trajectory(
         self,

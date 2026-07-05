@@ -17,19 +17,39 @@ from app.services import device_registry
 from app.services.citytag import CityTagClient, CityTagError
 from app.services.mongodb import MongoService
 from app.services.tracksolid import TrackSolidClient, TrackSolidError
-from app.services.zoqin_api import (
-    DEFAULT_ZOQIN_TIME_ADJUST_HOURS,
-    zoqin_fetch_reports_for_sn,
-)
+from app.services.zoqin_api import zoqin_all_bind
 
 logger = logging.getLogger(__name__)
 
-SYNC_HISTORY_MINUTES = 70           # 60-min window + 10-min overlap guards the
-                                    # seam between consecutive sync cycles so a
-                                    # point that arrived just after the previous
-                                    # window closed is never missed.
+async def _with_retries(callable_coro, *args, retries: int = 6, base_delay: float = 1.5, logger=logger, **kwargs):
+    """Run an async callable with limited retries and exponential backoff.
 
-DATA_DIR              = Path(__file__).resolve().parents[1] / "data"
+    Returns the result if successful, or None on persistent failure.
+    """
+    attempt = 0
+    while attempt < retries:
+        try:
+            return await callable_coro(*args, **kwargs)
+        except (ConnectTimeout, RequestError, HTTPStatusError) as e:
+            attempt += 1
+            logger.warning(
+                "vendor_sync transient error on attempt %s/%s for %s: %s",
+                attempt,
+                retries,
+                getattr(callable_coro, "__name__", str(callable_coro)),
+                e,
+            )
+            if attempt >= retries:
+                logger.error("vendor_sync giving up after %s attempts for %s", retries, getattr(callable_coro, "__name__", str(callable_coro)))
+                return None
+            await asyncio.sleep(base_delay * attempt)
+        except Exception as e:
+            # Non-retryable or unknown error: log and abort retries for this callable
+            logger.exception("vendor_sync unexpected error calling %s: %s", getattr(callable_coro, "__name__", str(callable_coro)), e)
+            return None
+
+SYNC_HISTORY_MINUTES = 10
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 TRACKSOLID_TOKEN_PATH = DATA_DIR / "tracksolid_token.json"
 
 # ── Zoqin in-memory cache ──────────────────────────────────────────────────────
@@ -114,8 +134,8 @@ def _battery_tracksolid(row: Dict[str, Any]) -> Optional[float]:
 async def _citytag_get_devices_retry(
     citytag: CityTagClient, uid: str, token: str, email: str,
 ) -> Optional[List[Dict[str, Any]]]:
-    max_retries = 3
-    base_delay  = 2
+    max_retries = 6
+    base_delay = 2
     for attempt in range(1, max_retries + 1):
         try:
             return await citytag.get_all_devices(uid, token, page_size=50)
@@ -210,30 +230,42 @@ async def _sync_citytag(
         if not reg or reg.get("vendor") != "citytag":
             continue
 
-        try:
-            history = await citytag.get_location_history(
-                uid=uid, token=token, sn=sn,
-                start_time=start_time, end_time=end_time,
-            )
-        except (CityTagError, HTTPStatusError):
-            logger.warning("vendor_sync citytag history failed sn=%s", sn)
+        latest = await _with_retries(
+            citytag.get_latest_location,
+            uid,
+            token,
+            sn,
+            retries=6,
+            base_delay=1.5,
+            page_no=1,
+            page_size=1,
+        )
+        if latest is None:
+            logger.warning("vendor_sync citytag latest failed after retries sn=%s", sn)
             continue
 
         stats.citytag_devices += 1
-        for item in history:
-            if not isinstance(item, dict):
+        if latest and isinstance(latest, dict):
+            bat = _battery_citytag(latest)
+            # Normalize latitude/longitude keys
+            lat = float(latest.get("latitude") or latest.get("lat") or 0)
+            lng = float(latest.get("longitude") or latest.get("lng") or 0)
+            if lat == 0.0 and lng == 0.0:
                 continue
-            bat      = _battery_citytag(item)
-            inserted = await mongo.upsert_location_from_citytag(
-                history_item=item, uid=uid, sn=sn,
-                battery_status=bat, time_adjust_hours=-3.0,
+            ts_raw = latest.get("timestamp") or latest.get("gpstime") or latest.get("time")
+            inserted = await mongo.upsert_latest_location(
+                uid=uid,
+                sn=sn,
+                timestamp_raw=ts_raw,
+                lat=lat,
+                lng=lng,
+                battery_status=bat,
+                time_adjust_hours=-3.0,
+                vendor="citytag",
             )
             if inserted:
                 stats.citytag_points += 1
-                logger.info(
-                    "citytag_point_uploaded | sn=%s lat=%s lng=%s",
-                    sn, item.get("latitude"), item.get("longitude"),
-                )
+                logger.info("citytag_latest_uploaded | sn=%s lat=%s lng=%s", sn, lat, lng)
 
     return devices_list, by_sn
 
@@ -272,7 +304,23 @@ async def _sync_tracksolid(
 
     try:
         token = await client.get_valid_token()
-        rows  = await client.list_device_locations(token)
+        rows = await _with_retries(client.list_device_locations, token, retries=6, base_delay=2)
+        if rows is None:
+            # attempt refresh token once and retry
+            logger.warning("vendor_sync tracksolid initial list failed; attempting token refresh")
+            try:
+                if TRACKSOLID_TOKEN_PATH.exists():
+                    TRACKSOLID_TOKEN_PATH.unlink()
+            except OSError:
+                pass
+            try:
+                token = await client.get_valid_token()
+                rows = await _with_retries(client.list_device_locations, token, retries=6, base_delay=2)
+                if rows is None:
+                    raise TrackSolidError("tracksolid list failed after retries")
+            except TrackSolidError as e2:
+                logger.error("vendor_sync tracksolid failed: %s", e2)
+                return devices_list, by_sn
     except TrackSolidError as e:
         logger.warning("vendor_sync tracksolid first attempt failed: %s — refreshing token", e)
         try:
@@ -282,7 +330,10 @@ async def _sync_tracksolid(
             pass
         try:
             token = await client.get_valid_token()
-            rows  = await client.list_device_locations(token)
+            rows = await _with_retries(client.list_device_locations, token, retries=6, base_delay=2)
+            if rows is None:
+                logger.error("vendor_sync tracksolid failed after refresh and retries")
+                return devices_list, by_sn
         except TrackSolidError as e2:
             logger.error("vendor_sync tracksolid failed: %s", e2)
             return devices_list, by_sn
@@ -315,13 +366,19 @@ async def _sync_tracksolid(
 
         bat = _battery_tracksolid(row)
         stats.tracksolid_devices += 1
-        inserted = await mongo.upsert_location_from_citytag(
-            history_item={"sn": sn, "latitude": lat, "longitude": lng, "gpstime": ts_raw},
-            uid=tpl_uid, sn=sn, battery_status=bat, time_adjust_hours=5.0,
+        inserted = await mongo.upsert_latest_location(
+            uid=tpl_uid,
+            sn=sn,
+            timestamp_raw=ts_raw,
+            lat=lat,
+            lng=lng,
+            battery_status=bat,
+            time_adjust_hours=5.0,
+            vendor="tracksolid",
         )
         if inserted:
             stats.tracksolid_points += 1
-            logger.info("tracksolid_point_uploaded | sn=%s lat=%s lng=%s", sn, lat, lng)
+            logger.info("tracksolid_latest_uploaded | sn=%s lat=%s lng=%s", sn, lat, lng)
 
     return devices_list, by_sn
 
@@ -356,122 +413,63 @@ async def _sync_zoqin(
     if not tpl_doc:
         logger.error("vendor_sync zoqin tpl admin missing email=%s", tpl_email)
         return devices_list, by_sn
+    tpl_admin_id = str(tpl_doc["_id"])
+    tpl_uid = str(tpl_doc.get("uid") or "zoqin_vendor_tpl")
 
-    tpl_uid     = str(tpl_doc.get("uid") or "zoqin_vendor_tpl")
-    time_adjust = float(
-        settings.get("zoqin_time_adjust_hours", DEFAULT_ZOQIN_TIME_ADJUST_HOURS)
-    )
+    async with AsyncClient(timeout=50.0) as http:
+        # Zoqin login endpoints are unreliable; use hard-coded user code per configuration.
+        code = "2RDVQQT1C"
+        binds = await _with_retries(zoqin_all_bind, http, bind_url, code, retries=6, base_delay=2)
+        if binds is None:
+            logger.error("vendor_sync zoqin bind failed after retries for hard-coded user code")
+            return devices_list, by_sn
 
-    # ── Time window ──────────────────────────────────────────────────────────
-    # SYNC_HISTORY_MINUTES = 70: the extra 10 minutes beyond the 60-min cycle
-    # interval deliberately overlaps with the previous sync's window.  Any
-    # point that arrived at the Zoqin server between the previous end_time and
-    # the current run will be caught.  upsert_location_from_citytag is idempotent
-    # (keyed on uid+sn+timestamp) so re-fetching overlap is safe.
-    end_time   = datetime.utcnow()
-    start_time = end_time - timedelta(minutes=SYNC_HISTORY_MINUTES)
+    for row in binds:
+        sn = row.get("sn")
+        if not sn:
+            continue
+        sn = str(sn).strip()
+        if not by_sn.get(sn):
+            devices_list = device_registry.append_device(
+                devices_list,
+                sn=sn,
+                admin_email=tpl_email,
+                vendor="zoqin",
+            )
+            by_sn = device_registry.index_by_sn(devices_list)
 
-    logger.info(
-        "vendor_sync zoqin starting | devices=%s | window=%s min | %s → %s",
-        len(zoqin_sns), SYNC_HISTORY_MINUTES,
-        start_time.strftime("%H:%M:%S"), end_time.strftime("%H:%M:%S"),
-    )
-
-    http = _get_zoqin_client()
-
-    # Semaphore(1): fully serialised.  The Zoqin server is unstable under any
-    # concurrency — one in-flight request is far more reliable than two racing.
-    sem  = asyncio.Semaphore(1)
-    lock = asyncio.Lock()
-
-    async def _process_sn(sn: str) -> None:
-        async with sem:
-            try:
-                # Cache key includes the minute-truncated start so rotating the
-                # window every 5 min still benefits from caching within a run.
-                cache_key = f"{sn}:{start_time.strftime('%Y%m%d%H%M')}"
-                if (
-                    cache_key in ZOQIN_CACHE
-                    and datetime.utcnow() - ZOQIN_CACHE[cache_key][0] < ZOQIN_CACHE_TTL
-                ):
-                    reports = ZOQIN_CACHE[cache_key][1]
-                    logger.debug("zoqin cache hit sn=%s reports=%s", sn, len(reports))
-                else:
-                    reports = await zoqin_fetch_reports_for_sn(
-                        http,
-                        location_url=location_url,
-                        sn=sn,
-                        start=start_time,
-                        end=end_time,
-                    )
-                    ZOQIN_CACHE[cache_key] = (datetime.utcnow(), reports)
-
-                local_points  = 0
-                local_skipped = 0
-                for report in reports:
-                    try:
-                        lat_f = float(str(report.get("latitude")  or "").strip() or 0)
-                        lng_f = float(str(report.get("longitude") or "").strip() or 0)
-                        if lat_f == 0.0 and lng_f == 0.0:
-                            local_skipped += 1
-                            continue
-
-                        inserted = await mongo.upsert_location_from_citytag(
-                            history_item={
-                                "sn":        sn,
-                                "latitude":  lat_f,
-                                "longitude": lng_f,
-                                "timestamp": report.get("timestamp"),
-                            },
-                            uid=tpl_uid,
-                            sn=sn,
-                            time_adjust_hours=time_adjust,
-                        )
-                        if inserted:
-                            local_points += 1
-                            logger.info(
-                                "zoqin_point_uploaded | sn=%s lat=%.6f lng=%.6f ts=%s",
-                                sn, lat_f, lng_f, report.get("timestamp"),
-                            )
-                    except Exception:
-                        logger.exception(
-                            "zoqin upsert failed sn=%s report=%s", sn, report
-                        )
-                        # Continue — don't let one bad point abort the device.
-
-                if local_skipped:
-                    logger.warning(
-                        "zoqin sn=%s skipped %s zero-coord points",
-                        sn, local_skipped,
-                    )
-
-                async with lock:
-                    stats.zoqin_devices += 1
-                    stats.zoqin_points  += local_points
-
-                # Brief pause between devices to stay friendly to the server.
-                await asyncio.sleep(0.5)
-
-            except Exception as exc:
-                logger.error(
-                    "vendor_sync zoqin failed sn=%s | error=%s(%s)",
-                    sn, type(exc).__name__, exc,
-                )
-                async with lock:
-                    stats.zoqin_failed_sns += 1
-
-    await asyncio.gather(*[_process_sn(sn) for sn in zoqin_sns], return_exceptions=True)
-
-    if stats.zoqin_failed_sns:
-        logger.warning(
-            "vendor_sync zoqin completed with %s failed SN(s) out of %s",
-            stats.zoqin_failed_sns, len(zoqin_sns),
+        label = row.get("deviceName") or row.get("name") or sn
+        await mongo.upsert_device_from_citytag(
+            admin_id=tpl_admin_id,
+            citytag_device={"sn": sn, "assigned_name": label},
         )
-    else:
-        logger.info(
-            "vendor_sync zoqin completed | devices=%s | points=%s",
-            stats.zoqin_devices, stats.zoqin_points,
+
+        try:
+            lat_f = float(str(row.get("latitude") or row.get("lat") or "").strip() or 0)
+            lng_f = float(str(row.get("longitude") or row.get("lng") or "").strip() or 0)
+        except (TypeError, ValueError):
+            continue
+        if lat_f == 0.0 and lng_f == 0.0:
+            continue
+
+        ts_raw = row.get("timestamp")
+        bat = _battery_zoqin_bind(row)
+
+        stats.zoqin_devices += 1
+        inserted = await mongo.upsert_latest_location(
+            uid=tpl_uid,
+            sn=sn,
+            timestamp_raw=ts_raw,
+            lat=lat_f,
+            lng=lng_f,
+            battery_status=bat,
+            time_adjust_hours=5.0,
+            vendor="zoqin",
         )
+        if inserted:
+            stats.zoqin_points += 1
+            logger.info("zoqin_latest_uploaded | sn=%s lat=%s lng=%s battery=%s", sn, lat_f, lng_f, bat)
+
     return devices_list, by_sn
 
 
