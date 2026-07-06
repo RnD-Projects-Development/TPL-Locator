@@ -93,18 +93,40 @@
 .pb-vl-badge-live { font-size:10px; font-weight:700; color:var(--status-online); }
 .pb-vl-badge-pb   { font-size:10px; font-weight:700; color:var(--status-warning); }
 
-.pb-vl-list { flex:1; overflow-y:auto; padding:4px 0; }
+/* Bottom-anchored feed: a short list sits flush with the bottom of the
+   visible area (empty space above it) instead of pinned at the top with
+   empty space below — same pattern as a log viewer / monitoring console.
+   .pb-vl-feed uses margin-top:auto so it's pushed down until there are
+   enough items to fill the container, after which normal scrolling takes
+   over (see the auto-scroll-to-bottom effect in PlaybackPage.jsx). */
+/* overflow-anchor:none — without this, the browser's native scroll
+   anchoring "compensates" scrollTop when old entries are evicted from the
+   top (see VISIT_LOG_CAP in PlaybackPage.jsx), firing a scroll event that
+   handleLogScroll misreads as the user scrolling away, permanently breaking
+   auto-follow. Disabling anchoring here makes our own explicit
+   scrollTop=scrollHeight in the layout effect the sole source of truth. */
+.pb-vl-list { flex:1; overflow-y:auto; overflow-anchor:none; padding:4px 0; display:flex; flex-direction:column; }
 .pb-vl-list::-webkit-scrollbar { width:4px; }
 .pb-vl-list::-webkit-scrollbar-track { background:transparent; }
 .pb-vl-list::-webkit-scrollbar-thumb { background:var(--border-default); border-radius:2px; }
 
+.pb-vl-feed { margin-top:auto; display:flex; flex-direction:column; }
+
 .pb-vl-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px 16px; gap:8px; text-align:center; font-size:12px; color:var(--text-tertiary); }
 .pb-vl-empty-icon { font-size:22px; opacity:0.3; }
-.pb-vl-hint { padding:20px 14px; font-size:11px; color:var(--text-tertiary); text-align:center; line-height:1.6; }
+.pb-vl-hint { margin-top:auto; padding:20px 14px; font-size:11px; color:var(--text-tertiary); text-align:center; line-height:1.6; }
 
 .pb-vl-item { display:flex; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border-subtle); transition:background 0.1s; }
 .pb-vl-item:hover { background:var(--surface-2); }
 .pb-vl-item-active { background:var(--brand-dim); border-left:2px solid var(--brand); padding-left:10px; }
+
+/* Brief highlight + slide-in for the newest entry as it arrives */
+@keyframes pbVlItemIn {
+  from { opacity:0; transform:translateY(6px); background:rgba(167,44,50,0.22); }
+  60%  { opacity:1; transform:translateY(0); background:rgba(167,44,50,0.12); }
+  to   { background:var(--brand-dim); }
+}
+.pb-vl-item-new { animation:pbVlItemIn 650ms ease-out; }
 
 .pb-vl-item-num { flex-shrink:0; width:18px; height:18px; border-radius:50%; background:var(--surface-3); color:var(--text-tertiary); font-size:9px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:2px; }
 .pb-vl-item-active .pb-vl-item-num { background:var(--brand); color:#fff; }
@@ -113,6 +135,13 @@
 .pb-vl-item-loc  { font-size:11.5px; font-weight:600; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pb-vl-item-area { font-size:10px; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; }
 .pb-vl-item-ts   { font-size:9.5px; font-family:var(--font-mono); color:var(--text-tertiary); margin-top:3px; }
+
+/* Grouped "stop" row — points near the same landmark within a short time
+   window collapse into one row showing a silently-computed duration
+   instead of a raw timestamp (see clusterStops / VisitLogItem). */
+.pb-vl-item-stop .pb-vl-item-num { background:var(--status-warning); color:#1a1200; }
+.pb-vl-item-stop-duration { display:flex; align-items:center; gap:5px; font-size:9.5px; font-family:var(--font-mono); color:var(--status-warning); margin-top:3px; }
+.pb-vl-stop-badge { font-size:8px; font-weight:800; letter-spacing:.05em; background:var(--status-warning); color:#1a1200; border-radius:3px; padding:1px 4px; }
 .pb-vl-muted     { color:var(--text-tertiary); font-style:italic; font-weight:400; }
 
 @media (max-width: 768px) {

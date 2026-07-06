@@ -7,79 +7,37 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
-import { landmarkDisplayFromPoint, landmarkFromPoint, parseLandmarkDisplay, clientReverseGeocode, mapboxReverseGeocode, mapboxGeoLabelString } from "../utils/landmark.js";
+import { peekGeocode, resolveGeocode } from "../utils/geocodeCache.js";
+import { usePlaybackStore, SPEEDS } from "../store/usePlaybackStore.js";
+import { getCachedPlayback } from "../utils/playbackCache.js";
+import { clusterStops, stopDurationMs, formatStopDuration } from "../utils/stopClustering.js";
 import "./PlaybackPage.css";
 
 const PLAYBACK_SCOPE = "playback";
 
-// ── Shared Cache for Reverse Geocoding ──
-// Kept outside React state so we don't trigger re-renders.
-const globalGeocodeCache = new Map();
-const pendingGeocodes = new Set();
+const VisitLogItem = React.memo(({ group, nextGroup, index, isLatest, getGeocode }) => {
+  // Points near the same landmark and close together in time are grouped
+  // into one row (see clusterStops) instead of each ping getting its own —
+  // the representative point (the group's first) drives the landmark
+  // lookup; a multi-point group additionally shows a silently-computed
+  // stop duration instead of a single timestamp.
+  const pt = group.points[0];
+  const isStop = group.points.length > 1;
+  const geoPoint = useMemo(() => ({ ...pt, landmark: group.landmark ?? pt?.landmark }), [pt, group.landmark]);
 
-const VisitLogItem = React.memo(({ pt, index, isLatest, getGeocode }) => {
-  const [geo, setGeo] = useState(() => {
-    const backend = landmarkDisplayFromPoint(pt);
-    if (backend) return backend;
-    const lat = Number(pt?.lat ?? pt?.latitude ?? pt?.gpsLat ?? pt?.wgLat);
-    const lng = Number(pt?.lng ?? pt?.lon ?? pt?.longitude ?? pt?.gpsLng ?? pt?.wgLng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-    return globalGeocodeCache.get(key) || null;
-  });
+  const [geo, setGeo] = useState(() => peekGeocode(geoPoint));
 
   useEffect(() => {
     if (geo) return;
-    const lat = Number(pt?.lat ?? pt?.latitude ?? pt?.gpsLat ?? pt?.wgLat);
-    const lng = Number(pt?.lng ?? pt?.lon ?? pt?.longitude ?? pt?.gpsLng ?? pt?.wgLng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-    const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
-    if (globalGeocodeCache.has(key)) {
-      setGeo(globalGeocodeCache.get(key));
-      return;
-    }
-    if (pendingGeocodes.has(key)) {
-      // Simplistic retry loop if it's currently fetching
-      let timer;
-      const check = () => {
-        if (globalGeocodeCache.has(key)) {
-          setGeo(globalGeocodeCache.get(key));
-        } else if (pendingGeocodes.has(key)) {
-          timer = setTimeout(check, 500);
-        }
-      };
-      timer = setTimeout(check, 100);
-      return () => clearTimeout(timer);
-    }
-
-    pendingGeocodes.add(key);
     let isMounted = true;
-
-    (async () => {
-      let label = null;
-      try { label = await clientReverseGeocode(lat, lng); } catch {}
-      if (!label) {
-        try { const res = await getGeocode(lat, lng); if (res?.landmark) label = res.landmark; } catch {}
-      }
-      if (!label) {
-        try {
-          const mbx = await mapboxReverseGeocode(lat, lng, import.meta.env.VITE_MAPBOX_TOKEN);
-          if (mbx) label = mapboxGeoLabelString(mbx);
-        } catch {}
-      }
-      pendingGeocodes.delete(key);
-      const parsed = label ? parseLandmarkDisplay(label) : null;
-      globalGeocodeCache.set(key, parsed);
-      if (isMounted) setGeo(parsed);
-    })();
-
+    resolveGeocode(geoPoint, getGeocode).then((result) => {
+      if (isMounted) setGeo(result);
+    });
     return () => { isMounted = false; };
-  }, [pt, geo, getGeocode]);
+  }, [geoPoint, geo, getGeocode]);
 
-  const ts = formatTs(pt);
   return (
-    <div className={`pb-vl-item${isLatest ? " pb-vl-item-active" : ""}`}>
+    <div className={`pb-vl-item${isStop ? " pb-vl-item-stop" : ""}${isLatest ? " pb-vl-item-active pb-vl-item-new" : ""}`}>
       <div className="pb-vl-item-num">{index + 1}</div>
       <div className="pb-vl-item-body">
         <div className="pb-vl-item-loc">
@@ -88,7 +46,14 @@ const VisitLogItem = React.memo(({ pt, index, isLatest, getGeocode }) => {
             : <span className="pb-vl-muted">No landmark</span>}
         </div>
         {geo?.secondary && <div className="pb-vl-item-area">{geo.secondary}</div>}
-        <div className="pb-vl-item-ts">{ts}</div>
+        {isStop ? (
+          <div className="pb-vl-item-stop-duration">
+            <span className="pb-vl-stop-badge">STOP</span>
+            {nextGroup ? formatStopDuration(stopDurationMs(group, nextGroup)) : 'Ongoing'}
+          </div>
+        ) : (
+          <div className="pb-vl-item-ts">{formatTs(pt)}</div>
+        )}
       </div>
     </div>
   );
@@ -135,15 +100,6 @@ function normalisePlayback(data) {
   return [];
 }
 
-const SPEEDS = [
-  { label: "0.5×",  value: 10000 },
-  { label: "1×",    value: 5000  },
-  { label: "1.5×",  value: 2500  },
-  { label: "2×",    value: 1200  },
-  { label: "4×",    value: 600   },
-  { label: "8×",    value: 300   },
-];
-
 const TIME_SHORTCUTS = [
   { label: "1H",  hours: 1   },
   { label: "3H",  hours: 3   },
@@ -176,19 +132,34 @@ export default function PlaybackPage() {
   const [startTime, setStartTime] = useState("00:00");
   const [endTime, setEndTime]     = useState("23:59");
 
-  const [playbackIndex, setPlaybackIndex]   = useState(0);
-  const [playing, setPlaying]               = useState(false);
-  const [speed, setSpeed]                   = useState(5000);
+  const {
+    geoJson,
+    rawPoints,
+    totalDistance,
+    cumulativeDistances,
+    currentDistance,
+    isPlaying: playing,
+    speedMultiplier: speed,
+    loadTrajectory,
+    play: handlePlay,
+    pause: handlePause,
+    setSpeedMultiplier,
+    seek,
+    reset,
+    clear
+  } = usePlaybackStore();
 
   const [histLoading, setHistLoading]       = useState(false);
   const [histError, setHistError]           = useState("");
   const [lastUpdated, setLastUpdated]       = useState(null);
   const [activeShortcut, setActiveShortcut] = useState(null);
 
-  const visitLogRef    = useRef(null);
-  
-  // ── Virtualization State ──
-  const [logScrollTop, setLogScrollTop] = useState(0);
+  const visitLogRef      = useRef(null);
+  // Whether the log should keep auto-following the newest entry. Starts true
+  // (bottom-anchored); flips false if the user scrolls away to inspect
+  // earlier history, and flips back true once they scroll near the bottom
+  // again themselves.
+  const followBottomRef  = useRef(true);
 
   // Stable staticDots ref so MapView only re-renders dots when data actually changes
   const staticDots = useMemo(
@@ -196,29 +167,72 @@ export default function PlaybackPage() {
     [dataSource, historicalTraj]
   );
 
+  // How many points have been "visited" so far. Computed separately from
+  // the sliced array below: currentDistance changes every animation frame
+  // during playback, but this index (a primitive) only actually changes
+  // value when playback crosses the next waypoint — so useMemo correctly
+  // skips recomputing `visitedPoints` on frames where nothing really
+  // changed, instead of slicing a brand-new array 60x/sec regardless. That
+  // churn was forcing the entire visible log window to re-render every
+  // frame, which was fighting the scroll-to-bottom effect below.
+  const visitedIdx = useMemo(() => {
+    if (isLiveMode) return 0;
+    const arr = cumulativeDistances;
+    // Binary search instead of a linear scan-from-zero — arr is
+    // monotonically non-decreasing (cumulative sums), so this is safe and
+    // handles both forward progress and backward seeks in O(log n) instead
+    // of O(n) per frame, which matters once there are thousands of points.
+    let lo = 0, hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (arr[mid] <= currentDistance) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }, [isLiveMode, currentDistance, cumulativeDistances]);
+
   // Visited points for the sidebar log (chronological, up to current playback position)
   const visitedPoints = useMemo(() => {
     if (isLiveMode) return [];
-    const traj = dataSource === "historical" ? historicalTraj : sessionTraj;
-    return traj.slice(0, playbackIndex + 1);
-  }, [isLiveMode, dataSource, historicalTraj, sessionTraj, playbackIndex]);
+    if (visitedIdx === 0) return [rawPoints[0]].filter(Boolean);
+    return rawPoints.slice(0, visitedIdx);
+  }, [isLiveMode, visitedIdx, rawPoints]);
 
-  // Auto-scroll visit log to keep the newest entry pinned at the bottom while
-  // playing. Setting scrollTop alone only updates the DOM — the virtualized
-  // window (logScrollTop) only followed on the next native 'scroll' event, so
-  // there was a render where the rendered rows didn't match the scroll
-  // position yet, which showed up as the list jumping/scrolling back up.
-  // Updating both synchronously in a layout effect keeps them always in sync.
+  // Points near the same landmark (or close together) within a short time
+  // gap collapse into a single "stop" row instead of each ping getting its
+  // own — same grouping MapView uses for the dots/lines, so the sidebar and
+  // map always agree on what counts as one visit.
+  const visitedGroups = useMemo(() => clusterStops(visitedPoints), [visitedPoints]);
+
+  // Cap rendered DOM nodes to the most recent N entries for performance on
+  // long playback ranges — numbering still reflects true position in the
+  // full visited list (not renumbered from 1 within the visible slice).
+  const VISIT_LOG_CAP = 300;
+  const visibleLogItems = useMemo(() => {
+    const start = Math.max(0, visitedGroups.length - VISIT_LOG_CAP);
+    const items = [];
+    for (let i = start; i < visitedGroups.length; i++) {
+      items.push({ index: i, group: visitedGroups[i], nextGroup: visitedGroups[i + 1] });
+    }
+    return items;
+  }, [visitedGroups]);
+
+  // Auto-scroll: keep the newest entry pinned at the bottom while playing,
+  // but only while the user is actually following along — if they've
+  // scrolled up to inspect earlier history, don't yank them back down.
+  // Depends on visitedGroups (rendered rows), not visitedPoints (raw pings)
+  // — several new points can land inside the currently-open stop group
+  // without adding a new visible row, and that shouldn't force a scroll.
   useLayoutEffect(() => {
+    if (visitedGroups.length <= 1) followBottomRef.current = true; // fresh session/range — start following again
     const el = visitLogRef.current;
-    if (!el || !playing) return; // If user stops, let them scroll freely.
-    const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
-    el.scrollTop = bottom;
-    setLogScrollTop(bottom);
-  }, [visitedPoints.length, playing]);
+    if (!el || !playing || !followBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [visitedGroups.length, playing]);
 
   const handleLogScroll = useCallback((e) => {
-    setLogScrollTop(e.currentTarget.scrollTop);
+    const el = e.currentTarget;
+    followBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
   }, []);
 
 
@@ -258,13 +272,12 @@ export default function PlaybackPage() {
     setSessionTraj([]);
     setHistoricalTraj([]);
     setLatest(null);
-    setPlaying(false);
-    setPlaybackIndex(0);
+    clear();
     setIsLiveMode(true);
     setDataSource("session");
     setHistError("");
     setActiveShortcut(null);
-    setLogScrollTop(0);
+    followBottomRef.current = true;
     refreshLive(newSn);
   };
 
@@ -277,13 +290,13 @@ export default function PlaybackPage() {
       const start = overrideStart ?? `${startDate}T${startTime}:00`;
       const end   = overrideEnd   ?? `${endDate}T${endTime}:59`;
       if (start >= end) throw new Error("Start must be before end");
-      const res    = await getPlayback(sn, start, end);
-      const points = normalisePlayback(res);
+      const points = await getCachedPlayback(sn, start, end, async (deviceSn, rangeStart, rangeEnd) => {
+        const res = await getPlayback(deviceSn, rangeStart, rangeEnd);
+        return normalisePlayback(res);
+      });
       if (points.length === 0) throw new Error("No data found in that time range");
       setHistoricalTraj(points);
       setDataSource("historical");
-      setPlaying(false);
-      setPlaybackIndex(0);
       setIsLiveMode(false);
     } catch (err) {
       setHistError(err.message || "Failed to load playback data");
@@ -311,64 +324,31 @@ export default function PlaybackPage() {
   const trajectory = dataSource === "historical" ? historicalTraj : sessionTraj;
 
   useEffect(() => {
-    if (!playing) return;
-    if (playbackIndex >= trajectory.length - 1) {
-      setPlaying(false);
-      if (dataSource === "session") setIsLiveMode(true);
-      return;
-    }
-    const t = setTimeout(() => setPlaybackIndex((i) => i + 1), speed);
-    return () => clearTimeout(t);
-  }, [playing, playbackIndex, trajectory.length, speed, dataSource]);
+    loadTrajectory(trajectory);
+  }, [trajectory, loadTrajectory]);
 
   useEffect(() => { if (playing) setIsLiveMode(false); }, [playing]);
 
   const playbackPoint = useMemo(() => {
-    if (!isLiveMode && playbackIndex < trajectory.length) return trajectory[playbackIndex];
+    if (!isLiveMode && geoJson) {
+      return { lat: 0, lng: 0 }; // dummy point to keep playback active in MapView props
+    }
     return null;
-  }, [isLiveMode, playbackIndex, trajectory]);
+  }, [isLiveMode, geoJson]);
 
-  // ── Trajectory for MapView ────────────────────────────────────────────────
-  // For the Playback page, we pass the FULL unsliced trajectory and let
-  // MapView's isolated playback renderer control which segments are visible
-  // via the playbackIndex prop. This is what enables strict one-segment-at-a-time
-  // growth — MapView advances its own committed pointer instead of receiving a
-  // pre-sliced array that can jump many points at once on seek/scrub.
-  //
-  // In live mode, MapView clears all pb layers automatically (isLiveMode guard).
   const trajectoryForMap = trajectory;
 
-  const handlePlay   = () => {
-    if (trajectory.length === 0) { setHistError("No data yet. Collect live points or load historical."); return; }
-    if (playbackIndex >= trajectory.length - 1) setPlaybackIndex(0);
-    setPlaying(true);
+  const handlePlayAction = () => {
+    if (rawPoints.length === 0) { setHistError("No data yet. Collect live points or load historical."); return; }
+    handlePlay();
     setIsLiveMode(false);
   };
-  const handlePause  = () => setPlaying(false);
-  const handleReset  = () => { setPlaybackIndex(0); setPlaying(false); if (dataSource === "session") setIsLiveMode(true); };
-  const handleSlider = (e) => { setPlaybackIndex(Number(e.target.value)); setPlaying(false); setIsLiveMode(false); };
+  const handlePauseAction  = () => handlePause();
+  const handleReset  = () => { reset(); if (dataSource === "session") setIsLiveMode(true); };
+  const handleSlider = (e) => { seek(Number(e.target.value)); handlePause(); setIsLiveMode(false); };
 
-  const progress  = trajectory.length > 1 ? Math.round((playbackIndex / (trajectory.length - 1)) * 100) : 0;
-  const infoPoint = isLiveMode ? latest : (trajectory[playbackIndex] ?? null);
-
-  // ── Simple Virtualization Calculation ──
-  // Approximate item height (padding + content + border) ~ 72px
-  const ITEM_HEIGHT = 72;
-  const VISIBLE_COUNT = 15; 
-  const OVERSCAN = 10;
-  const startIndex = Math.max(0, Math.floor(logScrollTop / ITEM_HEIGHT) - OVERSCAN);
-  const endIndex = Math.min(visitedPoints.length, startIndex + VISIBLE_COUNT + OVERSCAN * 2);
-
-  const virtualItems = useMemo(() => {
-    const items = [];
-    for (let i = startIndex; i < endIndex; i++) {
-      items.push({ index: i, pt: visitedPoints[i] });
-    }
-    return items;
-  }, [visitedPoints, startIndex, endIndex]);
-
-  const totalHeight = visitedPoints.length * ITEM_HEIGHT;
-  const topPadding = startIndex * ITEM_HEIGHT;
+  const progress  = totalDistance > 0 ? (currentDistance / totalDistance) * 100 : 0;
+  const infoPoint = isLiveMode ? latest : (visitedPoints[visitedPoints.length - 1] ?? null);
 
   return (
     <div className="pb-page">
@@ -426,18 +406,18 @@ export default function PlaybackPage() {
           <button className="pb-btn-load" onClick={() => loadHistorical()} disabled={!sn || histLoading}>
             {histLoading ? <><span className="pb-spinner" /> Loading…</> : <>Load Playback</>}
           </button>
-          <select className="pb-select" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
+          <select className="pb-select" value={speed} onChange={(e) => setSpeedMultiplier(Number(e.target.value))}>
             {SPEEDS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           {sn && (
             <div className="pb-source-toggle">
               <button className={`pb-source-btn ${dataSource === "session" ? "active" : ""}`}
-                onClick={() => { setDataSource("session"); setPlaying(false); setPlaybackIndex(0); setIsLiveMode(true); }}>
+                onClick={() => { setDataSource("session"); clear(); setIsLiveMode(true); }}>
                 Session
               </button>
               <button
                 className={`pb-source-btn ${dataSource === "historical" ? "active" : ""}`}
-                onClick={() => { setDataSource("historical"); setPlaying(false); setPlaybackIndex(0); setIsLiveMode(false); }}
+                onClick={() => { setDataSource("historical"); clear(); setIsLiveMode(false); }}
                 disabled={historicalTraj.length === 0}
                 title={historicalTraj.length === 0 ? "Load a date range first" : ""}
               >Historical</button>
@@ -482,9 +462,9 @@ export default function PlaybackPage() {
               zones={zones}
               playbackSpeed={speed}
               isPlaybackPage={true}
-              playbackIndex={playbackIndex}
               staticDots={staticDots}
               isPlaying={playing}
+              getGeocode={getGeocode}
             />
             {histLoading && <TPLLoader overlay label="Loading playback…" />}
           </div>
@@ -492,7 +472,7 @@ export default function PlaybackPage() {
           {/* Playback controls */}
           <div className="pb-controls-strip">
             <div className="pb-engine-btns">
-              <button className="pb-play-btn" onClick={playing ? handlePause : handlePlay} disabled={trajectory.length === 0}>
+              <button className="pb-play-btn" onClick={playing ? handlePauseAction : handlePlayAction} disabled={rawPoints.length === 0}>
                 {playing
                   ? <><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>Pause</>
                   : <><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Play</>
@@ -507,15 +487,15 @@ export default function PlaybackPage() {
             <div className="pb-timeline">
               <div className="pb-timeline-header">
                 <span className="pb-tl-label">
-                  {trajectory.length === 0
+                  {rawPoints.length === 0
                     ? (sn ? "Collecting points…" : "Select a device")
-                    : `${playbackIndex + 1} / ${trajectory.length}`}
+                    : `${visitedPoints.length} / ${rawPoints.length}`}
                 </span>
               </div>
               <input type="range" className="pb-slider"
-                min={0} max={Math.max(0, trajectory.length - 1)}
-                value={playbackIndex} onChange={handleSlider}
-                disabled={trajectory.length === 0}
+                min={0} max={totalDistance || 1} step={(totalDistance || 1) / 1000}
+                value={currentDistance} onChange={handleSlider}
+                disabled={rawPoints.length === 0}
               />
               <div className="pb-progress-bar">
                 <div className="pb-progress-fill" style={{ width: `${progress}%` }} />
@@ -530,14 +510,14 @@ export default function PlaybackPage() {
             {!isLiveMode && (
               <div className="pb-mode-badge badge-playback">
                 <span className="badge-dot" />
-                {`Playback · ${SPEEDS.find(o => o.value === speed)?.label}`}
+                {`Playback · ${SPEEDS.find(o => o.value === speed)?.label || '1x'}`}
               </div>
             )}
 
             <button className="pb-clear-btn" onClick={() => {
               setSessionTraj([]); setHistoricalTraj([]);
-              setLatest(null); setPlaybackIndex(0);
-              setPlaying(false); setIsLiveMode(true); setDataSource("session");
+              setLatest(null); clear();
+              setIsLiveMode(true); setDataSource("session");
               setActiveShortcut(null);
             }}>Clear</button>
           </div>
@@ -558,7 +538,7 @@ export default function PlaybackPage() {
                 <div className="pb-vl-meta">
                   {isLiveMode
                     ? <span className="pb-vl-badge-live">● Live</span>
-                    : <span className="pb-vl-badge-pb">▶ Playback · {visitedPoints.length}/{trajectory.length}</span>
+                    : <span className="pb-vl-badge-pb">▶ Playback · {visitedPoints.length}/{rawPoints.length}</span>
                   }
                 </div>
               </div>
@@ -573,18 +553,17 @@ export default function PlaybackPage() {
                         : "Waiting for points…"}
                   </div>
                 ) : (
-                  <div style={{ height: totalHeight, position: 'relative' }}>
-                    <div style={{ transform: `translateY(${topPadding}px)`, position: 'absolute', top: 0, left: 0, right: 0 }}>
-                      {virtualItems.map(({ index, pt }) => (
-                        <VisitLogItem
-                          key={index}
-                          index={index}
-                          pt={pt}
-                          isLatest={index === visitedPoints.length - 1}
-                          getGeocode={getGeocode}
-                        />
-                      ))}
-                    </div>
+                  <div className="pb-vl-feed">
+                    {visibleLogItems.map(({ index, group, nextGroup }) => (
+                      <VisitLogItem
+                        key={index}
+                        index={index}
+                        group={group}
+                        nextGroup={nextGroup}
+                        isLatest={index === visitedGroups.length - 1}
+                        getGeocode={getGeocode}
+                      />
+                    ))}
                   </div>
                 )}
               </div>

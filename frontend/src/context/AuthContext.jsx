@@ -43,6 +43,9 @@ export function AuthProvider({ children }) {
       isAdmin: (role ?? stored?.role) === "admin",
       isAuthed: Boolean(accessToken),
       loginSuccess: ({ user: newUser, accessToken: token, role: newRole }) => {
+        // Drop any caches left over from a previous account (e.g. an admin's
+        // full fleet list) so the new account never sees another user's data.
+        clearAppCaches();
         const normalized = normalizeUserForClient(newUser);
         setUser(normalized);
         setAccessToken(token);

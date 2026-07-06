@@ -298,15 +298,14 @@ async def get_zone_tracks(
     if not zone_oid:
         raise HTTPException(status_code=404, detail="Zone not found")
 
-    # Resolve scope so users can only see zones they personally created;
-    # admins may see any zone under their own admin_id.
+    # Admins may see any zone under their own admin_id; users may see any
+    # zone in their admin scope, but only their own devices' tracks in it.
     query = {"_id": zone_oid}
     if isinstance(account, AdminInDB):
         query["admin_id"] = _to_oid(account.id)
     else:
         admin_oid = _to_oid(account.admin_id) if getattr(account, "admin_id", None) else None
         query["admin_id"] = admin_oid
-        query["user_id"] = _to_oid(account.id)
 
     zone_doc = await mongo.zones.find_one(query)
     if not zone_doc:
@@ -314,6 +313,12 @@ async def get_zone_tracks(
         raise HTTPException(status_code=404, detail="Zone not found")
 
     sns = zone_doc.get("device_sns") or []
+    if not isinstance(account, AdminInDB):
+        user_devices = await mongo.devices.find(
+            {"user_id": _to_oid(account.id)}, {"sn": 1}
+        ).to_list(1000)
+        own_sns = {d["sn"] for d in user_devices if d.get("sn")}
+        sns = [s for s in sns if s in own_sns]
     logger.info("[tracks] mongo zone=%s device_sns=%d", zone_id, len(sns))
 
     if not sns:

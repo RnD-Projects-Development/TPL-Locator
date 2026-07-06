@@ -151,6 +151,56 @@ html {
   margin-top: -1px;
 }
 
+/* ── Playback-page pin labels (landmark + timestamp, always visible) ──────── */
+.pb-map-label-tip.leaflet-tooltip {
+  background: rgba(15, 15, 20, 0.92);
+  border: 1px solid rgba(167, 44, 50, 0.5);
+  border-radius: 6px;
+  padding: 3px 7px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  opacity: 1;
+}
+
+.pb-map-label-tip.leaflet-tooltip-top:before {
+  border-top-color: rgba(167, 44, 50, 0.5);
+}
+
+.pb-map-label-tip-main {
+  border-color: #A72C32;
+}
+
+.pb-map-label {
+  font-family: ui-sans-serif, system-ui;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.pb-map-label-loc {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.pb-map-label-ts {
+  font-size: 9.5px;
+  font-family: 'JetBrains Mono', monospace;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 1px;
+}
+
+.pb-map-label-stop {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  background: #f59e0b;
+  color: #1a1200;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-right: 3px;
+}
+
 /* ── Global scrollbars — minimal strip ──────────────────────────────────────── */
 * {
   scrollbar-width: thin;

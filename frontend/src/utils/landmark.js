@@ -1,5 +1,13 @@
 /** Read landmark stored by backend geocoding on location points. */
 
+// Rough Pakistan bounding box — used to skip Pakistan-only geocoders
+// (TPL Maps) entirely for out-of-country coordinates, instead of waiting on
+// calls that are guaranteed to fail (one of them with a 20s server timeout).
+const PAK = { minLat: 23.5, maxLat: 37.5, minLng: 60.5, maxLng: 77.5 };
+export function insidePakistan(lat, lng) {
+  return lat >= PAK.minLat && lat <= PAK.maxLat && lng >= PAK.minLng && lng <= PAK.maxLng;
+}
+
 export function landmarkFromPoint(point) {
   if (!point) return null;
   const raw = point.landmark;
@@ -26,19 +34,94 @@ export function landmarkDisplayFromPoint(point) {
   return parseLandmarkDisplay(landmarkFromPoint(point));
 }
 
-// ── External reverse geocoding via Nominatim/OSM (free, no key, worldwide) ────
+// ── External reverse geocoding, worldwide (outside-Pakistan fallback) ─────────
 const _extCache = {};
 
 /**
- * Reverse geocode using Nominatim (OpenStreetMap).
+ * Find the nearest actual POI point near a coordinate via Mapbox's Tilequery
+ * API — this queries the same `poi_label` vector-tile layer that renders the
+ * POI labels/icons visible on the map itself (Starbucks, hotels, etc.), so
+ * it reliably finds "what's the closest landmark" instead of exact-point
+ * reverse geocoding, which only matches if the coordinate sits essentially
+ * on top of a POI's indexed centroid.
+ */
+async function _mapboxNearestPOI(lat, lng, token) {
+  if (!token) return null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const url =
+      `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${Number(lng)},${Number(lat)}.json` +
+      `?radius=150&limit=5&layers=poi_label&access_token=${encodeURIComponent(token)}`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const features = (await res.json())?.features;
+    if (!Array.isArray(features) || features.length === 0) return null;
+    features.sort((a, b) =>
+      (a.properties?.tilequery?.distance ?? Infinity) - (b.properties?.tilequery?.distance ?? Infinity));
+    const name = features[0].properties?.name;
+    return name ? { name } : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/** Reverse geocode to neighbourhood/city context via Mapbox's Geocoding API. */
+async function _mapboxReverseArea(lat, lng, token) {
+  if (!token) return null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${Number(lng)},${Number(lat)}.json` +
+      `?access_token=${encodeURIComponent(token)}&types=neighborhood,locality,place&limit=1`;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const feature = (await res.json())?.features?.[0];
+    if (!feature) return null;
+    const area = feature.text || feature.place_name;
+    if (!area) return null;
+    const context = Array.isArray(feature.context) ? feature.context : [];
+    const place = context.find(c => c.id?.startsWith('place'))?.text
+      || context.find(c => c.id?.startsWith('region'))?.text;
+    return { area, secondary: (place && place !== area) ? place : null };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Reverse geocode via Mapbox — nearest actual POI (Tilequery) for the
+ * primary label when one exists within range, with neighbourhood/city as
+ * secondary context. Falls back to area-only when no nearby POI is found.
+ * Returns null (not throws) on missing token/no match, so the caller can
+ * fall back further (e.g. to Nominatim).
+ */
+async function _mapboxGeocodePOI(lat, lng, token) {
+  if (!token) return null;
+  const [poi, area] = await Promise.all([
+    _mapboxNearestPOI(lat, lng, token),
+    _mapboxReverseArea(lat, lng, token),
+  ]);
+  if (poi) {
+    return { primary: poi.name, secondary: area?.area ?? null, isSpecific: true };
+  }
+  if (area) {
+    return { primary: area.area, secondary: area.secondary, isSpecific: false };
+  }
+  return null;
+}
+
+/**
+ * Reverse geocode using Nominatim (OpenStreetMap) — free, no key, worldwide.
  * Returns { primary, secondary, isSpecific }.
  * Hierarchy: POI/amenity → neighbourhood → city.
- * Token param is accepted but ignored (kept for call-site compatibility).
  */
-export async function mapboxReverseGeocode(lat, lng, _token) {
-  if (lat == null || lng == null) return null;
-  const cacheKey = `nom:${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
-  if (cacheKey in _extCache) return _extCache[cacheKey];
+async function _nominatimReverseGeocode(lat, lng) {
   try {
     const url =
       `https://nominatim.openstreetmap.org/reverse` +
@@ -46,7 +129,7 @@ export async function mapboxReverseGeocode(lat, lng, _token) {
     const res = await fetch(url, {
       headers: { 'Accept-Language': 'en', 'User-Agent': 'TPL-Locator/1.0' },
     });
-    if (!res.ok) { _extCache[cacheKey] = null; return null; }
+    if (!res.ok) return null;
     const data = await res.json();
     const addr = data?.address ?? {};
 
@@ -57,33 +140,36 @@ export async function mapboxReverseGeocode(lat, lng, _token) {
     const city = addr.city || addr.town || addr.village || addr.municipality || addr.county;
     const country = addr.country;
 
-    let primary, secondary, isSpecific;
     if (poi) {
-      primary    = poi;
-      isSpecific = true;
-      secondary  = area
+      const secondary = area
         ? `${area}, ${city ?? country ?? ''}`.replace(/,\s*$/, '')
         : (city ? `${city}, ${country ?? ''}`.trim() : (country ?? null));
+      return { primary: poi, secondary: secondary || null, isSpecific: true };
     } else if (area) {
-      primary    = area;
-      isSpecific = false;
-      secondary  = city ? `${city}, ${country ?? ''}`.trim().replace(/,\s*$/, '') : (country ?? null);
+      const secondary = city ? `${city}, ${country ?? ''}`.trim().replace(/,\s*$/, '') : (country ?? null);
+      return { primary: area, secondary: secondary || null, isSpecific: false };
     } else if (city) {
-      primary    = city;
-      isSpecific = false;
-      secondary  = country ?? null;
-    } else {
-      _extCache[cacheKey] = null;
-      return null;
+      return { primary: city, secondary: country ?? null, isSpecific: false };
     }
-
-    const result = { primary, secondary: secondary || null, isSpecific };
-    _extCache[cacheKey] = result;
-    return result;
+    return null;
   } catch {
-    _extCache[cacheKey] = null;
     return null;
   }
+}
+
+/**
+ * Reverse geocode a worldwide (typically out-of-Pakistan) point. Tries
+ * Mapbox's Geocoding API first for accurate POI-level results (needs a
+ * token), falling back to Nominatim if that's unavailable or comes up empty.
+ */
+export async function mapboxReverseGeocode(lat, lng, token) {
+  if (lat == null || lng == null) return null;
+  const cacheKey = `geo:${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+  if (cacheKey in _extCache) return _extCache[cacheKey];
+
+  const result = (await _mapboxGeocodePOI(lat, lng, token)) ?? (await _nominatimReverseGeocode(lat, lng));
+  _extCache[cacheKey] = result;
+  return result;
 }
 
 /** Format a geocode result as a landmark string (for geoLabel state in detail pages). */
@@ -142,9 +228,14 @@ export async function clientReverseGeocode(lat, lng) {
   if (lat == null || lng == null) return null;
   const cacheKey = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
   if (cacheKey in _geoCache) return _geoCache[cacheKey];
+  const controller = new AbortController();
+  // TPL Maps is a Pakistan-only geocoder — cap how long a borderline/slow
+  // lookup can stall the caller instead of relying on the backend's 20s
+  // upstream timeout for the equivalent server-side call.
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
     const params = new URLSearchParams({ point: `${lat};${lng}`, apikey: _TPL_KEY });
-    const res = await fetch(`${_TPL_RGEO_URL}?${params}`);
+    const res = await fetch(`${_TPL_RGEO_URL}?${params}`, { signal: controller.signal });
     if (!res.ok) { _geoCache[cacheKey] = null; return null; }
     const payload = await res.json();
     const records = Array.isArray(payload)
@@ -157,5 +248,7 @@ export async function clientReverseGeocode(lat, lng) {
   } catch {
     _geoCache[cacheKey] = null;
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

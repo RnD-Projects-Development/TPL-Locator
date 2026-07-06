@@ -418,7 +418,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   }
   useEffect(() => () => clearTimeout(toastTimer.current), [])
 
-  const PAGE_SIZE  = 20
+  const PAGE_SIZE  = 16
   const debRef       = useRef(null)
   const prevSignal   = useRef(refreshSignal)
   const isSilentRef  = useRef(false)
@@ -558,6 +558,12 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const filtered = useMemo(() => {
     let list = allDevices
 
+    // Non-admins only ever see their own assigned devices — guards against a
+    // stale fleet cache from a previous (admin) session leaking through.
+    if (!isAdmin && user?.id) {
+      list = list.filter(d => String(d.assigned_user_id) === String(user.id))
+    }
+
     if      (deviceType === 'locator') list = list.filter(d => !isStickerSN(d.sn))
     else if (deviceType === 'sticker') list = list.filter(d =>  isStickerSN(d.sn))
 
@@ -589,7 +595,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     })
 
     return list
-  }, [allDevices, deviceType, externalStatus, debQ])
+  }, [allDevices, deviceType, externalStatus, debQ, isAdmin, user])
 
   const total       = filtered.length
   const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -648,7 +654,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         )}
       </div>
 
-      {/* Device grid — fills remaining height, fixed 4 col × 5 row.
+      {/* Device grid — fills remaining height, fixed 4 col × 4 row.
           Always render exactly PAGE_SIZE slots so gridTemplateRows distributes space correctly. */}
       {fetching ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -659,7 +665,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           flex: 1, minHeight: 0, overflow: 'auto',
           display: 'grid',
           gridTemplateColumns: 'repeat(4, minmax(200px, 1fr))',
-          gridTemplateRows: 'repeat(5, minmax(88px, 1fr))',
+          gridTemplateRows: 'repeat(4, minmax(88px, 1fr))',
           gap: 10,
         }}>
           {pageDevices.length === 0 ? (

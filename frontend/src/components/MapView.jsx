@@ -1,14 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import loadTPLMaps from "./loadTPLMaps.js";
-import { landmarkDisplayFromPoint, mapboxReverseGeocode } from "../utils/landmark.js";
+import { landmarkDisplayFromPoint, mapboxReverseGeocode, insidePakistan } from "../utils/landmark.js";
 import { deviceColor } from "../utils/zonePolygonManager.js";
+import { usePlaybackStore } from "../store/usePlaybackStore.js";
+import { clusterStops, stopDurationMs, formatStopDuration } from "../utils/stopClustering.js";
+import { peekGeocode, resolveGeocode } from "../utils/geocodeCache.js";
 
 // ── Mapbox fallback — used for devices outside Pakistan ───────────────────────
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? '';
 const MAPBOX_TILE  = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
-const PAK          = { minLat: 23.5, maxLat: 37.5, minLng: 60.5, maxLng: 77.5 };
-const insidePakistan = (lat, lng) =>
-  lat >= PAK.minLat && lat <= PAK.maxLat && lng >= PAK.minLng && lng <= PAK.maxLng;
+
+// Street-level zoom enforced the moment playback starts, and held for the
+// whole session — enforced every frame (cheap: no-op once already at this
+// zoom), not just on the play transition, so nothing can ever leave the
+// camera more zoomed out than this while playing.
+const PLAYBACK_ZOOM = 16;
 
 function safe(v) { return v == null || v === '' ? '—' : String(v); }
 
@@ -134,9 +140,9 @@ function buildPlaybackPinHtml(innerColor = '#E8192C', outerColor = '#8B0000', be
     <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;
       background:${outerColor};display:flex;align-items:center;justify-content:center;
       animation:pbPinPulse 1.4s ease-out infinite;">
-      <div style="width:16px;height:16px;border-radius:50%;background:${innerColor};
+      <div class="pb-rotatable-pin" style="width:16px;height:16px;border-radius:50%;background:${innerColor};
         display:flex;align-items:center;justify-content:center;
-        transform:rotate(${bearing}deg);transition:transform 0.2s linear;">
+        transform:rotate(${bearing}deg);transition:transform 0.1s linear;">
         <svg width="10" height="10" viewBox="0 0 24 24" fill="white" style="transform: translateY(-1px);">
           <path d="M12 2L20 20L12 17L4 20L12 2Z"/>
         </svg>
@@ -163,9 +169,17 @@ function buildSmallPinHtml() {
   </div>`;
 }
 
-// ── Visited data-point dot — replaces the small pin once the playback passes it
-function buildVisitedDotHtml() {
-  return `<div style="width:8px;height:8px;border-radius:50%;background:#7F1D1D;box-shadow:0 1px 4px rgba(0,0,0,0.55);margin:0;padding:0;"></div>`;
+// ── Stop marker — actual stop sign
+function buildActualStopSignHtml() {
+  return `
+  <div style="position:relative; width:24px; height:24px; display:flex; align-items:center; justify-content:center; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));">
+    <svg viewBox="0 0 100 100" width="24" height="24">
+      <polygon points="29.3,2.5 70.7,2.5 97.5,29.3 97.5,70.7 70.7,97.5 29.3,97.5 2.5,70.7 2.5,29.3" fill="#7F1D1D" stroke="white" stroke-width="4"/>
+      <polygon points="31,7 69,7 93,31 93,69 69,93 31,93 7,69 7,31" fill="none" stroke="white" stroke-width="1.5"/>
+      <rect x="38" y="32" width="8" height="36" fill="white" rx="2" />
+      <rect x="54" y="32" width="8" height="36" fill="white" rx="2" />
+    </svg>
+  </div>`;
 }
 
 // ── Compute compass bearing (0° = north, clockwise) between two coordinates ──
@@ -339,6 +353,9 @@ export default function MapView({
   // All trajectory points rendered immediately as dim background dots (playback page only).
   staticDots = [],
   isPlaying = false,
+  // Backend TPL reverse-geocode lookup, used (Pakistan-only, as a fallback)
+  // when labelling playback-page pins with their landmark.
+  getGeocode = null,
 }) {
   const onFocusRef     = useRef(onFocusDevice);
   useEffect(() => { onFocusRef.current = onFocusDevice; }, [onFocusDevice]);
@@ -360,27 +377,21 @@ export default function MapView({
   const trajLenRef   = useRef(0);
   const canvasRef    = useRef(null);
 
-  // ── Playback-isolated trajectory refs ────────────────────────────────────
-  // Architecture: "committed polyline" + "animated tip polyline"
-  //   - pbCommittedLineRef  : static polyline of all fully-completed segments
-  //                           [point_0 … point_N] — never mutated during tween
-  //   - pbTipLineRef        : tiny 2-point polyline [point_N, interpolatedPos]
-  //                           updated every animation frame — no DOM flicker
-  //                           because only the second vertex moves
+  // ── Playback-isolated refs ────────────────────────────────────────────────
+  // No trajectory line is rendered on the playback page — only the marker
+  // and its visited-waypoint dots.
   //   - pbDotsRef           : canvas circle markers for visited waypoints
   //   - pbCommittedIdxRef   : index of the last fully-committed point
   //   - pbCanvasRef         : shared canvas renderer for dots
-  const pbCommittedLineRef = useRef(null); // polyline: committed path
-  const pbTipLineRef       = useRef(null); // polyline: animated tip segment
   const pbDotsRef          = useRef([]);   // dot markers for visited waypoints
   const pbCommittedIdxRef  = useRef(-1);   // index of last committed waypoint
   const pbCanvasRef        = useRef(null);
   const pbActiveRef        = useRef(false); // true while playback tween is running
+  const pbLastIdxRef       = useRef(-1);   // index of the raw point the marker last jumped to
+  const pbLastGeoKeyRef    = useRef(null); // coordinate key last resolved for the main-pin tooltip
 
   // Static preview dots refs (playback page — all points shown immediately on load)
   const staticDotsRef   = useRef([]);
-  const staticDotMapRef = useRef(new Map()); // trajectoryIndex → L.marker, for pin→dot swap
-  const staticCanvasRef = useRef(null);
 
   // Tile-swap — we add our own Mapbox layer on top when outside Pakistan
   const mapboxLayerRef = useRef(null);
@@ -426,18 +437,12 @@ export default function MapView({
   // ── Helper: wipe all playback-specific layers ─────────────────────────────
   const clearPlaybackLayers = useCallback((map) => {
     if (!map) return;
-    if (pbCommittedLineRef.current) {
-      try { map.removeLayer(pbCommittedLineRef.current); } catch {}
-      pbCommittedLineRef.current = null;
-    }
-    if (pbTipLineRef.current) {
-      try { map.removeLayer(pbTipLineRef.current); } catch {}
-      pbTipLineRef.current = null;
-    }
     pbDotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
     pbDotsRef.current = [];
     pbCommittedIdxRef.current = -1;
     pbActiveRef.current = false;
+    pbLastIdxRef.current = -1;
+    pbLastGeoKeyRef.current = null;
   }, []);
 
   // Stable marker creation / hover wiring
@@ -465,6 +470,12 @@ export default function MapView({
 
   // Landmark — backend-stored first, Mapbox fallback for outside-Pakistan
   useEffect(() => {
+    // `coords` on the playback page is a dummy (0,0) sentinel while playing
+    // (see `isPlayback` below) — real position lives in the turf/rAF
+    // renderer, not in this prop. Reverse-geocoding (0,0) would just spam
+    // Nominatim for "null island" every time playback starts.
+    if (isPlaybackPage && isPlayback) return;
+
     let cancelled = false;
 
     const updatePopup = (geocode) => {
@@ -493,7 +504,7 @@ export default function MapView({
     });
 
     return () => { cancelled = true; };
-  }, [activePoint?.landmark, coords?.lat, coords?.lng]);
+  }, [activePoint?.landmark, coords?.lat, coords?.lng, isPlaybackPage, isPlayback]);
 
   /* ── INVALIDATE SIZE ── */
   useEffect(() => {
@@ -518,10 +529,27 @@ export default function MapView({
   /* ── TILE SWAP — overlay a Mapbox layer when any visible device is outside Pakistan ── */
   useEffect(() => {
     if (!mapLoaded || !mapRef.current || !window.L) return;
-    // Single-device mode: check `coords`; multi-device mode: check any device in multiDevices
-    const outside = coords
-      ? !insidePakistan(coords.lat, coords.lng)
-      : multiDevices.some(d => { const c = extractCoords(d.latest); return c && !insidePakistan(c.lat, c.lng); });
+    // `coords` on the playback page is a dummy (0,0) sentinel while playing
+    // (real position lives in the turf/rAF renderer's own state, not this
+    // prop) — (0,0) is never "inside Pakistan", so treating it as real would
+    // permanently overlay a second, competing Mapbox tile layer on top of
+    // the TPL base map. But we still need SOME real-coordinate signal here:
+    // TPL Maps has no tile coverage outside Pakistan, so a genuinely
+    // out-of-Pakistan device playing back would otherwise render a totally
+    // blank map (no fallback tile layer ever gets added). Use the actual
+    // loaded trajectory points instead of the dummy sentinel.
+    let outside;
+    if (isPlaybackPage && isPlayback) {
+      outside = (staticDots ?? []).some(p => {
+        const c = extractCoords(p);
+        return c && !insidePakistan(c.lat, c.lng);
+      });
+    } else if (coords) {
+      outside = !insidePakistan(coords.lat, coords.lng);
+    } else {
+      // Multi-device mode: check any device in multiDevices
+      outside = multiDevices.some(d => { const c = extractCoords(d.latest); return c && !insidePakistan(c.lat, c.lng); });
+    }
     if (outside && !mapboxLayerRef.current) {
       try {
         mapboxLayerRef.current = window.L.tileLayer(MAPBOX_TILE, { maxZoom: 19 }).addTo(mapRef.current);
@@ -530,7 +558,7 @@ export default function MapView({
       try { mapRef.current.removeLayer(mapboxLayerRef.current); } catch {}
       mapboxLayerRef.current = null;
     }
-  }, [coords?.lat, coords?.lng, mapLoaded, multiDevices]);
+  }, [coords?.lat, coords?.lng, mapLoaded, multiDevices, isPlaybackPage, isPlayback, staticDots]);
 
   /* ── RESIZE OBSERVER ── */
   useEffect(() => {
@@ -593,10 +621,47 @@ export default function MapView({
     };
   }, [retryTick]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── PLAY START ZOOM — (Removed to keep map fully visible and preloaded) ── */
+  /* ── LOCK MAP INTERACTION DURING ACTIVE PLAYBACK ──────────────────────────
+   * While playing, the camera is hard-locked to the marker (see the rAF
+   * follow-camera step above) — letting the user drag/zoom at the same time
+   * would just have the map fight them every frame. Pausing hands full
+   * control back. Since the underlying Leaflet map instance is a persistent
+   * singleton reused across pages/devices, the cleanup unconditionally
+   * re-enables everything so navigating away mid-playback can never leave
+   * some other page's map stuck locked.
+   */
   useEffect(() => {
     prevIsPlayingRef.current = isPlaying;
-  }, [isPlaying, isPlaybackPage]);
+    const map = mapRef.current;
+    if (!map) return;
+
+    const shouldLock = isPlaybackPage && isPlaying;
+    const handlers = [
+      map.dragging, map.touchZoom, map.doubleClickZoom,
+      map.scrollWheelZoom, map.boxZoom, map.keyboard, map.tap,
+    ].filter(Boolean);
+    handlers.forEach(h => { try { shouldLock ? h.disable() : h.enable(); } catch {} });
+
+    const zoomEl = map.zoomControl?.getContainer?.();
+    if (zoomEl) {
+      zoomEl.style.pointerEvents = shouldLock ? 'none' : '';
+      zoomEl.style.opacity = shouldLock ? '0.4' : '';
+    }
+
+    return () => {
+      try {
+        map.dragging?.enable();
+        map.touchZoom?.enable();
+        map.doubleClickZoom?.enable();
+        map.scrollWheelZoom?.enable();
+        map.boxZoom?.enable();
+        map.keyboard?.enable();
+        map.tap?.enable();
+        const el = map.zoomControl?.getContainer?.();
+        if (el) { el.style.pointerEvents = ''; el.style.opacity = ''; }
+      } catch {}
+    };
+  }, [isPlaying, isPlaybackPage, mapLoaded]);
 
   /* ── DEVICE MARKER — with smooth playback animation ── */
   useEffect(() => {
@@ -618,6 +683,15 @@ export default function MapView({
 
     if (isPlayback) {
       ensureMarker(map, coords);
+
+      if (isPlaybackPage) {
+        // The rAF renderer below owns marker position and panning for the
+        // playback page. `coords` here is just a dummy (0,0) sentinel to
+        // signal "playback active" — tweening toward it would snap the
+        // marker/map to null island, so skip entirely.
+        animFromRef.current = coords;
+        return;
+      }
 
       const from = animFromRef.current ?? coords;
       const to   = coords;
@@ -651,9 +725,6 @@ export default function MapView({
               html: buildPlaybackPinHtml('#E8192C', '#8B0000', bearing), className: '', iconSize: [30, 48], iconAnchor: [15, 42],
             }));
           } catch {}
-          if (pbTipLineRef.current) {
-            try { pbTipLineRef.current.setLatLngs([[to.lat, to.lng], [to.lat, to.lng]]); } catch {}
-          }
           try {
             map.setView([to.lat, to.lng], Math.max(map.getZoom(), 16), { animate: false });
           } catch {}
@@ -674,39 +745,17 @@ export default function MapView({
         } catch {}
       }
 
-      // ── Playback page: update the animated tip polyline each frame ────────
-      let onTickFn = null;
-      if (isPlaybackPage && pbTipLineRef.current) {
-        onTickFn = (lat, lng) => {
-          try {
-            pbTipLineRef.current?.setLatLngs([
-              [from.lat, from.lng],
-              [lat, lng],
-            ]);
-          } catch {}
-        };
-      }
-
       cancelTweenRef.current = smoothMoveTo(
         markerRef.current,
         from.lat, from.lng,
         to.lat,   to.lng,
         tweenDuration,
-        onTickFn,
+        null,
       );
 
       const timeoutId = setTimeout(() => {
         animFromRef.current = to;
         cancelTweenRef.current = null;
-
-        // When the tween completes, collapse the tip line back to a zero-length
-        // segment at the destination. The committed line already ends at `from`
-        // (the previous waypoint); the next effect run will extend it to `to`.
-        if (isPlaybackPage && pbTipLineRef.current) {
-          try {
-            pbTipLineRef.current.setLatLngs([[to.lat, to.lng], [to.lat, to.lng]]);
-          } catch {}
-        }
       }, tweenDuration);
 
       if (isPlaybackPage) {
@@ -838,26 +887,12 @@ export default function MapView({
 
   /* ── PLAYBACK-PAGE TRAJECTORY RENDERER ──────────────────────────────────
    *
-   * Architecture: Committed path + Animated tip
-   * ─────────────────────────────────────────────
-   * pbCommittedLineRef  — polyline of all fully-completed segments up to
-   *                       (playbackIndex - 1). Never mutated during animation
-   *                       frames → zero flicker.
-   *
-   * pbTipLineRef        — 2-point polyline [waypoint_(idx-1), interpolatedPos].
-   *                       The tween's onTick slides the second vertex each rAF.
-   *                       A 2-point setLatLngs is microscopically cheap.
-   *
-   * pbDotsRef           — canvas circle markers for each committed waypoint.
-   *
-   * Key invariant:
-   *   PlaybackPage passes the FULL unsliced trajectory + playbackIndex.
-   *   This effect watches playbackIndex directly, so it always advances by
-   *   exactly ONE segment — even if the host re-renders multiple times or
-   *   the user scrubs the slider. Committed path never bulk-grows.
-   *
-   *   Committed covers indices [0 … playbackIndex-1].
-   *   Tip covers the live segment [playbackIndex-1 … marker's current pos].
+   * No glide/tween — the marker jumps straight to each raw GPS point as
+   * playback reveals it (same pacing the sidebar uses for its visited
+   * list), instead of continuously interpolating a position along the
+   * route. `tick` still advances `currentDistance` smoothly every frame
+   * (that drives the progress bar/slider), but the pin itself only moves
+   * when that distance crosses into the next real waypoint.
    */
   useEffect(() => {
     if (!isPlaybackPage) return;
@@ -865,145 +900,126 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !window.L) return;
 
-    // ── Live / session mode on the Playback page ──────────────────────────
-    // No trajectory lines at all — just the marker.
     if (!isPlayback) {
       clearPlaybackLayers(map);
       return;
     }
 
-    // ── Build full items array from the unsliced trajectory ───────────────
-    const items = (trajectory ?? [])
-      .map(p => { const c = extractCoords(p); return c ? { c, p } : null; })
-      .filter(Boolean);
-
-    if (items.length === 0) {
-      clearPlaybackLayers(map);
-      return;
-    }
-
-    // ── Reset when playbackIndex went backwards (seek/reset/new load) ─────
-    // pbCommittedIdxRef holds the last index whose waypoint was committed.
-    // If the current playbackIndex is behind or equal to it, we must wipe
-    // and re-bootstrap from the new position.
-    if (playbackIndex <= pbCommittedIdxRef.current && pbCommittedIdxRef.current >= 0) {
-      clearPlaybackLayers(map);
-    }
-
     if (!pbCanvasRef.current) pbCanvasRef.current = window.L.canvas({ padding: 0.5 });
 
-    // ── Bootstrap: create the two polylines on first entry ───────────────
-    if (pbCommittedIdxRef.current < 0) {
-      // Guard: need at least the starting waypoint
-      if (playbackIndex >= items.length) return;
+    const renderLabel = (geo, point) => {
+      const loc = geo?.primary
+        ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
+        : 'No landmark';
+      return `<div class="pb-map-label"><div class="pb-map-label-loc">${loc}</div><div class="pb-map-label-ts">${formatTimestamp(point)}</div></div>`;
+    };
 
-      const startItem = items[playbackIndex];
+    const updateMainTooltip = (point) => {
+      const marker = markerRef.current;
+      if (!marker) return;
+      const geo = peekGeocode(point);
+      if (!marker.getTooltip()) {
+        marker.bindTooltip(renderLabel(geo, point), {
+          permanent: true, direction: 'top', offset: [0, -40],
+          className: 'pb-map-label-tip pb-map-label-tip-main', opacity: 1,
+        });
+      } else {
+        marker.setTooltipContent(renderLabel(geo, point));
+      }
+      if (geo) return;
+      const c = extractCoords(point);
+      if (!c) return;
+      const key = `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`;
+      if (pbLastGeoKeyRef.current === key) return;
+      pbLastGeoKeyRef.current = key;
+      resolveGeocode(point, getGeocode).then((resolved) => {
+        try { marker.setTooltipContent(renderLabel(resolved, point)); } catch {}
+      });
+    };
 
-      // Committed line: degenerate single point — invisible but extensible.
-      pbCommittedLineRef.current = window.L.polyline(
-        [[startItem.c.lat, startItem.c.lng]],
-        { color: '#b91c1c', weight: 2.5, opacity: 0.65, interactive: false }
-      ).addTo(map);
+    let rafId;
+    let lastTime = performance.now();
 
-      // Tip line: collapsed at the start point.
-      pbTipLineRef.current = window.L.polyline(
-        [[startItem.c.lat, startItem.c.lng], [startItem.c.lat, startItem.c.lng]],
-        { color: '#b91c1c', weight: 2.5, opacity: 0.65, interactive: false }
-      ).addTo(map);
+    const loop = (now) => {
+      rafId = requestAnimationFrame(loop);
 
-      pbCommittedIdxRef.current = playbackIndex;
-      return; // nothing more to commit on the very first step
-    }
+      const deltaMs = now - lastTime;
+      lastTime = now;
 
-    // ── Commit exactly one new waypoint ───────────────────────────────────
-    const prevCommitted = pbCommittedIdxRef.current;
-    // Commit up to the waypoint the pin just LEFT (playbackIndex-1), not the
-    // target. The current segment (playbackIndex-1 → playbackIndex) is drawn
-    // live by the tip line via onTick, keeping the line in sync with the pin.
-    const nextCommitted = playbackIndex - 1;
+      const state = usePlaybackStore.getState();
+      const { rawPoints, cumulativeDistances, currentDistance } = state;
+      if (rawPoints.length === 0) return;
 
-    if (nextCommitted > prevCommitted && nextCommitted < items.length) {
-      // Extend committed line by the one new waypoint
-      const newPt = items[nextCommitted].c;
-      const existing = pbCommittedLineRef.current?.getLatLngs() ?? [];
-      try {
-        pbCommittedLineRef.current?.setLatLngs([
-          ...existing,
-          window.L.latLng(newPt.lat, newPt.lng),
-        ]);
-      } catch {}
-
-      // Drop a dot at the newly committed waypoint (sub-sampled)
-      const MAX_DOTS = 300;
-      const stepSize = items.length > MAX_DOTS ? Math.ceil(items.length / MAX_DOTS) : 1;
-      if (nextCommitted % stepSize === 0 || nextCommitted === items.length - 1) {
-        _addPbDot(map, newPt, items[nextCommitted].p, nextCommitted);
+      if (state.isPlaying) {
+        state.tick(deltaMs);
       }
 
-      pbCommittedIdxRef.current = nextCommitted;
-    }
+      // Which raw point is currently "active" — binary search since
+      // cumulativeDistances is monotonically non-decreasing (matches the
+      // sidebar's own visitedIdx calculation, so pin and log stay in sync).
+      let lo = 0, hi = cumulativeDistances.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (cumulativeDistances[mid] <= currentDistance) lo = mid + 1;
+        else hi = mid;
+      }
+      const idx = Math.max(0, Math.min(lo - 1, rawPoints.length - 1));
 
-    // ── Seed the tip for the upcoming segment ─────────────────────────────
-    // Collapsed at the current position — the tween's onTick will stretch it
-    // forward toward the next waypoint.
-    if (pbTipLineRef.current && playbackIndex < items.length) {
-      const fromPt = items[pbCommittedIdxRef.current]?.c;
-      if (fromPt) {
+      if (idx === pbLastIdxRef.current) return;
+      pbLastIdxRef.current = idx;
+
+      const point = rawPoints[idx];
+      const c = extractCoords(point);
+      if (!c) return;
+
+      if (markerRef.current) {
+        markerRef.current.setLatLng([c.lat, c.lng]);
+      }
+      updateMainTooltip(point);
+
+      // Snap the camera straight to the new point — no pan/zoom animation,
+      // matching the pin's own instant jump. Only while actively playing;
+      // paused/scrubbing leaves the camera under manual control (map
+      // dragging/zoom are also only locked while playing, see below).
+      if (state.isPlaying) {
         try {
-          pbTipLineRef.current.setLatLngs([
-            [fromPt.lat, fromPt.lng],
-            [fromPt.lat, fromPt.lng],
-          ]);
-        } catch {}
+          if (map.getZoom() !== PLAYBACK_ZOOM) {
+            map.setZoom(PLAYBACK_ZOOM, { animate: false });
+          }
+          map.setView([c.lat, c.lng], PLAYBACK_ZOOM, { animate: false });
+        } catch (e) {}
       }
-    }
+    };
 
-    function _addPbDot(map, c, p, trajIdx) {
-      if (!window.L) return;
-      // Swap: remove the static preview lollipop at this index and replace with a circle
-      if (trajIdx !== undefined) {
-        const staticMarker = staticDotMapRef.current.get(trajIdx);
-        if (staticMarker) {
-          try { map.removeLayer(staticMarker); } catch {}
-          staticDotMapRef.current.delete(trajIdx);
-        }
-      }
-      const dot = window.L.circleMarker([c.lat, c.lng], {
-        radius: 4, color: '#7f1d1d', fillColor: '#dc2626',
-        fillOpacity: 0.9, weight: 1,
-        interactive: false,
-        renderer: pbCanvasRef.current,
-      }).addTo(map);
-      pbDotsRef.current.push(dot);
-    }
+    rafId = requestAnimationFrame(loop);
 
-  }, [playbackIndex, trajectory, mapLoaded, isPlayback, isPlaybackPage, clearPlaybackLayers]);
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaybackPage, mapLoaded, isPlayback, clearPlaybackLayers, getGeocode]);
 
-  /* ── STATIC PREVIEW LINE & DOTS (playback page — full trajectory shown dimly) ── */
-  const staticLineRef = useRef(null);
-  
+  /* ── STATIC PREVIEW DOTS (playback page — full trajectory's stops shown immediately, no line) ── */
   useEffect(() => {
     if (!isPlaybackPage) return;
     const map = mapRef.current;
     if (!map || !window.L) return;
 
-    if (staticLineRef.current) {
-      try { map.removeLayer(staticLineRef.current); } catch {}
-      staticLineRef.current = null;
-    }
     staticDotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
     staticDotsRef.current = [];
-    staticDotMapRef.current.clear();
 
-    const items = (staticDots ?? [])
-      .map(p => { const c = extractCoords(p); return c ? [c.lat, c.lng] : null; })
+    const rawItems = (staticDots ?? [])
+      .map(p => { const c = extractCoords(p); return c ? { c, p } : null; })
       .filter(Boolean);
 
-    if (items.length === 0) return;
+    if (rawItems.length === 0) return;
 
-    staticLineRef.current = window.L.polyline(items, {
-      color: '#666666', weight: 2.5, opacity: 0.35, interactive: false, dashArray: '4, 4'
-    }).addTo(map);
+    const latLngs = rawItems.map(({ c }) => [c.lat, c.lng]);
+
+    // Group points near the same landmark (or within a few meters as a
+    // fallback) and within a short time gap into a single "stop" — a
+    // stationary/idling device pinging the same place repeatedly would
+    // otherwise stack indistinguishable pins and crossing line segments on
+    // top of each other. Shared with the visit-log sidebar so both render
+    // identical groupings for the same trajectory.
+    const groups = clusterStops(rawItems.map(({ p }) => p));
 
     const smallPinIcon = window.L.divIcon({
       html: buildSmallPinHtml(),
@@ -1012,33 +1028,71 @@ export default function MapView({
       iconAnchor: [7, 22],
     });
 
-    items.forEach((c, i) => {
-      const dot = window.L.marker(c, {
-        icon: smallPinIcon,
+    // Every pin gets a permanent on-map label showing its landmark +
+    // timestamp (or, for a multi-point stop, its duration) — the same
+    // content the sidebar's visit-log row shows for that point/group, so
+    // the map and sidebar always read the same at a glance.
+    const labelFor = (geo, group, isStop, nextGroup) => {
+      const loc = geo?.primary
+        ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
+        : 'No landmark';
+      const sub = isStop
+        ? `<span class="pb-map-label-stop">STOP</span> ${nextGroup ? formatStopDuration(stopDurationMs(group, nextGroup)) : 'Ongoing'}`
+        : formatTimestamp(group.points[0]);
+      return `<div class="pb-map-label"><div class="pb-map-label-loc">${loc}</div><div class="pb-map-label-ts">${sub}</div></div>`;
+    };
+
+    groups.forEach((group, i) => {
+      const nextGroup = groups[i + 1];
+      const { coords: c } = group;
+      const isStop = group.points.length > 1;
+      const icon = isStop
+        ? window.L.divIcon({ html: buildActualStopSignHtml(), className: '', iconSize: [24, 24], iconAnchor: [12, 12] })
+        : smallPinIcon;
+
+      const dot = window.L.marker([c.lat, c.lng], {
+        icon,
         interactive: false,
         keyboard: false,
       }).addTo(map);
+
+      const geoPoint = { ...group.points[0], landmark: group.landmark ?? group.points[0]?.landmark };
+      const geo = peekGeocode(geoPoint);
+      dot.bindTooltip(labelFor(geo, group, isStop, nextGroup), {
+        permanent: true, direction: 'top', offset: [0, isStop ? -14 : -20],
+        className: 'pb-map-label-tip', opacity: 1,
+      });
+
+      if (!geo) {
+        resolveGeocode(geoPoint, getGeocode).then((resolved) => {
+          try { dot.setTooltipContent(labelFor(resolved, group, isStop, nextGroup)); } catch {}
+        });
+      }
+
       staticDotsRef.current.push(dot);
-      staticDotMapRef.current.set(i, dot);
     });
 
+    // Force Leaflet to re-measure the container before fitting/centering.
+    // The persistent map instance gets detached/reattached across page and
+    // device switches (see attachMap/detachMap above), and the ResizeObserver
+    // that normally keeps `_size` in sync fires asynchronously — so on first
+    // load right after a switch, fitBounds below can still be computing
+    // against a stale container size, producing a pan/zoom that's off until
+    // the user manually zooms (which forces Leaflet to fully re-project
+    // against the container's actual current size).
+    try { map.invalidateSize({ animate: false, pan: false }); } catch {}
+
     // Fit map to show all points on load
-    if (items.length > 1) {
+    if (latLngs.length > 1) {
       try {
-        const bounds = window.L.latLngBounds(items);
+        const bounds = window.L.latLngBounds(latLngs);
         if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
       } catch {}
-    } else if (items.length === 1) {
-      try { map.setView(items[0], Math.max(map.getZoom(), 15)); } catch {}
+    } else if (latLngs.length === 1) {
+      try { map.setView(latLngs[0], Math.max(map.getZoom(), 15)); } catch {}
     }
 
-    return () => {
-      if (staticLineRef.current && map) {
-        try { map.removeLayer(staticLineRef.current); } catch {}
-        staticLineRef.current = null;
-      }
-    };
-  }, [staticDots, mapLoaded, isPlaybackPage]);
+  }, [staticDots, mapLoaded, isPlaybackPage, getGeocode]);
 
   /* ── FENCE OVERLAY ── */
   useEffect(() => {

@@ -47,6 +47,12 @@ def _zone_out(doc: dict) -> dict:
     }
 
 
+def _require_admin(account):
+    """Zone management (create/edit/delete/assign) is admin-only."""
+    if not isinstance(account, AdminInDB):
+        raise HTTPException(status_code=403, detail="Only admins can manage zones")
+
+
 async def _resolve_admin_scope(account, mongo: MongoService):
     """Resolve the admin_id a non-admin account is scoped under.
 
@@ -65,19 +71,13 @@ async def _resolve_admin_scope(account, mongo: MongoService):
     return None
 
 
-async def _zone_ownership_filter(oid, account, mongo: MongoService):
-    """Query filter that scopes a zone lookup to what this account may touch.
+def _zone_ownership_filter(oid, account):
+    """Query filter scoping a zone write to the admin's own zones.
 
-    Admins may touch any zone under their admin_id; users may only touch
-    zones they personally created. Returns None if a non-admin has no
-    resolvable admin scope (i.e. they could not own any zone).
+    Only reached after _require_admin — admins may touch any zone under
+    their own admin_id.
     """
-    if isinstance(account, AdminInDB):
-        return {"_id": oid, "admin_id": _to_oid(account.id)}
-    admin_oid = await _resolve_admin_scope(account, mongo)
-    if not admin_oid:
-        return None
-    return {"_id": oid, "admin_id": admin_oid, "user_id": _to_oid(account.id)}
+    return {"_id": oid, "admin_id": _to_oid(account.id)}
 
 
 class ZoneCreate(BaseModel):
@@ -104,11 +104,17 @@ async def list_zones(
         return []
 
     if isinstance(account, AdminInDB):
-        # Admins see every zone created by themselves or any of their users.
+        # Admins see every zone under their admin scope.
         query = {"admin_id": admin_oid}
     else:
-        # Users only ever see zones they personally created.
-        query = {"admin_id": admin_oid, "user_id": _to_oid(account.id)}
+        # Users only see zones that contain one of their assigned devices.
+        user_devices = await mongo.devices.find(
+            {"user_id": _to_oid(account.id)}, {"sn": 1}
+        ).to_list(1000)
+        sns = [d["sn"] for d in user_devices if d.get("sn")]
+        if not sns:
+            return []
+        query = {"admin_id": admin_oid, "device_sns": {"$in": sns}}
 
     docs = await mongo.zones.find(query).to_list(500)
     return [_zone_out(d) for d in docs]
@@ -120,14 +126,10 @@ async def create_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    admin_oid = await _resolve_admin_scope(account, mongo)
-    if not admin_oid:
-        raise HTTPException(status_code=400, detail="Bind a device before creating zones")
-
-    user_oid = None if isinstance(account, AdminInDB) else _to_oid(account.id)
+    _require_admin(account)
     doc = {
-        "admin_id":    admin_oid,
-        "user_id":     user_oid,
+        "admin_id":    _to_oid(account.id),
+        "user_id":     None,
         "name":        body.name.strip(),
         "company":     body.company.strip() if body.company else None,
         "color":       body.color,
@@ -151,13 +153,12 @@ async def update_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
+    _require_admin(account)
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
 
-    query_filter = await _zone_ownership_filter(oid, account, mongo)
-    if not query_filter:
-        raise HTTPException(status_code=404, detail="Zone not found")
+    query_filter = _zone_ownership_filter(oid, account)
 
     updated = await mongo.zones.find_one_and_update(
         query_filter,
@@ -186,13 +187,12 @@ async def delete_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
+    _require_admin(account)
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
 
-    query_filter = await _zone_ownership_filter(oid, account, mongo)
-    if not query_filter:
-        raise HTTPException(status_code=404, detail="Zone not found")
+    query_filter = _zone_ownership_filter(oid, account)
 
     result = await mongo.zones.delete_one(query_filter)
     if result.deleted_count == 0:
@@ -215,6 +215,7 @@ async def assign_device_to_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
+    _require_admin(account)
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
@@ -223,21 +224,13 @@ async def assign_device_to_zone(
     if not sn:
         raise HTTPException(status_code=400, detail="Device SN is required")
 
-    query_filter = await _zone_ownership_filter(oid, account, mongo)
-    if not query_filter:
-        raise HTTPException(status_code=404, detail="Zone not found")
-
-    zone = await mongo.zones.find_one(query_filter)
+    zone = await mongo.zones.find_one(_zone_ownership_filter(oid, account))
     if not zone:
         raise HTTPException(status_code=404, detail="Zone not found")
 
     device = await mongo.devices.find_one({"sn": sn})
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-
-    # Users may only assign devices bound to themselves into their own zone.
-    if not isinstance(account, AdminInDB) and str(device.get("user_id")) != str(account.id):
-        raise HTTPException(status_code=403, detail="You can only assign your own devices")
 
     await mongo.zones.update_one({"_id": oid}, {"$addToSet": {"device_sns": sn}})
     await mongo.devices.update_one({"sn": sn}, {"$addToSet": {"fence_zone_ids": zone_id}})
@@ -252,13 +245,12 @@ async def unassign_device_from_zone(
     account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
+    _require_admin(account)
     oid = _to_oid(zone_id)
     if not oid:
         raise HTTPException(status_code=404, detail="Invalid zone ID")
 
-    query_filter = await _zone_ownership_filter(oid, account, mongo)
-    if not query_filter:
-        raise HTTPException(status_code=404, detail="Zone not found")
+    query_filter = _zone_ownership_filter(oid, account)
 
     result = await mongo.zones.update_one(
         query_filter,
