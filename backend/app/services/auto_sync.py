@@ -17,28 +17,37 @@ async def sync_all_users():
     settings = get_settings()
     mongo = MongoService(settings["mongo_uri"])
     citytag = CityTagClient(settings["citytag_base_url"])
-    await run_vendor_sync_all(mongo, citytag)
+    try:
+        await run_vendor_sync_all(mongo, citytag)
+    except Exception:
+        logger.exception("auto_sync vendor sync cycle failed")
 
 
 async def sync_historical_data():
     settings = get_settings()
     mongo = MongoService(settings["mongo_uri"])
-    await run_historical_sync_all(mongo)
+    try:
+        await run_historical_sync_all(mongo)
+    except Exception:
+        logger.exception("auto_sync historical sync cycle failed")
 
 
-async def scheduler_loop() -> None:
-    # Run immediately on first tick, then every SYNC_INTERVAL_SECONDS.
-    await sync_all_users()
+async def scheduler_loop():
     while True:
+        try:
+            await sync_all_users()
+        except Exception:
+            logger.exception("auto_sync scheduler loop iteration failed")
         await asyncio.sleep(SYNC_INTERVAL_SECONDS)
-        await sync_all_users()
 
 
 async def historical_scheduler_loop():
-    await sync_historical_data()
     while True:
+        try:
+            await sync_historical_data()
+        except Exception:
+            logger.exception("auto_sync historical scheduler loop iteration failed")
         await asyncio.sleep(HISTORICAL_SYNC_INTERVAL_SECONDS)
-        await sync_historical_data()
 
 
 def start_auto_sync_tasks(app):

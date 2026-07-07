@@ -306,7 +306,6 @@ async def _sync_tracksolid(
         token = await client.get_valid_token()
         rows = await _with_retries(client.list_device_locations, token, retries=6, base_delay=2)
         if rows is None:
-            # attempt refresh token once and retry
             logger.warning("vendor_sync tracksolid initial list failed; attempting token refresh")
             try:
                 if TRACKSOLID_TOKEN_PATH.exists():
@@ -338,47 +337,58 @@ async def _sync_tracksolid(
             logger.error("vendor_sync tracksolid failed: %s", e2)
             return devices_list, by_sn
 
-    for row in rows:
-        imei = row.get("imei")
-        if not imei:
-            continue
-        sn  = str(imei).strip()
-        lat = float(row.get("lat") or 0)
-        lng = float(row.get("lng") or 0)
-        if lat == 0.0 and lng == 0.0:
-            continue
+    for row in rows or []:
+        try:
+            if not isinstance(row, dict):
+                continue
+            imei = row.get("imei")
+            if not imei:
+                continue
+            sn = str(imei).strip()
+            lat = float(row.get("lat") or 0)
+            lng = float(row.get("lng") or 0)
+            if lat == 0.0 and lng == 0.0:
+                continue
 
-        if not by_sn.get(sn):
-            devices_list = device_registry.append_device(
-                devices_list, sn=sn, admin_email=tpl_email, vendor="tracksolid",
+            reg = by_sn.get(sn)
+            if not reg:
+                devices_list = device_registry.append_device(
+                    devices_list,
+                    sn=sn,
+                    admin_email=tpl_email,
+                    vendor="tracksolid",
+                )
+                by_sn = device_registry.index_by_sn(devices_list)
+
+            label = row.get("deviceName") or sn
+            await mongo.upsert_device_from_citytag(
+                admin_id=tpl_admin_id,
+                citytag_device={"sn": sn, "assigned_name": label, "deviceName": label},
             )
-            by_sn = device_registry.index_by_sn(devices_list)
 
-        label = row.get("deviceName") or sn
-        await mongo.upsert_device_from_citytag(
-            admin_id=tpl_admin_id,
-            citytag_device={"sn": sn, "assigned_name": label, "deviceName": label},
-        )
+            ts_raw = row.get("gpsTime") or row.get("hbTime") or row.get("stateTime")
+            if not ts_raw:
+                ts_raw = datetime.utcnow()
 
-        ts_raw = row.get("gpsTime") or row.get("hbTime") or row.get("stateTime")
-        if not ts_raw:
-            ts_raw = datetime.utcnow()
+            bat = _battery_tracksolid(row)
 
-        bat = _battery_tracksolid(row)
-        stats.tracksolid_devices += 1
-        inserted = await mongo.upsert_latest_location(
-            uid=tpl_uid,
-            sn=sn,
-            timestamp_raw=ts_raw,
-            lat=lat,
-            lng=lng,
-            battery_status=bat,
-            time_adjust_hours=5.0,
-            vendor="tracksolid",
-        )
-        if inserted:
-            stats.tracksolid_points += 1
-            logger.info("tracksolid_latest_uploaded | sn=%s lat=%s lng=%s", sn, lat, lng)
+            stats.tracksolid_devices += 1
+            inserted = await mongo.upsert_latest_location(
+                uid=tpl_uid,
+                sn=sn,
+                timestamp_raw=ts_raw,
+                lat=lat,
+                lng=lng,
+                battery_status=bat,
+                time_adjust_hours=5.0,
+                vendor="tracksolid",
+            )
+            if inserted:
+                stats.tracksolid_points += 1
+                logger.info("tracksolid_latest_uploaded | sn=%s lat=%s lng=%s", sn, lat, lng)
+        except Exception as exc:
+            logger.exception("vendor_sync tracksolid row processing failed row=%s err=%s", row, exc)
+            continue
 
     return devices_list, by_sn
 
@@ -417,58 +427,63 @@ async def _sync_zoqin(
     tpl_uid = str(tpl_doc.get("uid") or "zoqin_vendor_tpl")
 
     async with AsyncClient(timeout=50.0) as http:
-        # Zoqin login endpoints are unreliable; use hard-coded user code per configuration.
         code = "2RDVQQT1C"
         binds = await _with_retries(zoqin_all_bind, http, bind_url, code, retries=6, base_delay=2)
         if binds is None:
             logger.error("vendor_sync zoqin bind failed after retries for hard-coded user code")
             return devices_list, by_sn
 
-    for row in binds:
-        sn = row.get("sn")
-        if not sn:
-            continue
-        sn = str(sn).strip()
-        if not by_sn.get(sn):
-            devices_list = device_registry.append_device(
-                devices_list,
+    for row in binds or []:
+        try:
+            if not isinstance(row, dict):
+                continue
+            sn = row.get("sn")
+            if not sn:
+                continue
+            sn = str(sn).strip()
+            if not by_sn.get(sn):
+                devices_list = device_registry.append_device(
+                    devices_list,
+                    sn=sn,
+                    admin_email=tpl_email,
+                    vendor="zoqin",
+                )
+                by_sn = device_registry.index_by_sn(devices_list)
+
+            label = row.get("deviceName") or row.get("name") or sn
+            await mongo.upsert_device_from_citytag(
+                admin_id=tpl_admin_id,
+                citytag_device={"sn": sn, "assigned_name": label},
+            )
+
+            try:
+                lat_f = float(str(row.get("latitude") or row.get("lat") or "").strip() or 0)
+                lng_f = float(str(row.get("longitude") or row.get("lng") or "").strip() or 0)
+            except (TypeError, ValueError):
+                continue
+            if lat_f == 0.0 and lng_f == 0.0:
+                continue
+
+            ts_raw = row.get("timestamp")
+            bat = _battery_zoqin_bind(row)
+
+            stats.zoqin_devices += 1
+            inserted = await mongo.upsert_latest_location(
+                uid=tpl_uid,
                 sn=sn,
-                admin_email=tpl_email,
+                timestamp_raw=ts_raw,
+                lat=lat_f,
+                lng=lng_f,
+                battery_status=bat,
+                time_adjust_hours=5.0,
                 vendor="zoqin",
             )
-            by_sn = device_registry.index_by_sn(devices_list)
-
-        label = row.get("deviceName") or row.get("name") or sn
-        await mongo.upsert_device_from_citytag(
-            admin_id=tpl_admin_id,
-            citytag_device={"sn": sn, "assigned_name": label},
-        )
-
-        try:
-            lat_f = float(str(row.get("latitude") or row.get("lat") or "").strip() or 0)
-            lng_f = float(str(row.get("longitude") or row.get("lng") or "").strip() or 0)
-        except (TypeError, ValueError):
+            if inserted:
+                stats.zoqin_points += 1
+                logger.info("zoqin_latest_uploaded | sn=%s lat=%s lng=%s battery=%s", sn, lat_f, lng_f, bat)
+        except Exception as exc:
+            logger.exception("vendor_sync zoqin row processing failed row=%s err=%s", row, exc)
             continue
-        if lat_f == 0.0 and lng_f == 0.0:
-            continue
-
-        ts_raw = row.get("timestamp")
-        bat = _battery_zoqin_bind(row)
-
-        stats.zoqin_devices += 1
-        inserted = await mongo.upsert_latest_location(
-            uid=tpl_uid,
-            sn=sn,
-            timestamp_raw=ts_raw,
-            lat=lat_f,
-            lng=lng_f,
-            battery_status=bat,
-            time_adjust_hours=5.0,
-            vendor="zoqin",
-        )
-        if inserted:
-            stats.zoqin_points += 1
-            logger.info("zoqin_latest_uploaded | sn=%s lat=%s lng=%s battery=%s", sn, lat_f, lng_f, bat)
 
     return devices_list, by_sn
 

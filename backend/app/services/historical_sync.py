@@ -43,9 +43,10 @@ async def _upsert_history_points(
     vendor: str,
     points: List[Dict[str, Any]],
     time_adjust_hours: float,
+    max_points: int = 30,
 ) -> int:
     inserted = 0
-    for point in points:
+    for point in points[:max_points]:
         if not isinstance(point, dict):
             continue
         lat = point.get("lat")
@@ -149,6 +150,7 @@ async def _sync_citytag_history(
             vendor="citytag",
             points=points,
             time_adjust_hours=-3.0,
+            max_points=30,
         )
     return total
 
@@ -217,6 +219,7 @@ async def _sync_tracksolid_history(
             vendor="tracksolid",
             points=normalized,
             time_adjust_hours=5.0,
+            max_points=30,
         )
     return total
 
@@ -277,6 +280,7 @@ async def _sync_zoqin_history(
                 vendor="zoqin",
                 points=normalized,
                 time_adjust_hours=5.0,
+                max_points=30,
             )
     return total
 

@@ -56,7 +56,7 @@ class MongoService:
 
     @property
     def playback_locations(self):
-        return self.db["location-test"]
+        return self.db["locations"]
 
     @property
     def zones(self):

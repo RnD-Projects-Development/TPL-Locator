@@ -54,15 +54,14 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
     """Build a full device row matching the shape DevicesTable expects."""
     device_sn = doc.get("sn")
 
-    # dataRetrievalTime — latest location timestamp from locations collection
-    latest_loc = await mongo.locations.find_one(
+    latest_loc = await mongo.db["latestLocation"].find_one(
         {"sn": device_sn},
-        sort=[("timestamp", -1)],
+        sort=[("timestamps", -1)],
     )
-    data_retrieval_time = _fmt_dt(latest_loc.get("timestamp")) if latest_loc else None
+    latest_timestamp = latest_loc.get("timestamps") if latest_loc else None
+    data_retrieval_time = _fmt_dt(latest_timestamp)
 
-    # Online/offline status based on latest location timestamp
-    device_status = _get_device_status(latest_loc.get("timestamp")) if latest_loc else "offline"
+    device_status = _get_device_status(latest_timestamp) if latest_timestamp else "offline"
 
     # assigned_user_name — use the label entered at bind time (stored as device name),
     # fall back to the user's account name or email
@@ -109,10 +108,10 @@ async def _load_latest_location_map(mongo: MongoService, sns: list[str]) -> dict
     latest_by_sn: dict[str, datetime | None] = {}
     pipeline = [
         {"$match": {"sn": {"$in": sns}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamp"}}},
+        {"$sort": {"timestamps": -1}},
+        {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamps"}}},
     ]
-    async for row in mongo.locations.aggregate(pipeline):
+    async for row in mongo.db["latestLocation"].aggregate(pipeline):
         latest_by_sn[str(row["_id"])] = row.get("timestamp")
     return latest_by_sn
 
@@ -767,11 +766,11 @@ async def get_devices_summary(
     if sns:
         pipeline = [
             {"$match": {"sn": {"$in": sns}}},
-            {"$sort": {"timestamp": -1}},
-            {"$group": {"_id": "$sn", "ts": {"$first": "$timestamp"}}},
+            {"$sort": {"timestamps": -1}},
+            {"$group": {"_id": "$sn", "ts": {"$first": "$timestamps"}}},
         ]
         threshold = datetime.utcnow() - timedelta(minutes=ONLINE_THRESHOLD_MINUTES)
-        async for row in mongo.locations.aggregate(pipeline):
+        async for row in mongo.db["latestLocation"].aggregate(pipeline):
             ts = row.get("ts")
             if ts and isinstance(ts, datetime):
                 if ts.tzinfo is not None:
