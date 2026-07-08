@@ -590,7 +590,9 @@ async def update_my_profile(
         form = await request.form()
         payload = dict(form)
         maybe_file = form.get("profile_image")
-        if isinstance(maybe_file, UploadFile):
+        # request.form() can yield Starlette UploadFile instances; use duck-typing
+        # instead of strict FastAPI UploadFile isinstance checks.
+        if getattr(maybe_file, "filename", None) is not None and callable(getattr(maybe_file, "read", None)):
             profile_image = maybe_file
 
     updates: dict[str, Any] = {}
@@ -626,6 +628,7 @@ async def update_my_profile(
         output_path = PROFILE_IMAGE_DIR / filename
         with open(output_path, "wb") as f:
             f.write(content)
+        logger.info("profile image saved account_id=%s filename=%s bytes=%s", account_id, filename, len(content))
         updates["profile_image_filename"] = filename
 
     if not updates:
