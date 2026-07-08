@@ -248,7 +248,7 @@ export default function LoginForm() {
           alignItems: "start"
         }}>
         {isSignup && (
-          <div>
+          <div style={{ gridColumn: "1 / -1" }}>
             <label className="auth-label">Full Name</label>
             <input
               className="auth-input"
@@ -264,10 +264,10 @@ export default function LoginForm() {
 
         {isLogin && (
           <div>
-            <label className="block text-sm font-medium text-white">Email or Phone Number</label>
+            <label className="auth-label">Email or Phone Number</label>
             <input
-              className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-              style={{ borderColor: identifierError ? "#ef4444" : "#cbd5e1" }}
+              className="auth-input"
+              style={identifierError ? { borderColor: "#ef4444" } : {}}
               value={identifier}
               onChange={(e) => {
                 setIdentifier(e.target.value);
@@ -330,11 +330,11 @@ export default function LoginForm() {
 
         {isSignup && (
           <>
-            <div>
-              <label className="block text-sm font-medium text-white">Email Address</label>
+            <div style={{ gridColumn: isSignup ? "1 / 2" : undefined }}>
+              <label className="auth-label">Email Address</label>
               <input
-                className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-                style={{ borderColor: emailError ? "#ef4444" : "#cbd5e1" }}
+                className="auth-input"
+                style={emailError ? { borderColor: "#ef4444" } : {}}
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
@@ -353,11 +353,11 @@ export default function LoginForm() {
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-white">Phone Number</label>
+            <div style={{ gridColumn: isSignup ? "2 / 3" : undefined }}>
+              <label className="auth-label">Phone Number</label>
               <input
-                className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-                style={{ borderColor: phoneError ? "#ef4444" : "#cbd5e1" }}
+                className="auth-input"
+                style={phoneError ? { borderColor: "#ef4444" } : {}}
                 value={phone}
                 onChange={(e) => {
                   setPhone(e.target.value);
@@ -390,7 +390,7 @@ export default function LoginForm() {
               </button>
             </div>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
@@ -401,10 +401,10 @@ export default function LoginForm() {
         )}
 
         {isSignup && (
-          <div>
-            <label className="block text-sm font-medium text-white">Password</label>
+          <div style={{ gridColumn: isSignup ? "1 / 2" : undefined }}>
+            <label className="auth-label">Password</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
@@ -416,7 +416,7 @@ export default function LoginForm() {
         )}
 
         {isSignup && (
-          <div>
+          <div style={{ gridColumn: isSignup ? "2 / 3" : undefined }}>
             <label className="auth-label">Confirm Password</label>
             <input
               className="auth-input"
@@ -447,9 +447,10 @@ export default function LoginForm() {
 
         {isOtpLogin && loginOtpSent && (
           <div>
-            <label className="block text-sm font-medium text-white">Login Code</label>
+            <label className="auth-label">Login Code</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
+              style={{ letterSpacing: "0.2em" }}
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               type="text"
@@ -483,53 +484,7 @@ export default function LoginForm() {
           </div>
         )}
 
-        {isSignup && !otpSent && (
-          <button
-            type="button"
-            disabled={!canSendOtp}
-            onClick={onSendOtp}
-            className="w-full rounded-lg border border-slate-400 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/10 transition"
-          >
-            {sendingOtp ? "Sending code..." : "Send verification code"}
-          </button>
-        )}
 
-        {isSignup && otpSent && (
-          <div>
-            <label className="block text-sm font-medium text-white">Verification Code</label>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="000000"
-              required
-            />
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-              Enter the code sent to <strong style={{ color: "#fff" }}>{normalizeEmail(email)}</strong>
-            </p>
-            <button
-              type="button"
-              disabled={sendingOtp}
-              onClick={onSendOtp}
-              style={{
-                marginTop: 8,
-                background: "none",
-                border: "none",
-                color: "#cc4444",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 12,
-                textDecoration: "underline",
-                textUnderlineOffset: 2,
-              }}
-            >
-              Resend code
-            </button>
-          </div>
-        )}
 
         {isSignup && !otpSent && (
           <div style={{ gridColumn: isSignup ? "1 / -1" : undefined }}>

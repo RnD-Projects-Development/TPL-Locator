@@ -61,7 +61,7 @@ const BAR_COLORS = ['#3A86FF', '#4CAF50', '#F4A261', '#8E7DBE', '#2A9D8F']
 
 const CARD_ROOT = { ...panel, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden', boxSizing: 'border-box' }
 const CARD_HDR = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.625em', padding: '0.875em 1.125em 0.5em', flexShrink: 0, flexWrap: 'wrap' }
-const CARD_TTL = { fontSize: 'clamp(0.8125em, 1.1vw, 0.9375em)', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }
+const CARD_TTL = { fontSize: 'clamp(0.8125em, 1.1vw, 1.2em)', fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.01em' }
 const CARD_SUB = { fontSize: '0.6875em', color: '#E0E0E0', marginTop: '0.125em' }
 const SECTION_HDR = { fontSize: '0.625em', fontWeight: 700, color: '#909090', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '0.625em' }
 const EMPTY_MSG = { color: '#D0D0D0', fontSize: '0.75em', textAlign: 'center', padding: '1.25em 0', margin: 0 }

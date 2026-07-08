@@ -97,11 +97,11 @@
 }
 .pb-vl-back:hover { color:var(--text-primary); background:var(--surface-2); }
 .pb-vl-detail-header { padding:0.75em 1em; border-bottom:1px solid var(--border-default); flex-shrink:0; }
-.pb-vl-detail-summary { display:flex; flex-direction:column; gap:0.75em; margin-top:1em; margin-bottom:0.5em; font-size:0.65625em; color:var(--text-tertiary); }
+.pb-vl-detail-summary { display:flex; flex-direction:column; gap:0.75em; margin-top:1em; margin-bottom:0.5em; font-size:0.875em; color:var(--text-tertiary); }
 .pb-vl-summary-item { display:flex; flex-direction:column; gap:0.25em; }
-.pb-vl-summary-item span { font-size:0.5625em; text-transform:uppercase; font-weight:700; color:var(--text-tertiary); letter-spacing:.05em; }
-.pb-vl-summary-item b { font-size:0.8125em; color:var(--text-primary); font-family:var(--font-mono); font-weight:600; }
-.pb-vl-item-samples { font-size:0.59375em; color:var(--text-tertiary); margin-top:0.125em; }
+.pb-vl-summary-item span { font-size:0.75em; text-transform:uppercase; font-weight:700; color:var(--text-tertiary); letter-spacing:.05em; }
+.pb-vl-summary-item b { font-size:1em; color:var(--text-primary); font-family:var(--font-mono); font-weight:600; }
+.pb-vl-item-samples { font-size:0.75em; color:var(--text-tertiary); margin-top:0.125em; }
 .pb-tl-row { align-items:center; }
 .pb-tl-row .pb-vl-item-body { display:flex; align-items:center; gap:0.5em; }
 .pb-tl-time { margin-top:0; }
@@ -152,9 +152,9 @@
 .pb-vl-item-active .pb-vl-item-num { background:var(--brand); color:#fff; }
 
 .pb-vl-item-body { flex:1; min-width:0; }
-.pb-vl-item-loc  { font-size:0.71875em; font-weight:600; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.pb-vl-item-area { font-size:0.625em; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; }
-.pb-vl-item-ts   { font-size:0.59375em; font-family:var(--font-mono); color:var(--text-tertiary); margin-top:0.1875em; }
+.pb-vl-item-loc  { font-size:0.9375em; font-weight:600; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pb-vl-item-area { font-size:0.8125em; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; }
+.pb-vl-item-ts   { font-size:0.75em; font-family:var(--font-mono); color:var(--text-tertiary); margin-top:0.1875em; }
 
 .pb-vl-muted     { color:var(--text-tertiary); font-style:italic; font-weight:400; }
 

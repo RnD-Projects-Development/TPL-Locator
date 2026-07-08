@@ -313,10 +313,27 @@ export default function PlaybackPage() {
     return () => clearInterval(id);
   }, [sn, isLiveMode, refreshLive]);
 
+  const initialRangeConsumed = React.useRef(false);
+
   useEffect(() => {
     const param = searchParams.get("device");
     if (param) void ensureDevice(param);
-  }, [searchParams, ensureDevice]);
+
+    if (sn && searchParams.get("range") === "1D" && !initialRangeConsumed.current) {
+      initialRangeConsumed.current = true;
+      const now = new Date();
+      const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      const toTimeStr = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+      setStartDate(toDateStr(start));
+      setStartTime(toTimeStr(start));
+      setEndDate(toDateStr(now));
+      setEndTime(toTimeStr(now));
+      setActiveShortcut("1D");
+      loadHistorical(naiveLocal(start), naiveLocal(now));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, ensureDevice, sn]);
 
   const handleSelectDevice = (device) => {
     const newSn    = typeof device === "string" ? device : (device?.sn ?? "");

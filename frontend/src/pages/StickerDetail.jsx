@@ -235,8 +235,8 @@ export default function StickerDetail() {
   ]
 
   const actionBtns = [
-    { label: 'Live Tracking', sub: 'View current position on map',  icon: MapPin,  onClick: () => navigate(`/map?device=${sticker.id}`),        primary: true },
-    { label: 'Route History', sub: 'View historical movement path', icon: Route,   onClick: () => navigate(`/playback?device=${sticker.id}`), primary: false },
+    { label: 'Live Tracking', sub: 'View current position on map',  icon: MapPin,  onClick: () => navigate(`/map?device=${sticker.id}`, { state: { fromDeviceType: 'sticker', fromDeviceId: sticker.id, fromDeviceName: sticker.name } }),        primary: true },
+    { label: 'Route History', sub: 'View historical movement path', icon: Route,   onClick: () => navigate(`/playback?device=${sticker.id}&range=1D`, { state: { fromDeviceType: 'sticker', fromDeviceId: sticker.id, fromDeviceName: sticker.name } }), primary: false },
     { label: 'Export Report', sub: 'Download location history',     icon: FileText,onClick: () => navigate(`/reports?device=${sticker.id}`),    primary: false },
   ]
 

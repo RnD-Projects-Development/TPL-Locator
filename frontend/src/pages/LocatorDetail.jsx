@@ -235,8 +235,8 @@ export default function LocatorDetail() {
   ]
 
   const actionBtns = [
-    { label: 'Live Tracking',  sub: 'View current position on map',   icon: MapPin,  onClick: () => navigate(`/map?device=${loc.id}`),        primary: true },
-    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => navigate(`/playback?device=${loc.id}`), primary: false },
+    { label: 'Live Tracking',  sub: 'View current position on map',   icon: MapPin,  onClick: () => navigate(`/map?device=${loc.id}`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }),        primary: true },
+    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => navigate(`/playback?device=${loc.id}&range=1D`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }), primary: false },
     { label: 'Export Report',  sub: 'Download location history',      icon: FileText,onClick: () => navigate(`/reports?device=${loc.id}`),    primary: false },
   ]
 
