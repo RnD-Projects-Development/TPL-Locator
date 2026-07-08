@@ -94,8 +94,26 @@ export function useCityTag() {
   const { accessToken, logout } = useAuth();
 
   const login = useCallback(
-    async ({ identifier, password }) =>
-      apiFetch("/api/login", { method: "POST", body: { identifier, password } }, null), []
+    async ({ identifier, password, otp, login_token }) =>
+      apiFetch(
+        "/api/login",
+        {
+          method: "POST",
+          body: {
+            identifier,
+            ...(password ? { password } : {}),
+            ...(otp && login_token ? { otp, login_token } : {}),
+          },
+        },
+        null
+      ),
+    []
+  );
+
+  const requestLoginOtp = useCallback(
+    async ({ identifier }) =>
+      apiFetch("/api/login/send-verification", { method: "POST", body: { identifier } }, null),
+    []
   );
 
   const adminLogin = useCallback(
@@ -104,12 +122,12 @@ export function useCityTag() {
   );
 
   const signup = useCallback(
-    async ({ identifier, email, password, name, verification_token, otp }) =>
+    async ({ email, phone, password, name, verification_token, otp }) =>
       apiFetch(
         "/api/register",
         {
           method: "POST",
-          body: { identifier, email, password, name: name || "", verification_token, otp },
+          body: { email, phone, password, name: name || "", verification_token, otp },
         },
         null
       ),
@@ -117,10 +135,10 @@ export function useCityTag() {
   );
 
   const requestSignupVerification = useCallback(
-    async ({ email, identifier }) =>
+    async ({ email, phone }) =>
       apiFetch(
         "/api/register/send-verification",
-        { method: "POST", body: { email, identifier: identifier || undefined } },
+        { method: "POST", body: { email, phone } },
         null
       ),
     []
@@ -136,6 +154,60 @@ export function useCityTag() {
     async ({ reset_token, otp, new_password }) =>
       apiFetch("/api/forgot-password/reset", { method: "POST", body: { reset_token, otp, new_password } }, null),
     []
+  );
+
+  const getMyProfile = useCallback(
+    async () => apiFetch("/api/me/profile", {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
+  const updateMyProfile = useCallback(
+    async ({
+      name,
+      cnic,
+      cnic_expiry,
+      driving_license_no,
+      license_expiry,
+      emergency_contact,
+      address,
+      profile_image,
+    } = {}) => {
+      if (!accessToken) throw new Error("Not authenticated");
+
+      const form = new FormData();
+      const appendIfDefined = (key, value) => {
+        if (value !== undefined) form.append(key, value ?? "");
+      };
+      appendIfDefined("name", name);
+      appendIfDefined("cnic", cnic);
+      appendIfDefined("cnic_expiry", cnic_expiry);
+      appendIfDefined("driving_license_no", driving_license_no);
+      appendIfDefined("license_expiry", license_expiry);
+      appendIfDefined("emergency_contact", emergency_contact);
+      appendIfDefined("address", address);
+      if (profile_image instanceof File) {
+        form.append("profile_image", profile_image);
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/me/profile`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      });
+
+      let payload = null;
+      try {
+        payload = await res.json();
+      } catch {
+        payload = null;
+      }
+      if (!res.ok) {
+        if (res.status === 401) logout?.();
+        throw new Error(payload?.detail || "Unable to update profile");
+      }
+      return payload;
+    },
+    [accessToken, logout]
   );
 
   const getDevices = useCallback(
@@ -379,7 +451,8 @@ export function useCityTag() {
   );
 
   return {
-    login, adminLogin, signup, requestSignupVerification, requestPasswordReset, resetPasswordWithOtp,
+    login, requestLoginOtp, adminLogin, signup, requestSignupVerification, requestPasswordReset, resetPasswordWithOtp,
+    getMyProfile, updateMyProfile,
     getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, checkDeviceAvailability, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,

@@ -22,27 +22,22 @@ def phone_placeholder_email(phone: str) -> str:
     return f"p{digits}@accounts.tpllocator.com"
 
 
-def resolve_register_identity(raw: str, email: str) -> Tuple[str, Optional[str]]:
+def validate_signup_contact(email: str, phone: str) -> Tuple[str, str]:
     """
-    Parse signup identifier plus verified email.
-    Returns (account_email, phone_or_none).
+    Validate signup email and phone (both required).
+    Returns (normalized_email, normalized_phone).
     """
-    identifier = (raw or "").strip()
     verified_email = (email or "").strip().lower()
     if not verified_email:
         raise ValueError("Email is required")
 
-    if "@" in identifier:
-        id_email = identifier.strip().lower()
-        if id_email != verified_email:
-            raise ValueError("Email must match the email used as identifier")
-        return verified_email, None
-
-    phone = normalize_phone(identifier)
-    if not validate_pakistani_phone(phone):
+    normalized_phone = normalize_phone(phone or "")
+    if not normalized_phone:
+        raise ValueError(INVALID_PHONE_MSG)
+    if not validate_pakistani_phone(normalized_phone):
         raise ValueError(INVALID_PHONE_MSG)
 
-    return verified_email, phone
+    return verified_email, normalized_phone
 
 
 def resolve_identifier(raw: str) -> Tuple[str, Optional[str]]:

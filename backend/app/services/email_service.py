@@ -94,3 +94,14 @@ def send_signup_verification_email(*, to_email: str, otp: str) -> None:
         intro="Use this code to verify your email and complete signup.",
         footer="This code expires in a few minutes. If you did not create an account, you can ignore this email.",
     )
+
+
+def send_login_otp_email(*, to_email: str, otp: str) -> None:
+    """Send a one-time password for passwordless login."""
+    _send_plain_otp_email(
+        to_email=to_email,
+        otp=otp,
+        subject="TPL Trakker — Login Code",
+        intro="Use this code to sign in to your account.",
+        footer="This code expires in a few minutes. If you did not request this, you can ignore this email.",
+    )

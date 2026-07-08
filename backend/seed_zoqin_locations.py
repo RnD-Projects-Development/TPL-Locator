@@ -153,10 +153,25 @@ async def run(args: argparse.Namespace) -> int:
     time_adjust_hours = 5.0  # Fixed +5 hours (PKT) as requested
     tpl_email = (settings.get("vendor_admin_tpl_email") or "tpl@gmail.com").strip().lower()
 
-    day = _parse_day(args.date)                    # UTC day
-    day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day.replace(hour=23, minute=59, second=59, microsecond=0)
-    start_s, end_s = _day_bounds(day)
+    start_time = "2026-07-02T00:00:00"
+    end_time = "2026-07-08T23:59:59"
+
+    if start_time and end_time:
+        day_start = datetime.strptime(
+            start_time, "%Y-%m-%dT%H:%M:%S"
+        ).replace(tzinfo=timezone.utc)
+
+        day_end = datetime.strptime(
+            end_time, "%Y-%m-%dT%H:%M:%S"
+        ).replace(tzinfo=timezone.utc)
+
+    else:
+        day = _parse_day(args.date)
+        day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    start_s = day_start.strftime("%Y-%m-%dT%H:%M:%S")
+    end_s = day_end.strftime("%Y-%m-%dT%H:%M:%S")
 
     if args.sn:
         sns = [args.sn.strip()]
@@ -179,8 +194,8 @@ async def run(args: argparse.Namespace) -> int:
     total_upserted = 0
     failed_sns = 0
 
-    print(f"Date     : {day.strftime('%Y-%m-%d')} (UTC)")
-    print(f"Range    : {start_s} → {end_s} UTC")
+    print(f"Start    : {start_s} UTC")
+    print(f"End      : {end_s} UTC")
     print(f"Devices  : {len(sns)}")
     print(f"UID      : {uid}")
     print(f"Time Offset (DB): +{time_adjust_hours} hours (PKT)")
