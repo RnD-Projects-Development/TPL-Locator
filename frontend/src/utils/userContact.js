@@ -5,7 +5,7 @@ export function isSyntheticEmail(email) {
   return SYNTHETIC_SUFFIXES.some((s) => e.endsWith(s));
 }
 
-function isValidPakistaniPhone(raw) {
+export function isValidPakistaniPhone(raw) {
   const p = (raw || "").replace(/[\s\-()]/g, "");
   return /^03\d{9}$/.test(p) || /^\+92\d{10}$/.test(p);
 }

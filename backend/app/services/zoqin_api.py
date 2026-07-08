@@ -168,7 +168,7 @@ async def zoqin_query_reports(
         "start_time": start_time,
         "end_time":   end_time,
         "sn_list":    sn_list,
-        "limit":      10,
+        "limit":      100,
     }
     headers = {**_ZOQIN_REQUEST_HEADERS, "Content-Type": "application/json"}
     url  = _zoqin_https_url(location_url)
