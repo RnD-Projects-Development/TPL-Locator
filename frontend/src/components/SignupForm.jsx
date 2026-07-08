@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isValidEmail, normalizeEmail } from "../utils/email.js";
-import { isValidIdentifier } from "../utils/userContact.js";
+import { isValidPakistaniPhone } from "../utils/userContact.js";
 
 const inputCls = `
   mt-1 w-full rounded-lg px-3 py-2.5 text-sm
@@ -20,9 +20,8 @@ export default function SignupForm() {
   const { loginSuccess } = useAuth();
 
   const [name, setName] = useState("");
-  const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
-  const [emailTouched, setEmailTouched] = useState(false);
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [otp, setOtp] = useState("");
@@ -33,29 +32,20 @@ export default function SignupForm() {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
 
-  const identifierIsEmail = identifier.trim().includes("@");
-  const emailAutoFilled = identifierIsEmail && isValidEmail(identifier);
-
-  useEffect(() => {
-    if (emailAutoFilled && !emailTouched) {
-      setEmail(normalizeEmail(identifier));
-    }
-  }, [identifier, emailAutoFilled, emailTouched]);
-
   const passwordsMatch = !confirmPassword || password === confirmPassword;
-  const identifierError = identifier && !isValidIdentifier(identifier);
   const emailError = email && !isValidEmail(email);
+  const phoneError = phone && !isValidPakistaniPhone(phone);
 
   const formReadyForOtp = useMemo(
     () =>
       name.trim() &&
-      identifier.trim() &&
-      isValidIdentifier(identifier) &&
       email.trim() &&
       isValidEmail(email) &&
+      phone.trim() &&
+      isValidPakistaniPhone(phone) &&
       password.length >= 6 &&
       password === confirmPassword,
-    [name, identifier, email, password, confirmPassword]
+    [name, email, phone, password, confirmPassword]
   );
 
   const canSendOtp = formReadyForOtp && !sendingOtp && !loading;
@@ -77,31 +67,18 @@ export default function SignupForm() {
     setInfo("");
   }
 
-  function onIdentifierChange(value) {
-    setIdentifier(value);
-    resetVerification();
-    if (!value.trim().includes("@")) {
-      setEmailTouched(false);
-    }
-  }
-
-  function onEmailChange(value) {
-    setEmail(value);
-    setEmailTouched(true);
-    resetVerification();
-  }
-
   async function onSendOtp() {
     setError("");
     setInfo("");
     const normalizedEmail = normalizeEmail(email);
+    const normalizedPhone = phone.trim();
     if (!formReadyForOtp || !isValidEmail(normalizedEmail)) return;
 
     setSendingOtp(true);
     try {
       const res = await requestSignupVerification({
         email: normalizedEmail,
-        identifier: identifier.trim(),
+        phone: normalizedPhone,
       });
       if (!res.verification_token) {
         setError("Unable to send verification code. Please try again.");
@@ -125,8 +102,8 @@ export default function SignupForm() {
     try {
       const normalizedEmail = normalizeEmail(email);
       const res = await signup({
-        identifier: identifier.trim(),
         email: normalizedEmail,
+        phone: phone.trim(),
         password,
         name: name.trim(),
         verification_token: verificationToken,
@@ -140,7 +117,7 @@ export default function SignupForm() {
       });
       localStorage.setItem(
         "citytag_last_login",
-        JSON.stringify({ email: identifier.trim(), role: "user" })
+        JSON.stringify({ email: normalizedEmail, role: "user" })
       );
       navigate("/devices");
     } catch (err) {
@@ -169,52 +146,51 @@ export default function SignupForm() {
 
       <div>
         <label className={labelCls}>
-          Email or Phone Number <span style={{ color: "#ef4444" }}>*</span>
-        </label>
-        <input
-          className={inputCls}
-          style={identifierError ? { borderColor: "#ef4444" } : {}}
-          value={identifier}
-          onChange={(e) => onIdentifierChange(e.target.value)}
-          type="text"
-          placeholder="Email or phone number"
-          autoComplete="username"
-          required
-        />
-        {identifierError && (
-          <p style={{ fontSize: 11, color: "#fca5a5", marginTop: 4 }}>
-            Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
-          </p>
-        )}
-      </div>
-
-      <div>
-        <label className={labelCls}>
           Email Address <span style={{ color: "#ef4444" }}>*</span>
         </label>
         <input
           className={inputCls}
           style={emailError ? { borderColor: "#ef4444" } : {}}
           value={email}
-          onChange={(e) => onEmailChange(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            resetVerification();
+          }}
           type="email"
           placeholder="you@example.com"
           autoComplete="email"
-          readOnly={emailAutoFilled}
           required
         />
-        {emailAutoFilled ? (
-          <p style={{ fontSize: 11, color: "#a1a1aa", marginTop: 4 }}>
-            Auto-filled from your email identifier
-          </p>
-        ) : (
-          <p style={{ fontSize: 11, color: "#a1a1aa", marginTop: 4 }}>
-            Required for phone signups — we&apos;ll send a verification code here
-          </p>
-        )}
+        <p style={{ fontSize: 11, color: "#a1a1aa", marginTop: 4 }}>
+          We&apos;ll send a verification code to this email
+        </p>
         {emailError && (
           <p style={{ fontSize: 11, color: "#fca5a5", marginTop: 4 }}>
             Enter a valid email address
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label className={labelCls}>
+          Phone Number <span style={{ color: "#ef4444" }}>*</span>
+        </label>
+        <input
+          className={inputCls}
+          style={phoneError ? { borderColor: "#ef4444" } : {}}
+          value={phone}
+          onChange={(e) => {
+            setPhone(e.target.value);
+            resetVerification();
+          }}
+          type="tel"
+          placeholder="03XXXXXXXXX or +92XXXXXXXXX"
+          autoComplete="tel"
+          required
+        />
+        {phoneError && (
+          <p style={{ fontSize: 11, color: "#fca5a5", marginTop: 4 }}>
+            Enter a valid Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
           </p>
         )}
       </div>

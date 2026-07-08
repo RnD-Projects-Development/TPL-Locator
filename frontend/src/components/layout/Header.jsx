@@ -9,6 +9,7 @@ import { useApp } from '../../App.jsx'
 import { useDashboardChrome } from '../../context/DashboardChromeContext.jsx'
 import Switch from '../Switch.jsx'
 import ModalPortal from '../common/ModalPortal.jsx'
+import { useCityTag } from '../../hooks/useCityTag.js'
 
 const crumbs = {
   '/dashboard':   ['Dashboard'],
@@ -88,7 +89,8 @@ export default function Header({ pageTheme, setPageTheme }) {
   const markAllRead = alertsCtx?.markAllRead
 
   const { user } = useApp()
-  const { updateProfile, logout } = useAuth()
+  const { updateProfile, logout, loginSuccess, accessToken, role } = useAuth()
+  const { getMyProfile, updateMyProfile } = useCityTag()
 
   // Page-registered topbar action (Export PDF on dashboard, Export CSV on devices, …).
   // Only the mounted page registers, so showing it whenever present is correct.
@@ -134,6 +136,18 @@ export default function Header({ pageTheme, setPageTheme }) {
   // Profile modal state
   const [showProfile,      setShowProfile]      = useState(false)
   const [profileName,      setProfileName]      = useState('')
+  const [profileEmail,     setProfileEmail]     = useState('')
+  const [profilePhone,     setProfilePhone]     = useState('')
+  const [profileCnic,      setProfileCnic]      = useState('')
+  const [profileCnicExpiry,setProfileCnicExpiry]= useState('')
+  const [profileLicenseNo, setProfileLicenseNo] = useState('')
+  const [profileLicenseExp,setProfileLicenseExp]= useState('')
+  const [profileEmergency, setProfileEmergency] = useState('')
+  const [profileAddress,   setProfileAddress]   = useState('')
+  const [profileImageFile, setProfileImageFile] = useState(null)
+  const [profileImageUrl,  setProfileImageUrl]  = useState('')
+  const [profileReady,     setProfileReady]     = useState(false)
+  const profileImageInputRef = useRef(null)
   const [profileCurrentPw, setProfileCurrentPw] = useState('')
   const [profileNewPw,     setProfileNewPw]     = useState('')
   const [profileConfirmPw, setProfileConfirmPw] = useState('')
@@ -142,12 +156,38 @@ export default function Header({ pageTheme, setPageTheme }) {
   const [profileLoading,   setProfileLoading]   = useState(false)
 
   useEffect(() => {
-    if (showProfile) {
-      setProfileName(user?.name || '')
-      setProfileCurrentPw(''); setProfileNewPw(''); setProfileConfirmPw('')
-      setProfileErr(''); setProfileSuccess('')
+    let cancelled = false
+    const loadProfile = async () => {
+      if (!showProfile) return
+      setProfileReady(false)
+      setProfileErr('')
+      setProfileSuccess('')
+      setProfileCurrentPw('')
+      setProfileNewPw('')
+      setProfileConfirmPw('')
+      setProfileImageFile(null)
+      try {
+        const p = await getMyProfile()
+        if (cancelled) return
+        setProfileName(p?.name || '')
+        setProfileEmail(p?.email || '')
+        setProfilePhone(p?.phone || '')
+        setProfileCnic(p?.cnic || '')
+        setProfileCnicExpiry(p?.cnic_expiry || '')
+        setProfileLicenseNo(p?.driving_license_no || '')
+        setProfileLicenseExp(p?.license_expiry || '')
+        setProfileEmergency(p?.emergency_contact || '')
+        setProfileAddress(p?.address || '')
+        setProfileImageUrl(p?.profile_image_url || '')
+      } catch (e) {
+        if (!cancelled) setProfileErr(e.message || 'Unable to load profile')
+      } finally {
+        if (!cancelled) setProfileReady(true)
+      }
     }
-  }, [showProfile, user?.name])
+    loadProfile()
+    return () => { cancelled = true }
+  }, [showProfile, getMyProfile])
 
   const handleProfileSave = async () => {
     setProfileErr(''); setProfileSuccess('')
@@ -159,13 +199,41 @@ export default function Header({ pageTheme, setPageTheme }) {
     }
     setProfileLoading(true)
     try {
-      const payload = {}
-      if (profileName.trim() && profileName.trim() !== user?.name) payload.name = profileName.trim()
-      if (changingPw) { payload.currentPassword = profileCurrentPw; payload.newPassword = profileNewPw }
-      if (Object.keys(payload).length === 0) { setProfileErr('No changes to save.'); setProfileLoading(false); return }
-      await updateProfile(payload)
+      const profilePayload = {
+        name: profileName,
+        cnic: profileCnic,
+        cnic_expiry: profileCnicExpiry,
+        driving_license_no: profileLicenseNo,
+        license_expiry: profileLicenseExp,
+        emergency_contact: profileEmergency,
+        address: profileAddress,
+        ...(profileImageFile ? { profile_image: profileImageFile } : {}),
+      }
+      await updateMyProfile(profilePayload)
+
+      if (changingPw) {
+        await updateProfile({ currentPassword: profileCurrentPw, newPassword: profileNewPw })
+      }
+
+      const updatedUser = {
+        ...(user || {}),
+        name: profileName?.trim() || user?.name || '',
+        email: profileEmail || user?.email || '',
+        phone: profilePhone || user?.phone || '',
+      }
+      loginSuccess({
+        user: updatedUser,
+        accessToken,
+        role: role || (user?.role ?? 'user'),
+      })
+
       setProfileSuccess('Profile updated successfully.')
       setProfileCurrentPw(''); setProfileNewPw(''); setProfileConfirmPw('')
+      setProfileImageFile(null)
+      try {
+        const refreshed = await getMyProfile()
+        setProfileImageUrl(refreshed?.profile_image_url || '')
+      } catch {}
     } catch (e) {
       setProfileErr(e.message || 'Update failed.')
     } finally {
@@ -471,26 +539,119 @@ export default function Header({ pageTheme, setPageTheme }) {
                 boxShadow: '0 24px 64px rgba(0,0,0,0.80)', width: '100%', maxWidth: 420, padding: 28 }}>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
-                <div style={{ width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#fff', fontSize: 16, fontWeight: 700 }}>
-                  {initials}
+                <div style={{ position: 'relative', width: 54, height: 54, flexShrink: 0 }}>
+                  {profileImageUrl ? (
+                    <img
+                      src={profileImageUrl}
+                      alt="Profile"
+                      style={{ width: 54, height: 54, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }}
+                    />
+                  ) : (
+                    <div style={{ width: 54, height: 54, borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', fontSize: 16, fontWeight: 700 }}>
+                      {initials}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => profileImageInputRef.current?.click()}
+                    style={{
+                      position: 'absolute', right: -4, bottom: -4, width: 22, height: 22, borderRadius: '50%',
+                      border: 'none', background: '#A72C32', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                    }}
+                    title="Upload profile image"
+                  >
+                    +
+                  </button>
+                  <input
+                    ref={profileImageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      setProfileImageFile(file)
+                      setProfileImageUrl(URL.createObjectURL(file))
+                    }}
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Profile Settings</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.42)', marginTop: 2 }}>{user?.email}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.42)', marginTop: 2 }}>{profileEmail || user?.email}</div>
                 </div>
               </div>
 
+              {!profileReady ? (
+                <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginBottom: 14 }}>Loading profile...</div>
+              ) : null}
+
               <div style={{ marginBottom: 14 }}>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Display Name
+                  Name
                 </label>
                 <input value={profileName} onChange={e => setProfileName(e.target.value)}
                   placeholder="Your name" style={{ ...inp }}
                   onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
                   onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Email (read only)
+                </label>
+                <input value={profileEmail} readOnly style={{ ...inp, opacity: 0.75 }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Phone (read only)
+                </label>
+                <input value={profilePhone || ''} readOnly style={{ ...inp, opacity: 0.75 }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  CNIC / ID Number
+                </label>
+                <input value={profileCnic} onChange={e => setProfileCnic(e.target.value)} placeholder="12345-1234567-1" style={{ ...inp }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  CNIC Expiry
+                </label>
+                <input type="date" value={profileCnicExpiry} onChange={e => setProfileCnicExpiry(e.target.value)} style={{ ...inp }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Driving License No.
+                </label>
+                <input value={profileLicenseNo} onChange={e => setProfileLicenseNo(e.target.value)} placeholder="ABC12345" style={{ ...inp }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  License Expiry
+                </label>
+                <input type="date" value={profileLicenseExp} onChange={e => setProfileLicenseExp(e.target.value)} style={{ ...inp }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Emergency Contact
+                </label>
+                <input value={profileEmergency} onChange={e => setProfileEmergency(e.target.value)} placeholder="03001234567" style={{ ...inp }} />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Address
+                </label>
+                <input value={profileAddress} onChange={e => setProfileAddress(e.target.value)} placeholder="Lahore" style={{ ...inp }} />
               </div>
 
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '18px 0' }} />

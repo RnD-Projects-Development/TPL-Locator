@@ -1,28 +1,33 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isValidEmail, normalizeEmail } from "../utils/email.js";
-import { isValidIdentifier } from "../utils/userContact.js";
+import { isValidIdentifier, isValidPakistaniPhone } from "../utils/userContact.js";
 import ForgotPasswordForm from "./ForgotPasswordForm.jsx";
 
 const MODE = { LOGIN: "login", SIGNUP: "signup", FORGOT: "forgot" };
+const LOGIN_METHOD = { PASSWORD: "password", OTP: "otp" };
 
 export default function LoginForm() {
   const navigate = useNavigate();
-  const { login, signup, requestSignupVerification } = useCityTag();
+  const { login, signup, requestSignupVerification, requestLoginOtp } = useCityTag();
   const { loginSuccess } = useAuth();
 
   const [mode, setMode] = useState(MODE.LOGIN);
+  const [loginMethod, setLoginMethod] = useState(LOGIN_METHOD.PASSWORD);
   const [name, setName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
-  const [emailTouched, setEmailTouched] = useState(false);
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
+  const [loginToken, setLoginToken] = useState("");
   const [otpSent, setOtpSent] = useState(false);
+  const [loginOtpSent, setLoginOtpSent] = useState(false);
+  const [deliveryEmail, setDeliveryEmail] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -31,35 +36,39 @@ export default function LoginForm() {
   const isSignup = mode === MODE.SIGNUP;
   const isLogin = mode === MODE.LOGIN;
   const isForgot = mode === MODE.FORGOT;
+  const isPasswordLogin = isLogin && loginMethod === LOGIN_METHOD.PASSWORD;
+  const isOtpLogin = isLogin && loginMethod === LOGIN_METHOD.OTP;
 
-  const identifierIsEmail = identifier.trim().includes("@");
-  const emailAutoFilled = identifierIsEmail && isValidEmail(identifier);
   const identifierError = identifier && !isValidIdentifier(identifier);
   const emailError = email && !isValidEmail(email);
-
-  useEffect(() => {
-    if (isSignup && emailAutoFilled && !emailTouched) {
-      setEmail(normalizeEmail(identifier));
-    }
-  }, [isSignup, identifier, emailAutoFilled, emailTouched]);
+  const phoneError = phone && !isValidPakistaniPhone(phone);
 
   const signupFormReady =
     name.trim() &&
-    identifier.trim() &&
-    isValidIdentifier(identifier) &&
     email.trim() &&
     isValidEmail(email) &&
+    phone.trim() &&
+    isValidPakistaniPhone(phone) &&
     password.length >= 6 &&
     confirmPassword &&
     password === confirmPassword;
 
   const canSendOtp = isSignup && signupFormReady && !sendingOtp && !loading;
 
+  const canSendLoginOtp =
+    isOtpLogin &&
+    identifier.trim() &&
+    isValidIdentifier(identifier) &&
+    !sendingOtp &&
+    !loading;
+
   const canSubmit = (() => {
     if (loading || sendingOtp) return false;
-    if (!identifier.trim() || !password) return false;
-    if (!isValidIdentifier(identifier)) return false;
-    if (isLogin) return true;
+    if (isLogin) {
+      if (!identifier.trim() || !isValidIdentifier(identifier)) return false;
+      if (isPasswordLogin) return Boolean(password);
+      return loginOtpSent && loginToken && otp.trim().length >= 4;
+    }
     if (!signupFormReady) return false;
     return otpSent && verificationToken && otp.trim().length >= 4;
   })();
@@ -71,28 +80,55 @@ export default function LoginForm() {
     setInfo("");
   }
 
+  function resetLoginOtp() {
+    setOtp("");
+    setLoginToken("");
+    setLoginOtpSent(false);
+    setDeliveryEmail("");
+    setInfo("");
+  }
+
   function switchMode(newMode) {
     setMode(newMode);
     setError("");
     setInfo("");
     setConfirmPassword("");
     setEmail("");
-    setEmailTouched(false);
+    setPhone("");
+    setLoginMethod(LOGIN_METHOD.PASSWORD);
     resetVerification();
+    resetLoginOtp();
   }
 
-  function onIdentifierChange(value) {
-    setIdentifier(value);
-    resetVerification();
-    if (!value.trim().includes("@")) {
-      setEmailTouched(false);
+  function switchLoginMethod(method) {
+    setLoginMethod(method);
+    setError("");
+    setInfo("");
+    setPassword("");
+    resetLoginOtp();
+  }
+
+  async function onSendLoginOtp() {
+    setError("");
+    setInfo("");
+    if (!canSendLoginOtp) return;
+
+    setSendingOtp(true);
+    try {
+      const res = await requestLoginOtp({ identifier: identifier.trim() });
+      if (!res.login_token) {
+        setError("Unable to send login code. Please try again.");
+        return;
+      }
+      setLoginToken(res.login_token);
+      setLoginOtpSent(true);
+      setDeliveryEmail(res.delivery_email || "");
+      setInfo(res.message || "Login code sent. Check your email.");
+    } catch (err) {
+      setError(err.message || "Unable to send login code");
+    } finally {
+      setSendingOtp(false);
     }
-  }
-
-  function onEmailChange(value) {
-    setEmail(value);
-    setEmailTouched(true);
-    resetVerification();
   }
 
   async function onSendOtp() {
@@ -105,7 +141,7 @@ export default function LoginForm() {
     try {
       const res = await requestSignupVerification({
         email: normalizedEmail,
-        identifier: identifier.trim(),
+        phone: phone.trim(),
       });
       if (!res.verification_token) {
         setError("Unable to send verification code. Please try again.");
@@ -129,15 +165,15 @@ export default function LoginForm() {
       if (isSignup) {
         const normalizedEmail = normalizeEmail(email);
         await signup({
-          identifier: identifier.trim(),
           email: normalizedEmail,
+          phone: phone.trim(),
           password,
           name: name.trim(),
           verification_token: verificationToken,
           otp: otp.trim(),
         });
         const res = await login({
-          identifier: identifier.trim(),
+          identifier: normalizedEmail,
           password,
         });
         loginSuccess({
@@ -147,10 +183,14 @@ export default function LoginForm() {
         });
         navigate("/devices");
       } else {
-        const res = await login({
-          identifier: identifier.trim(),
-          password,
-        });
+        const loginPayload = { identifier: identifier.trim() };
+        if (isPasswordLogin) {
+          loginPayload.password = password;
+        } else {
+          loginPayload.otp = otp.trim();
+          loginPayload.login_token = loginToken;
+        }
+        const res = await login(loginPayload);
         loginSuccess({
           user: res.account ?? null,
           accessToken: res.access_token,
@@ -218,58 +258,125 @@ export default function LoginForm() {
           </div>
         )}
 
-        <div>
-          <label className="block text-sm font-medium text-white">Email or Phone Number</label>
-          <input
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-            style={{ borderColor: identifierError ? "#ef4444" : "#cbd5e1" }}
-            value={identifier}
-            onChange={(e) => onIdentifierChange(e.target.value)}
-            type="text"
-            autoComplete="username"
-            placeholder="Email or phone number"
-            required
-          />
-          {identifierError && (
-            <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
-              Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
-            </p>
-          )}
-        </div>
-
-        {isSignup && (
+        {isLogin && (
           <div>
-            <label className="block text-sm font-medium text-white">Email Address</label>
+            <label className="block text-sm font-medium text-white">Email or Phone Number</label>
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-              style={{ borderColor: emailError ? "#ef4444" : "#cbd5e1" }}
-              value={email}
-              onChange={(e) => onEmailChange(e.target.value)}
-              type="email"
-              autoComplete="email"
-              placeholder="you@example.com"
-              readOnly={emailAutoFilled}
+              style={{ borderColor: identifierError ? "#ef4444" : "#cbd5e1" }}
+              value={identifier}
+              onChange={(e) => {
+                setIdentifier(e.target.value);
+                resetLoginOtp();
+              }}
+              type="text"
+              autoComplete="username"
+              placeholder="Email or phone number"
               required
             />
-            {emailAutoFilled ? (
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-                Auto-filled from your email identifier
+            {identifierError && (
+              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+                Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
               </p>
-            ) : (
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-                Required for phone signups — we&apos;ll send a verification code here
-              </p>
-            )}
-            {emailError && (
-              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>Enter a valid email address</p>
             )}
           </div>
         )}
 
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label className="block text-sm font-medium text-white">Password</label>
-            {isLogin && (
+        {isLogin && (
+          <div>
+            <label className="block text-sm font-medium text-white mb-2">Sign in with</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => switchLoginMethod(LOGIN_METHOD.PASSWORD)}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: loginMethod === LOGIN_METHOD.PASSWORD ? "2px solid #cc4444" : "1px solid #cbd5e1",
+                  background: loginMethod === LOGIN_METHOD.PASSWORD ? "rgba(204,68,68,0.15)" : "#fff",
+                  color: loginMethod === LOGIN_METHOD.PASSWORD ? "#cc4444" : "#334155",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Password
+              </button>
+              <button
+                type="button"
+                onClick={() => switchLoginMethod(LOGIN_METHOD.OTP)}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: loginMethod === LOGIN_METHOD.OTP ? "2px solid #cc4444" : "1px solid #cbd5e1",
+                  background: loginMethod === LOGIN_METHOD.OTP ? "rgba(204,68,68,0.15)" : "#fff",
+                  color: loginMethod === LOGIN_METHOD.OTP ? "#cc4444" : "#334155",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                OTP
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isSignup && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-white">Email Address</label>
+              <input
+                className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+                style={{ borderColor: emailError ? "#ef4444" : "#cbd5e1" }}
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  resetVerification();
+                }}
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                required
+              />
+              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+                We&apos;ll send a verification code to this email
+              </p>
+              {emailError && (
+                <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>Enter a valid email address</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white">Phone Number</label>
+              <input
+                className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+                style={{ borderColor: phoneError ? "#ef4444" : "#cbd5e1" }}
+                value={phone}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  resetVerification();
+                }}
+                type="tel"
+                autoComplete="tel"
+                placeholder="03XXXXXXXXX or +92XXXXXXXXX"
+                required
+              />
+              {phoneError && (
+                <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+                  Enter a valid Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
+        {isPasswordLogin && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label className="block text-sm font-medium text-white">Password</label>
               <button
                 type="button"
                 onClick={() => switchMode(MODE.FORGOT)}
@@ -287,18 +394,32 @@ export default function LoginForm() {
               >
                 Forgot password?
               </button>
-            )}
+            </div>
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              autoComplete="current-password"
+              required
+            />
           </div>
-          <input
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            autoComplete={isSignup ? "new-password" : "current-password"}
-            minLength={isSignup ? 6 : undefined}
-            required
-          />
-        </div>
+        )}
+
+        {isSignup && (
+          <div>
+            <label className="block text-sm font-medium text-white">Password</label>
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              autoComplete="new-password"
+              minLength={6}
+              required
+            />
+          </div>
+        )}
 
         {isSignup && (
           <div>
@@ -316,6 +437,55 @@ export default function LoginForm() {
                 Passwords do not match
               </p>
             )}
+          </div>
+        )}
+
+        {isOtpLogin && !loginOtpSent && (
+          <button
+            type="button"
+            disabled={!canSendLoginOtp}
+            onClick={onSendLoginOtp}
+            className="w-full rounded-lg border border-slate-400 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/10 transition"
+          >
+            {sendingOtp ? "Sending code..." : "Send login code"}
+          </button>
+        )}
+
+        {isOtpLogin && loginOtpSent && (
+          <div>
+            <label className="block text-sm font-medium text-white">Login Code</label>
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              required
+            />
+            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+              Enter the code sent to{" "}
+              <strong style={{ color: "#fff" }}>{deliveryEmail || "your email"}</strong>
+            </p>
+            <button
+              type="button"
+              disabled={sendingOtp}
+              onClick={onSendLoginOtp}
+              style={{
+                marginTop: 8,
+                background: "none",
+                border: "none",
+                color: "#cc4444",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 12,
+                textDecoration: "underline",
+                textUnderlineOffset: 2,
+              }}
+            >
+              Resend code
+            </button>
           </div>
         )}
 
