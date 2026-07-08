@@ -7,6 +7,30 @@ import { getCoords } from "./stopClustering.js";
 const cache = new Map();
 const pending = new Map();
 
+// Limit concurrent lookups — a large playback range would otherwise fire
+// hundreds of simultaneous reverse-geocode requests (up to 3 network calls
+// each) the moment its pins mount, saturating the browser's connection pool
+// and making the whole page lag. Queued lookups still all resolve; labels
+// just fill in progressively.
+const MAX_CONCURRENT_LOOKUPS = 4;
+let activeLookups = 0;
+const lookupQueue = [];
+
+function pumpLookupQueue() {
+  while (activeLookups < MAX_CONCURRENT_LOOKUPS && lookupQueue.length > 0) {
+    const job = lookupQueue.shift();
+    activeLookups += 1;
+    job().finally(() => { activeLookups -= 1; pumpLookupQueue(); });
+  }
+}
+
+function enqueueLookup(fn) {
+  return new Promise((resolve) => {
+    lookupQueue.push(() => fn().then(resolve));
+    pumpLookupQueue();
+  });
+}
+
 function keyFor(lat, lng) {
   return `${lat.toFixed(5)},${lng.toFixed(5)}`;
 }
@@ -37,7 +61,7 @@ export function resolveGeocode(point, getGeocode) {
   if (cache.has(key)) return Promise.resolve(cache.get(key));
   if (pending.has(key)) return pending.get(key);
 
-  const promise = (async () => {
+  const promise = enqueueLookup(async () => {
     let label = null;
     // TPL Maps is Pakistan-only — for out-of-Pakistan points it's guaranteed
     // to fail, and the backend call alone can take up to 20s to time out.
@@ -59,7 +83,7 @@ export function resolveGeocode(point, getGeocode) {
     cache.set(key, parsed);
     pending.delete(key);
     return parsed;
-  })();
+  });
 
   pending.set(key, promise);
   return promise;

@@ -60,18 +60,18 @@ function DeviceRow({ device, selectedSn, onSelect }) {
       <div className="dsb-info">
         <div className="dsb-sn">{assignedUser || sn}</div>
         {assignedUser && (
-          <div className="dsb-client" style={{ fontFamily: "monospace", fontSize: 10, opacity: 0.6 }}>
+          <div className="dsb-client" style={{ fontFamily: "monospace", fontSize: '0.625em', opacity: 0.6 }}>
             {sn}
           </div>
         )}
         {client && <div className="dsb-client">{client}</div>}
         {!isBound && (
-          <div style={{ fontSize: 9, color: "#52525b", marginTop: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div style={{ fontSize: '0.5625em', color: "#52525b", marginTop: '0.125em', fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             Unbound
           </div>
         )}
         {isBound && bindTime && (
-          <div style={{ fontSize: 9, color: "#52525b", marginTop: 3, display: "flex", alignItems: "center", gap: 3 }}>
+          <div style={{ fontSize: '0.5625em', color: "#52525b", marginTop: '0.1875em', display: "flex", alignItems: "center", gap: '0.1875em' }}>
             <svg viewBox="0 0 20 20" fill="currentColor" width={8} height={8}>
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/>
             </svg>
@@ -163,14 +163,14 @@ export default function DeviceSidebar({ selectedSn, onSelect, scope = "trajector
       </div>
 
       {/* ── Device type filter ───────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: 3, padding: "6px 8px", borderBottom: "1px solid #1f1f22" }}>
+      <div style={{ display: "flex", gap: '0.1875em', padding: "0.375em 0.5em", borderBottom: "1px solid #1f1f22" }}>
         {TYPE_TABS.map(({ key, label }) => (
           <button
             key={String(key)}
             onClick={() => setDeviceTypeFilter(key)}
             style={{
-              flex: 1, padding: "4px 0", borderRadius: 6, border: "none",
-              fontSize: 10, fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
+              flex: 1, padding: "0.25em 0", borderRadius: '0.375em', border: "none",
+              fontSize: '0.625em', fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
               background: deviceTypeFilter === key ? "#A72C32" : "rgba(255,255,255,0.05)",
               color:      deviceTypeFilter === key ? "#FFFFFF"  : "#71717a",
             }}
@@ -202,7 +202,7 @@ export default function DeviceSidebar({ selectedSn, onSelect, scope = "trajector
       <div className="dsb-list">
 
         {loading && (
-          <div className="dsb-state" style={{ flexDirection: "column", gap: 10 }}>
+          <div className="dsb-state" style={{ flexDirection: "column", gap: '0.625em' }}>
             <style>{`
               @keyframes tpl-pulse {
                 0%   { opacity: 0.15; transform: scale(0.95); }
@@ -214,13 +214,13 @@ export default function DeviceSidebar({ selectedSn, onSelect, scope = "trajector
               src={tplLogo}
               alt="Loading"
               style={{
-                width: 48,
+                width: '3em',
                 height: "auto",
                 filter: "brightness(0) invert(1)",
                 animation: "tpl-pulse 1.6s ease-in-out infinite",
               }}
             />
-            <span style={{ fontSize: 10, color: "#52525b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            <span style={{ fontSize: '0.625em', color: "#52525b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
               {isSearching ? "Searching…" : `Loading ${emptyLabel}…`}
             </span>
           </div>

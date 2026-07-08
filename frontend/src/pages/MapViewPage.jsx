@@ -4,8 +4,10 @@ import MapView from "../components/MapView.jsx";
 import MultiDeviceSidebar from "../components/MultiDeviceSidebar.jsx";
 import MapInfoPanel from "../components/MapInfoPanel.jsx";
 import TPLLoader from "../components/TPLLoader.jsx";
+import LocatingOverlay from "../components/LocatingOverlay.jsx";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
+import { useResizablePanel } from "../hooks/useResizablePanel.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { deviceColor } from "../utils/zonePolygonManager.js";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
@@ -45,6 +47,19 @@ export default function MapViewPage() {
   const [error, setError]             = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [showFences, setShowFences]   = useState(false);
+
+  // User-adjustable sidebar widths (drag the divider, double-click to reset).
+  const leftPanel  = useResizablePanel("mv_sidebar_left_w",  { defaultWidth: 260, min: 200, max: 480, edge: "right" });
+  const rightPanel = useResizablePanel("mv_sidebar_right_w", { defaultWidth: 232, min: 200, max: 520, edge: "left" });
+
+  // Clicking a device in the right info panel focuses it AND flies the map
+  // to its latest position (fresh object per click so re-clicks re-center).
+  const [focusTarget, setFocusTarget] = useState(null);
+  const handlePanelFocus = useCallback((sn) => {
+    setFocusedSn(sn);
+    const point = deviceLocations[sn];
+    if (point) setFocusTarget({ ...point, __focusKey: Date.now() });
+  }, [deviceLocations]);
 
   useEffect(() => {
     saveSidebarScopeState(MAP_SCOPE, {
@@ -161,8 +176,6 @@ export default function MapViewPage() {
     }
   }, [selectedSns, focusedSn]);
 
-  const focusedDevice = focusedSn ? multiDevices.find(d => d.sn === focusedSn) : null;
-
   // Most recent actual location timestamp across the selected devices
   // (the device's last online time — NOT the wall-clock fetch time).
   const lastSeenTime = useMemo(() => {
@@ -230,16 +243,19 @@ export default function MapViewPage() {
       )}
 
       <div className="mv-body">
-        <MultiDeviceSidebar
-          scope={MAP_SCOPE}
-          selectedSns={selectedSns}
-          onSelectionChange={handleSelectionChange}
-          deviceLocations={deviceLocations}
-          fetchingAll={loading}
-        />
+        <div className="pb-panel-resizable" style={{ width: leftPanel.width }}>
+          <MultiDeviceSidebar
+            scope={MAP_SCOPE}
+            selectedSns={selectedSns}
+            onSelectionChange={handleSelectionChange}
+            deviceLocations={deviceLocations}
+            fetchingAll={loading}
+          />
+        </div>
+        <div className="pb-resizer" {...leftPanel.handleProps} />
 
         <div className="mv-map-area">
-          <div className="mv-map-wrap">
+          <div className="mv-map-wrap" style={{ cursor: loading ? "progress" : undefined }}>
             <MapView
               sn=""
               label=""
@@ -250,11 +266,15 @@ export default function MapViewPage() {
               showFences={showFences}
               zones={zones}
               onFocusDevice={setFocusedSn}
+              focusPoint={focusTarget}
             />
-            {/* Branded loader only on the FIRST fetch (nothing on the map yet) —
-                not on every auto-refresh tick. */}
-            {loading && onlineCount === 0 && selectedSns.size > 0 && (
-              <TPLLoader overlay label="Fetching live locations…" />
+            {/* Branded loader while fetching current location */}
+            {selectedSns.size > 0 && (
+              <LocatingOverlay 
+                isVisible={loading} 
+                error={error} 
+                onRetry={refresh} 
+              />
             )}
           </div>
 
@@ -282,14 +302,14 @@ export default function MapViewPage() {
           )}
         </div>
 
+        <div className="pb-resizer" {...rightPanel.handleProps} />
         <MapInfoPanel
-          sn={focusedSn || ""}
-          deviceName={focusedDevice?.label}
-          point={focusedDevice?.latest}
-          detections={focusedSn ? (detectionCounts[focusedSn] ?? 0) : 0}
-          online={focusedDevice ? focusedDevice.latest != null : null}
+          devices={multiDevices.map(d => ({ ...d, detections: detectionCounts[d.sn] ?? 0 }))}
+          focusedSn={focusedSn}
+          onFocus={handlePanelFocus}
           detectionsLabel="Live updates"
-          emptyHint={selectedSns.size > 0 ? "Click a device marker to view its live details" : "Select a device to view its live details"}
+          emptyHint="Select a device to view its live details"
+          width={rightPanel.width}
         />
       </div>
     </div>

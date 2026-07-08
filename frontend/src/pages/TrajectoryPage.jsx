@@ -99,7 +99,7 @@ export default function TrajectoryPage() {
   const [sn, setSn] = useState(() => {
     const param = searchParams.get("device");
     if (param) return param;
-    return loadSidebarScopeState(TRAJECTORY_SCOPE).selectedSn || "";
+    return "";
   });
   const [sessionTraj, setSessionTraj]       = useState([]);
   const [historicalTraj, setHistoricalTraj] = useState([]);
@@ -137,7 +137,7 @@ export default function TrajectoryPage() {
   }, [sn, getLatestLocation]);
 
   useEffect(() => {
-    if (sn) saveSidebarScopeState(TRAJECTORY_SCOPE, { selectedSn: sn });
+    saveSidebarScopeState(TRAJECTORY_SCOPE, { selectedSn: sn || null });
   }, [sn]);
 
   useEffect(() => {

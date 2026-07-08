@@ -5,10 +5,12 @@ import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useZoneCache } from '../context/ZoneCacheContext.jsx';
 import { createPolygonManager, pointInPolygon, pointInMultiPolygon } from '../utils/zonePolygonManager.js';
+import { useResizablePanel } from '../hooks/useResizablePanel.js';
 import ZoneSidebar from '../components/ZoneSidebar.jsx';
 import ZoneToolbox from '../components/ZoneToolbox.jsx';
 import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
+import { frameBounds } from '../utils/frameBounds.js';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -87,6 +89,9 @@ function FencePageInner() {
   const [tracksLoading,   setTracksLoading]   = useState(false);
   const [tracksFetchKey,  setTracksFetchKey]  = useState(0);
   const [tracksRangeDays, setTracksRangeDays] = useState(7);
+
+  // User-adjustable zone sidebar width (drag the divider, double-click resets).
+  const zonePanel = useResizablePanel('fp_sidebar_w', { defaultWidth: 260, min: 220, max: 480, edge: 'right' });
 
   // Keep refs in sync
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
@@ -183,7 +188,7 @@ function FencePageInner() {
     if (pts.length < 2) return;
     try {
       const bounds = window.L.latLngBounds(pts);
-      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+      frameBounds(mapRef.current, bounds, { padding: [50, 50], maxZoom: 17 });
     } catch {}
   }, [selectedZoneId, mapReady, zones]);
 
@@ -389,6 +394,7 @@ function FencePageInner() {
 
       {/* Body */}
       <div className="fp-body">
+        <div className="pb-panel-resizable" style={{ width: zonePanel.width }}>
         <ZoneSidebar
           zones={zones}
           selectedZoneId={selectedZoneId}
@@ -408,6 +414,8 @@ function FencePageInner() {
           onEditZone={isAdmin ? handleEditZone : null}
           onDeleteZone={isAdmin ? handleDeleteZone : null}
         />
+        </div>
+        <div className="pb-resizer" {...zonePanel.handleProps} />
         <div className="fp-map-wrap" ref={mapWrapRef}>
           <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />
           {tracksLoading && <TPLLoader overlay label="Fetching GPS tracks…" />}

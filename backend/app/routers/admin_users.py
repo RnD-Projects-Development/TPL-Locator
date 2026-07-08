@@ -180,8 +180,16 @@ async def admin_list_users(
             elif isinstance(created_at, datetime):
                 created_at = _dt_iso(created_at)
             last_logged_in = user_dict.get("last_logged_in")
+            last_logged_out = user_dict.get("last_logged_out")
+            # Online = logged in and no logout recorded since that login.
+            is_online = isinstance(last_logged_in, datetime) and (
+                not isinstance(last_logged_out, datetime)
+                or last_logged_in > last_logged_out
+            )
             if isinstance(last_logged_in, datetime):
                 last_logged_in = _dt_iso(last_logged_in)
+            if isinstance(last_logged_out, datetime):
+                last_logged_out = _dt_iso(last_logged_out)
             raw_email = user_dict.get("email", "")
             raw_phone = user_dict.get("phone")
             result.append({
@@ -194,6 +202,8 @@ async def admin_list_users(
                 "devices":        devices,
                 "created_at":     created_at,
                 "last_logged_in": last_logged_in,
+                "last_logged_out": last_logged_out,
+                "is_online":      is_online,
             })
         logger.info("admin_list_users completed admin=%s count=%s", current_admin.email, len(result))
         return result

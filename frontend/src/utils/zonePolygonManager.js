@@ -1,5 +1,6 @@
 // src/utils/zonePolygonManager.js
 // Pure JS utility — no React imports.
+import { frameBounds } from './frameBounds.js';
 
 const DEFAULT_STYLE = {
   color:       '#C1121F',
@@ -264,7 +265,7 @@ export function createPolygonManager(map) {
           map.setView([zones[0].center.lat, zones[0].center.lng], 14);
         } else {
           const bounds = window.L.latLngBounds(allLatLngs);
-          if (bounds.isValid()) map.fitBounds(bounds, { padding: [48, 48] });
+          if (bounds.isValid()) frameBounds(map, bounds, { padding: [48, 48] });
         }
       } catch (e) {
         console.warn('[ZonePolygonManager] fitAll failed:', e);
@@ -291,7 +292,7 @@ export function createPolygonManager(map) {
       try {
         const bounds = polygon.getBounds();
         if (bounds && bounds.isValid()) {
-          map.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+          frameBounds(map, bounds, { padding: [60, 60], maxZoom: 16 });
         }
       } catch (e) {
         console.warn('[ZonePolygonManager] selectZone fitBounds failed:', e);

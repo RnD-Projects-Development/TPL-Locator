@@ -14,19 +14,19 @@ import "./DevicesPage.css";
 const SELECT_STYLE = {
   width: "100%",
   background: "#18181b",
-  border: "1px solid #3f3f46",
-  borderRadius: 8,
-  padding: "10px 12px",
+  border: "0.0625em solid #3f3f46",
+  borderRadius: '0.5em',
+  padding: "0.625em 0.75em",
   color: "#f4f4f5",
-  fontSize: 13,
+  fontSize: '0.8125em',
   outline: "none",
   cursor: "pointer",
   appearance: "none",
   WebkitAppearance: "none",
   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='%2371717a'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E")`,
   backgroundRepeat: "no-repeat",
-  backgroundPosition: "right 12px center",
-  paddingRight: 36,
+  backgroundPosition: "right 0.75em center",
+  paddingRight: '2.25em',
 };
 
 const SELECT_OPTION_STYLE = { background: "#27272a", color: "#f4f4f5" };
@@ -324,7 +324,7 @@ const HomePage = () => {
   const displayError   = error || devicesError;
 
   return (
-    <div className="home-page">
+    <div className="home-page" style={{ fontSize: 'clamp(10px, 1.6vh, 18px)' }}>
       <div className="hp-watermark" aria-hidden="true"><img src={tplLogo} alt="" /></div>
 
       <div className="hp-content">
@@ -383,7 +383,7 @@ const HomePage = () => {
 
               <button
                 onClick={() => viewMode === 'devices' ? refreshDevices() : refreshUsers()}
-                style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', background:'transparent', border:'1px solid #3f3f46', borderRadius:8, color:'#a1a1aa', fontSize:12, cursor:'pointer' }}
+                style={{ display:'flex', alignItems:'center', gap: '0.375em', padding:'0.5em 0.875em', background:'transparent', border:'0.0625em solid #3f3f46', borderRadius: '0.5em', color:'#a1a1aa', fontSize: '0.75em', cursor:'pointer' }}
               >
                 <svg viewBox="0 0 20 20" fill="currentColor" width={14} height={14}>
                   <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
@@ -394,9 +394,9 @@ const HomePage = () => {
           </div>
 
           {displayError && (
-            <div style={{ padding:'10px 16px', marginBottom:12, background:'rgba(127,29,29,0.2)', border:'1px solid rgba(127,29,29,0.4)', borderRadius:8, color:'#fca5a5', fontSize:13, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ padding:'0.625em 1em', marginBottom: '0.75em', background:'rgba(127,29,29,0.2)', border:'0.0625em solid rgba(127,29,29,0.4)', borderRadius: '0.5em', color:'#fca5a5', fontSize: '0.8125em', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               {displayError}
-              <button onClick={() => setError('')} style={{ background:'none', border:'none', color:'#fca5a5', cursor:'pointer', fontSize:16 }}>✕</button>
+              <button onClick={() => setError('')} style={{ background:'none', border:'none', color:'#fca5a5', cursor:'pointer', fontSize: '1em' }}>✕</button>
             </div>
           )}
 
@@ -420,14 +420,14 @@ const HomePage = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: 12,
-                marginTop: 14,
-                padding: '12px 14px',
-                border: '1px solid rgba(63,63,70,0.9)',
-                borderRadius: 10,
+                gap: '0.75em',
+                marginTop: '0.875em',
+                padding: '0.75em 0.875em',
+                border: '0.0625em solid rgba(63,63,70,0.9)',
+                borderRadius: '0.625em',
                 background: 'rgba(24,24,27,0.75)',
                 color: '#a1a1aa',
-                fontSize: 12,
+                fontSize: '0.75em',
                 flexWrap: 'wrap',
               }}>
                 <button
@@ -435,9 +435,9 @@ const HomePage = () => {
                   onClick={() => goToPage(page - 1)}
                   disabled={!hasPreviousPage || loading}
                   style={{
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    border: '1px solid #3f3f46',
+                    padding: '0.5em 0.75em',
+                    borderRadius: '0.5em',
+                    border: '0.0625em solid #3f3f46',
                     background: !hasPreviousPage || loading ? 'rgba(39,39,42,0.4)' : '#18181b',
                     color: !hasPreviousPage || loading ? '#52525b' : '#f4f4f5',
                     cursor: !hasPreviousPage || loading ? 'not-allowed' : 'pointer',
@@ -456,9 +456,9 @@ const HomePage = () => {
                   onClick={() => goToPage(page + 1)}
                   disabled={!hasNextPage || loading}
                   style={{
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    border: '1px solid #3f3f46',
+                    padding: '0.5em 0.75em',
+                    borderRadius: '0.5em',
+                    border: '0.0625em solid #3f3f46',
                     background: !hasNextPage || loading ? 'rgba(39,39,42,0.4)' : '#18181b',
                     color: !hasNextPage || loading ? '#52525b' : '#f4f4f5',
                     cursor: !hasNextPage || loading ? 'not-allowed' : 'pointer',
@@ -491,7 +491,7 @@ const HomePage = () => {
 
             <div className="hp-modal-body">
               {bindError && (
-                <div style={{ padding:'8px 12px', marginBottom:12, background:'rgba(127,29,29,0.2)', border:'1px solid rgba(127,29,29,0.4)', borderRadius:6, color:'#fca5a5', fontSize:12 }}>
+                <div style={{ padding:'0.5em 0.75em', marginBottom: '0.75em', background:'rgba(127,29,29,0.2)', border:'0.0625em solid rgba(127,29,29,0.4)', borderRadius: '0.375em', color:'#fca5a5', fontSize: '0.75em' }}>
                   {bindError}
                 </div>
               )}
@@ -501,9 +501,9 @@ const HomePage = () => {
                   <div className="hp-modal-field">
                     <label>Serial Number <span className="required">*</span></label>
                     {availableDevicesLoading ? (
-                      <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>Loading available locators…</p>
+                      <p style={{ color:'#71717a', fontSize: '0.75em', margin:'0.25em 0 0' }}>Loading available locators…</p>
                     ) : unboundDevices.length === 0 ? (
-                      <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>No unbound locators available</p>
+                      <p style={{ color:'#71717a', fontSize: '0.75em', margin:'0.25em 0 0' }}>No unbound locators available</p>
                     ) : (
                       <select value={bindSn} onChange={(e) => setBindSn(e.target.value)} style={SELECT_STYLE}>
                         {unboundDevices.map((d) => (
@@ -517,7 +517,7 @@ const HomePage = () => {
                   <div className="hp-modal-field">
                     <label>Assign to User <span className="required">*</span></label>
                     {users.length === 0 ? (
-                      <p style={{ color:'#71717a', fontSize:12, margin:'4px 0 0' }}>No users available</p>
+                      <p style={{ color:'#71717a', fontSize: '0.75em', margin:'0.25em 0 0' }}>No users available</p>
                     ) : (
                       <select value={bindUserId} onChange={(e) => setBindUserId(e.target.value)} style={SELECT_STYLE}>
                         {users.map((u) => (
@@ -560,9 +560,9 @@ const HomePage = () => {
                       autoFocus
                       autoComplete="off"
                       style={{
-                        width: '100%', padding: '10px 12px', background: '#27272a',
+                        width: '100%', padding: '0.625em 0.75em', background: '#27272a',
                         border: `1px solid ${bindError ? '#7f1d1d' : '#3f3f46'}`,
-                        borderRadius: 8, color: '#f4f4f5', fontSize: 13,
+                        borderRadius: '0.5em', color: '#f4f4f5', fontSize: '0.8125em',
                         outline: 'none', boxSizing: 'border-box',
                       }}
                     />
@@ -573,7 +573,7 @@ const HomePage = () => {
                         </option>
                       ))}
                     </datalist>
-                    <p style={{ margin: '6px 0 0', fontSize: 11, color: '#52525b' }}>
+                    <p style={{ margin: '0.375em 0 0', fontSize: '0.6875em', color: '#52525b' }}>
                       {availableDevices.length > 0
                         ? `${availableDevices.length} locator${availableDevices.length !== 1 ? 's' : ''} available — click the field to browse or type to search`
                         : 'Enter the serial number printed on your locator.'}
@@ -588,9 +588,9 @@ const HomePage = () => {
                       onChange={(e) => setBindName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleBind()}
                       style={{
-                        width: '100%', padding: '10px 12px', background: '#27272a',
-                        border: '1px solid #3f3f46',
-                        borderRadius: 8, color: '#f4f4f5', fontSize: 13,
+                        width: '100%', padding: '0.625em 0.75em', background: '#27272a',
+                        border: '0.0625em solid #3f3f46',
+                        borderRadius: '0.5em', color: '#f4f4f5', fontSize: '0.8125em',
                         outline: 'none', boxSizing: 'border-box',
                       }}
                     />
@@ -639,7 +639,7 @@ const HomePage = () => {
             </div>
             <div className="hp-modal-body">
               {editDeviceError && (
-                <div style={{ padding:'8px 12px', marginBottom:12, background:'rgba(127,29,29,0.2)', border:'1px solid rgba(127,29,29,0.4)', borderRadius:6, color:'#fca5a5', fontSize:12 }}>
+                <div style={{ padding:'0.5em 0.75em', marginBottom: '0.75em', background:'rgba(127,29,29,0.2)', border:'0.0625em solid rgba(127,29,29,0.4)', borderRadius: '0.375em', color:'#fca5a5', fontSize: '0.75em' }}>
                   {editDeviceError}
                 </div>
               )}
@@ -715,7 +715,7 @@ const HomePage = () => {
             </div>
             <div className="hp-modal-body">
               {createUserError && (
-                <div style={{ padding:'8px 12px', marginBottom:12, background:'rgba(127,29,29,0.2)', border:'1px solid rgba(127,29,29,0.4)', borderRadius:6, color:'#fca5a5', fontSize:12 }}>
+                <div style={{ padding:'0.5em 0.75em', marginBottom: '0.75em', background:'rgba(127,29,29,0.2)', border:'0.0625em solid rgba(127,29,29,0.4)', borderRadius: '0.375em', color:'#fca5a5', fontSize: '0.75em' }}>
                   {createUserError}
                 </div>
               )}
@@ -759,13 +759,13 @@ const HomePage = () => {
               <button className="hp-modal-close" onClick={cancelDeleteDevice} disabled={deleteDeviceLoading}>✕</button>
             </div>
             <div className="hp-modal-body">
-              <p style={{ marginBottom: 16, color: '#f4f4f5', lineHeight: 1.5 }}>
+              <p style={{ marginBottom: '1em', color: '#f4f4f5', lineHeight: 1.5 }}>
                 You are about to delete <strong style={{ color: '#f4f4f5' }}>{deleteDeviceTarget.sn}</strong>.
                 {deleteDeviceTarget.assigned_user_name && (
                   <> This device is currently assigned to <strong style={{ color: '#fca5a5' }}>{deleteDeviceTarget.assigned_user_name}</strong> and will be unassigned automatically.</>
                 )}
               </p>
-              <p style={{ color: '#71717a', fontSize: 13, marginBottom: 0 }}>
+              <p style={{ color: '#71717a', fontSize: '0.8125em', marginBottom: 0 }}>
                 This action cannot be undone.
               </p>
             </div>

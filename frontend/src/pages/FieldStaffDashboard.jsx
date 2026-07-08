@@ -6,6 +6,7 @@ import { useFieldStaffCache } from '../context/FieldStaffCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import loadTPLMaps from '../components/loadTPLMaps.js';
 import { landmarkFromPoint, clientReverseGeocode } from '../utils/landmark.js';
+import { frameBounds } from '../utils/frameBounds.js';
 import './FieldStaffDashboard.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -180,7 +181,7 @@ function MapSection({ devices, selectedZone, mapContainerRef, accessToken }) {
     polygonRef.current = poly;
     try {
       const bounds = poly.getBounds();
-      if (bounds.isValid()) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
+      if (bounds.isValid()) frameBounds(map, bounds, { padding: [60, 60], maxZoom: 14 });
     } catch {}
   }, [selectedZone]);
 
@@ -507,7 +508,7 @@ export default function FieldStaffDashboard() {
       <div className="fsd-header">
         <div className="fsd-header-left">
           <div className="fsd-header-text">
-            <h1 className="fsd-title">Field Staff Dashboard</h1>
+            <h1 className="fsd-title">Field Staff Analytics</h1>
             <p className="fsd-subtitle">Zone visit compliance monitoring</p>
           </div>
         </div>

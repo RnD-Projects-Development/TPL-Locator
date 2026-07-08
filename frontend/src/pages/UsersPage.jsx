@@ -13,6 +13,7 @@ import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import AddDeviceToUserModal from '../components/AddDeviceToUserModal.jsx'
 import { displayContact, isValidIdentifier } from '../utils/userContact.js'
+import { isUserOnline, lastActiveTs, lastActiveStamp } from '../utils/userPresence.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
@@ -261,13 +262,25 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
           <RoleBadge role={u.role} />
         </td>
 
-        {/* Last active */}
+        {/* Last active — Online badge while logged in; elapsed-since-logout after */}
         <td style={{ padding: '13px 16px' }}>
-          <span style={{ fontSize: 11, color: txt3, fontFamily: 'var(--font-mono)' }}>
-            {(u.last_logged_in || u.last_login || u.lastLogin)
-              ? fmtRelTime(u.last_logged_in || u.last_login || u.lastLogin)
-              : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
-          </span>
+          {isUserOnline(u) ? (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '2px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+              color: '#34d399', background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.25)',
+              textTransform: 'uppercase', letterSpacing: '0.05em',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 5px #10B981' }} />
+              Online
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, color: txt3, fontFamily: 'var(--font-mono)' }}>
+              {lastActiveStamp(u)
+                ? fmtRelTime(lastActiveStamp(u))
+                : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
+            </span>
+          )}
         </td>
 
         {/* Devices */}
@@ -388,8 +401,8 @@ export default function UsersPage() {
     borderRadius: 16,
     boxShadow: '0 4px 30px rgba(167,44,50,0.07)',
   } : {
-    background: '#242323',
-    border: '1px solid rgba(255,255,255,0.07)',
+    background: 'linear-gradient(157deg, rgba(32,31,31,0.55) 0%, rgba(26,25,25,0.50) 58%, rgba(21,20,20,0.45) 100%)',
+    border: '1px solid rgba(255,255,255,0.04)',
     borderRadius: 16,
     boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
   }
@@ -461,7 +474,7 @@ export default function UsersPage() {
   const [debouncedQ, setDQ]       = useState('')
   const [page,       setPage]     = useState(1)
   const [expanded,   setExpanded] = useState(new Set())
-  const PAGE_SIZE   = 15
+  const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
 
   /* Create User state */
@@ -501,10 +514,11 @@ export default function UsersPage() {
       if (!q) return true
       return u.name?.toLowerCase().includes(q) || displayContact(u).toLowerCase().includes(q)
     })
+    // Online users first, then by most recent session activity (logout/login)
     return list.sort((a, b) => {
-      const ta = new Date(a.last_logged_in || a.last_login || a.lastLogin || 0).getTime()
-      const tb = new Date(b.last_logged_in || b.last_login || b.lastLogin || 0).getTime()
-      return tb - ta
+      const onlineDiff = (isUserOnline(b) ? 1 : 0) - (isUserOnline(a) ? 1 : 0)
+      if (onlineDiff !== 0) return onlineDiff
+      return lastActiveTs(b) - lastActiveTs(a)
     })
   }, [users, debouncedQ])
 
@@ -614,7 +628,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -624,9 +638,6 @@ export default function UsersPage() {
             <UserCog style={{ width: 22, height: 22, color: '#C44E54', flexShrink: 0 }} />
             Users
           </h1>
-          <p style={{ fontSize: 15, color: T.txt3, marginTop: 5, marginBottom: 0 }}>
-            {users.length} registered account{users.length !== 1 ? 's' : ''}
-          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <ActiveAvatarStack users={users} isLight={isLight} />

@@ -151,7 +151,16 @@ html {
   margin-top: -1px;
 }
 
-/* ── Playback-page pin labels (landmark + timestamp, always visible) ──────── */
+/* ── Playback-page pin tooltips (hover — aggregated stop summary) ─────────── */
+.pb-map-label-hint {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 .pb-map-label-tip.leaflet-tooltip {
   background: rgba(15, 15, 20, 0.92);
   border: 1px solid rgba(167, 44, 50, 0.5);
@@ -190,16 +199,28 @@ html {
   margin-top: 1px;
 }
 
-.pb-map-label-stop {
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: .05em;
-  background: #f59e0b;
-  color: #1a1200;
-  border-radius: 3px;
-  padding: 1px 4px;
-  margin-right: 3px;
+/* ── Resizable sidebars — slim drag handles between panels ──────────────────
+   Shared by Playback, Map View and Fence pages. Widths come from inline
+   styles set by useResizablePanel; the wrapper neutralises each sidebar's
+   own fixed width so the user-chosen width wins. */
+.pb-panel-resizable { flex-shrink:0; height:100%; min-height:0; display:flex; overflow:hidden; }
+.pb-panel-resizable .dsb-sidebar,
+.pb-panel-resizable .mdsb-sidebar,
+.pb-panel-resizable .fp-sidebar { width:100%; min-width:0; }
+.pb-resizer {
+  width:5px; flex-shrink:0; cursor:col-resize;
+  background:transparent; position:relative; z-index:5;
+  transition:background 0.15s;
 }
+.pb-resizer::after {
+  content:""; position:absolute; top:50%; left:50%;
+  transform:translate(-50%, -50%);
+  width:2px; height:34px; border-radius:2px;
+  background:var(--border-default);
+  transition:background 0.15s, height 0.15s;
+}
+.pb-resizer:hover { background:rgba(167,44,50,0.10); }
+.pb-resizer:hover::after { background:var(--brand); height:48px; }
 
 /* ── Global scrollbars — minimal strip ──────────────────────────────────────── */
 * {

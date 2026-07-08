@@ -18,6 +18,7 @@ class UserInDB(BaseModel):
     role: str = "user"  # user or admin
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_logged_in: Optional[datetime] = None
+    last_logged_out: Optional[datetime] = None
 
     class Config:
         json_encoders = {ObjectId: str}

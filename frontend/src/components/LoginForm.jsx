@@ -170,29 +170,27 @@ export default function LoginForm() {
     : loading ? "Logging in..." : "Login";
 
   if (isForgot) {
-    return <ForgotPasswordForm onBack={() => switchMode(MODE.LOGIN)} />;
+    return (
+      <div key={mode} className="auth-fade-in" style={{ width: "100%" }}>
+        <ForgotPasswordForm onBack={() => switchMode(MODE.LOGIN)} />
+      </div>
+    );
   }
 
   return (
-    <div>
+    <div key={mode} className="auth-fade-in" style={{ width: isSignup ? "42em" : "26em", maxWidth: "100%", transition: "width 0.3s ease" }}>
       {isSignup && (
         <button
           type="button"
           onClick={() => switchMode(MODE.LOGIN)}
+          className="auth-link auth-link-subtle"
           style={{
-            display: "flex",
+            display: "inline-flex",
             alignItems: "center",
-            gap: 6,
-            background: "none",
-            border: "none",
-            color: "rgba(255,255,255,0.5)",
-            cursor: "pointer",
-            fontSize: 12,
-            fontWeight: 600,
-            marginBottom: 16,
-            padding: 0,
-            letterSpacing: "0.05em",
+            gap: "0.4em",
+            marginBottom: "1em",
             textTransform: "uppercase",
+            letterSpacing: "0.05em",
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -202,12 +200,18 @@ export default function LoginForm() {
         </button>
       )}
 
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form onSubmit={onSubmit}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: isSignup ? "1fr 1fr" : "1fr",
+          gap: "1em",
+          alignItems: "start"
+        }}>
         {isSignup && (
           <div>
-            <label className="block text-sm font-medium text-white">Full Name</label>
+            <label className="auth-label">Full Name</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
               type="text"
@@ -219,10 +223,10 @@ export default function LoginForm() {
         )}
 
         <div>
-          <label className="block text-sm font-medium text-white">Email or Phone Number</label>
+          <label className="auth-label">Email or Phone Number</label>
           <input
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-            style={{ borderColor: identifierError ? "#ef4444" : "#cbd5e1" }}
+            className="auth-input"
+            style={{ borderColor: identifierError ? "#ef4444" : undefined }}
             value={identifier}
             onChange={(e) => onIdentifierChange(e.target.value)}
             type="text"
@@ -231,7 +235,7 @@ export default function LoginForm() {
             required
           />
           {identifierError && (
-            <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+            <p className="auth-error">
               Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
             </p>
           )}
@@ -239,10 +243,10 @@ export default function LoginForm() {
 
         {isSignup && (
           <div>
-            <label className="block text-sm font-medium text-white">Email Address</label>
+            <label className="auth-label">Email Address</label>
             <input
-              className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-              style={{ borderColor: emailError ? "#ef4444" : "#cbd5e1" }}
+              className="auth-input"
+              style={{ borderColor: emailError ? "#ef4444" : undefined }}
               value={email}
               onChange={(e) => onEmailChange(e.target.value)}
               type="email"
@@ -252,45 +256,35 @@ export default function LoginForm() {
               required
             />
             {emailAutoFilled ? (
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+              <p className="auth-helper">
                 Auto-filled from your email identifier
               </p>
             ) : (
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+              <p className="auth-helper">
                 Required for phone signups — we&apos;ll send a verification code here
               </p>
             )}
             {emailError && (
-              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>Enter a valid email address</p>
+              <p className="auth-error">Enter a valid email address</p>
             )}
           </div>
         )}
 
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label className="block text-sm font-medium text-white">Password</label>
+            <label className="auth-label">Password</label>
             {isLogin && (
               <button
                 type="button"
                 onClick={() => switchMode(MODE.FORGOT)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "rgba(255,255,255,0.55)",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  padding: 0,
-                  textDecoration: "underline",
-                  textUnderlineOffset: 2,
-                }}
+                className="auth-link auth-link-subtle"
               >
                 Forgot password?
               </button>
             )}
           </div>
           <input
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+            className="auth-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             type="password"
@@ -302,9 +296,9 @@ export default function LoginForm() {
 
         {isSignup && (
           <div>
-            <label className="block text-sm font-medium text-white">Confirm Password</label>
+            <label className="auth-label">Confirm Password</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               type="password"
@@ -312,7 +306,7 @@ export default function LoginForm() {
               required
             />
             {confirmPassword && password !== confirmPassword && (
-              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+              <p className="auth-error">
                 Passwords do not match
               </p>
             )}
@@ -320,21 +314,24 @@ export default function LoginForm() {
         )}
 
         {isSignup && !otpSent && (
-          <button
-            type="button"
-            disabled={!canSendOtp}
-            onClick={onSendOtp}
-            className="w-full rounded-lg border border-slate-400 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/10 transition"
-          >
-            {sendingOtp ? "Sending code..." : "Send verification code"}
-          </button>
+          <div style={{ gridColumn: isSignup ? "1 / -1" : undefined }}>
+            <button
+              type="button"
+              disabled={!canSendOtp}
+              onClick={onSendOtp}
+              className="auth-btn-secondary"
+            >
+              {sendingOtp ? "Sending code..." : "Send verification code"}
+            </button>
+          </div>
         )}
 
         {isSignup && otpSent && (
-          <div>
-            <label className="block text-sm font-medium text-white">Verification Code</label>
+          <div style={{ gridColumn: isSignup ? "1 / -1" : undefined }}>
+            <label className="auth-label">Verification Code</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
+              style={{ letterSpacing: "0.2em" }}
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               type="text"
@@ -343,24 +340,15 @@ export default function LoginForm() {
               placeholder="000000"
               required
             />
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
+            <p className="auth-helper">
               Enter the code sent to <strong style={{ color: "#fff" }}>{normalizeEmail(email)}</strong>
             </p>
             <button
               type="button"
               disabled={sendingOtp}
               onClick={onSendOtp}
-              style={{
-                marginTop: 8,
-                background: "none",
-                border: "none",
-                color: "#cc4444",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 12,
-                textDecoration: "underline",
-                textUnderlineOffset: 2,
-              }}
+              className="auth-link"
+              style={{ marginTop: "0.6em" }}
             >
               Resend code
             </button>
@@ -368,64 +356,49 @@ export default function LoginForm() {
         )}
 
         {info && (
-          <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <div className="auth-helper" style={{ gridColumn: isSignup ? "1 / -1" : undefined, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", padding: "0.8em 1.2em", borderRadius: "0.5em" }}>
             {info}
           </div>
         )}
 
         {error && (
-          <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <div className="auth-error" style={{ gridColumn: isSignup ? "1 / -1" : undefined, color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", padding: "0.8em 1.2em", borderRadius: "0.5em" }}>
             {error}
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="w-full rounded-lg bg-slate-900 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition"
-        >
-          {buttonLabel}
-        </button>
+        <div style={{ gridColumn: isSignup ? "1 / -1" : undefined }}>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="auth-btn-primary"
+          >
+            {buttonLabel}
+          </button>
+        </div>
+        </div>
       </form>
 
-      <div style={{ marginTop: 16, textAlign: "center" }}>
+      <div className="auth-footer-text">
         {isLogin && (
-          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+          <p>
             Don&apos;t have an account?{" "}
             <button
               type="button"
               onClick={() => switchMode(MODE.SIGNUP)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#cc4444",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 13,
-                textDecoration: "underline",
-                textUnderlineOffset: 2,
-              }}
+              className="auth-link"
             >
               Sign up
             </button>
           </p>
         )}
         {isSignup && (
-          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+          <p>
             Already have an account?{" "}
             <button
               type="button"
               onClick={() => switchMode(MODE.LOGIN)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#cc4444",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 13,
-                textDecoration: "underline",
-                textUnderlineOffset: 2,
-              }}
+              className="auth-link"
             >
               Log in
             </button>

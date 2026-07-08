@@ -5,6 +5,19 @@ import { useAuth } from "../context/AuthContext.jsx";
 
 const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL || "");
 
+// Helper to convert naive PKT strings (e.g. "2026-07-08T00:00:00") into valid UTC ISO strings.
+// The backend treats naive strings as UTC, causing a 5-hour shift. This ensures exact PKT boundaries.
+const toIsoPKT = (val) => {
+  if (val instanceof Date) return val.toISOString();
+  if (typeof val === 'string' && val.length <= 19 && !val.includes('Z') && !val.includes('+')) {
+    const d = new Date(val + "Z");
+    if (!isNaN(d.getTime())) {
+      return new Date(d.getTime() - 5 * 3600 * 1000).toISOString();
+    }
+  }
+  return val;
+};
+
 // In-flight GET request cache — if the same URL is already being fetched,
 // return the existing promise instead of firing a second network request.
 // This eliminates redundant concurrent calls from multiple context providers.
@@ -287,8 +300,8 @@ export function useCityTag() {
   const getTrajectory = useCallback(
     async (sn, start, end) => {
       const params = new URLSearchParams({
-        start: start instanceof Date ? start.toISOString() : start,
-        end:   end   instanceof Date ? end.toISOString()   : end,
+        start: toIsoPKT(start),
+        end:   toIsoPKT(end),
       });
       return apiFetch(`/api/devices/${encodeURIComponent(sn)}/trajectory?${params}`, {}, accessToken, logout);
     }, [accessToken, logout]
@@ -297,8 +310,8 @@ export function useCityTag() {
   const getPlayback = useCallback(
     async (sn, start, end) => {
       const params = new URLSearchParams({
-        start: start instanceof Date ? start.toISOString() : start,
-        end:   end   instanceof Date ? end.toISOString()   : end,
+        start: toIsoPKT(start),
+        end:   toIsoPKT(end),
       });
       return apiFetch(`/api/devices/${encodeURIComponent(sn)}/playback?${params}`, {}, accessToken, logout);
     }, [accessToken, logout]
@@ -319,8 +332,8 @@ export function useCityTag() {
         method: "POST",
         body: {
           sns: Array.isArray(sns) ? sns : [],
-          start: start instanceof Date ? start.toISOString() : start,
-          end: end instanceof Date ? end.toISOString() : end,
+          start: toIsoPKT(start),
+          end: toIsoPKT(end),
         },
       },
       accessToken,

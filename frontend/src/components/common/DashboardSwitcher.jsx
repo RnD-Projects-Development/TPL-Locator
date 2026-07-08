@@ -5,7 +5,7 @@ import PillTabSwitcher from './PillTabSwitcher.jsx'
 
 const TABS = [
   { key: '/dashboard',   label: 'Dashboard',             icon: LayoutGrid },
-  { key: '/field-staff', label: 'Field Staff Dashboard', icon: Users      },
+  { key: '/field-staff', label: 'Field Staff Analytics', icon: Users      },
 ]
 
 export default function DashboardSwitcher() {
