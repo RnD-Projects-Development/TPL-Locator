@@ -18,7 +18,7 @@ from app.services.tpl_geocode import reverse_geocode
 import os
 
 # choose database name via environment, default to development db
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "citytag_development")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "TPL-Locator-db")
 logger = logging.getLogger(__name__)
 
 # Sentinel: omit batteryStatus from $set (legacy callers). Any other value includes the field (None = BSON null).
@@ -28,9 +28,7 @@ _BATTERY_STATUS_OMIT = object()
 class MongoService:
     def __init__(self, uri: str):
         self._client = AsyncIOMotorClient(
-            uri,
-            tls=True,
-            tlsCAFile=certifi.where()
+            uri
         )
 
     @property
