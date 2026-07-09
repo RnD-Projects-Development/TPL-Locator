@@ -569,4 +569,85 @@ input[type="time"] {
   height: 0.375em;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* ─── Uiverse Button (Collapse/Expand/Back) ─────────────────────────────── */
+.btn-uiverse {
+  display: block;
+  position: relative;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  overflow: hidden;
+  outline: none;
+  background-color: transparent;
+  cursor: pointer;
+  border: 0;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.btn-uiverse:before,
+.btn-uiverse:after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  inset: 5px;
+}
+
+.btn-uiverse:before {
+  border: 3px solid var(--border-default, #2a2a2a);
+  transition: opacity 0.4s cubic-bezier(0.77, 0, 0.175, 1) 80ms,
+    transform 0.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) 80ms;
+}
+
+.btn-uiverse:after {
+  border: 3px solid #A72C32;
+  transform: scale(1.3);
+  transition: opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1),
+    transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  opacity: 0;
+}
+
+.btn-uiverse:hover:before,
+.btn-uiverse:focus:before {
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1),
+    transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.btn-uiverse:hover:after,
+.btn-uiverse:focus:after {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0.4s cubic-bezier(0.77, 0, 0.175, 1) 80ms,
+    transform 0.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) 80ms;
+}
+
+.btn-uiverse-box {
+  display: flex;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.btn-uiverse-elem {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 13px 13px 0 13px;
+  fill: var(--text-secondary, #94a3b8);
+  transition: fill 0.4s;
+}
+
+.btn-uiverse:hover .btn-uiverse-elem,
+.btn-uiverse:focus .btn-uiverse-elem {
+  fill: #A72C32;
+}
+
+.btn-uiverse:hover .btn-uiverse-box,
+.btn-uiverse:focus .btn-uiverse-box {
+  transition: 0.4s;
+  transform: translateX(-40px);
 }

@@ -166,9 +166,15 @@ export default function StickerDetail() {
     <div style={{ ...panel, padding: '80px 24px', textAlign: 'center', margin: '20px auto', maxWidth: 480 }}>
       <Tag style={{ width: 40, height: 40, color: T.notFoundIcon, margin: '0 auto 12px' }} />
       <p style={{ color: T.txt1, fontWeight: 600, marginBottom: 16 }}>Sticker not found</p>
-      <button onClick={() => navigate(backTo)}
-        style={{ color: T.accent, fontSize: 15, background: 'none', border: 'none', cursor: 'pointer' }}>
-        ← Back
+      <button className="btn-uiverse" onClick={() => navigate(backTo)} title="Back" style={{ margin: '0 auto', transform: 'scaleX(-1)' }}>
+        <div className="btn-uiverse-box">
+          <span className="btn-uiverse-elem">
+            <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+          </span>
+          <span className="btn-uiverse-elem">
+            <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+          </span>
+        </div>
       </button>
     </div>
   )
@@ -245,17 +251,17 @@ export default function StickerDetail() {
 
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 10px', padding: '9px 14px',
-        flexShrink: 0, borderBottom: `1px solid ${T.fieldBdr}`, background: T.topBarBg }}>
-        <button onClick={() => navigate(backTo)}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: T.txt2,
-            background: T.fieldBg, border: `1px solid ${T.fieldBdr}`, borderRadius: 7,
-            padding: '4px 9px', cursor: 'pointer', flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.color = T.txt1}
-          onMouseLeave={e => e.currentTarget.style.color = T.txt2}>
-          <ArrowLeft style={{ width: 12, height: 12 }} /> Back
+        flexShrink: 0, background: T.topBarBg }}>
+        <button className="btn-uiverse" onClick={() => navigate(backTo)} title="Back" style={{ transform: 'scaleX(-1)' }}>
+          <div className="btn-uiverse-box">
+            <span className="btn-uiverse-elem">
+              <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+            </span>
+            <span className="btn-uiverse-elem">
+              <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+            </span>
+          </div>
         </button>
-
-        <div style={{ width: 1, height: 18, background: T.fieldBdr, flexShrink: 0 }} />
 
         <div style={{ padding: '6px 7px', borderRadius: 9, background: T.headIconBg,
           border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>

@@ -40,6 +40,43 @@ const STATUS_TO_FILTER = {
   Unassigned: 'unassigned',
 }
 
+const AnimatedStatusTabs = ({ tabs, activeTab, onChange, isLight }) => {
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 3, width: 0 });
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const activeIndex = tabs.indexOf(activeTab);
+    if (activeIndex === -1) return;
+    
+    // The first child is the absolute positioned background indicator
+    const btn = containerRef.current.children[activeIndex + 1];
+    if (btn) {
+      setIndicatorStyle({
+        left: btn.offsetLeft,
+        width: btn.offsetWidth
+      });
+    }
+  }, [activeTab, tabs]);
+
+  const showIndicator = indicatorStyle.width > 0;
+  const inactiveColor = isLight ? '#4b5563' : 'rgb(156, 163, 175)';
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', height: 36, padding: 3, borderRadius: 999, background: 'rgba(167, 44, 50, 0.15)', border: '1px solid rgba(167, 44, 50, 0.35)', backdropFilter: 'blur(12px)', flexShrink: 0 }}>
+      <div style={{ position: 'absolute', top: 3, left: indicatorStyle.left, width: indicatorStyle.width || 63, height: 'calc(100% - 6px)', borderRadius: 999, background: 'linear-gradient(135deg, rgb(167, 44, 50) 0%, rgb(139, 35, 40) 100%)', border: '1px solid rgba(255, 255, 255, 0.12)', boxShadow: 'rgba(167, 44, 50, 0.45) 0px 4px 18px', transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)', pointerEvents: 'none', opacity: showIndicator ? 1 : 0 }} />
+      {tabs.map(s => {
+        const active = activeTab === s;
+        return (
+          <button key={s} onClick={() => onChange(s)} style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 7, padding: '0 13px', height: '100%', borderRadius: 999, border: 'none', background: 'transparent', cursor: 'pointer', color: active ? 'rgb(255, 255, 255)' : inactiveColor, fontSize: 13, fontWeight: active ? 600 : 500, whiteSpace: 'nowrap', letterSpacing: '0.01em', transition: 'color 0.25s' }}>
+            {s}
+          </button>
+        )
+      })}
+    </div>
+  );
+}
+
 const modalPanel = {
   background: '#000000',
   border: '1px solid rgba(255,255,255,0.12)',
@@ -366,7 +403,7 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
    AllDevices: fixed 4×5 grid for All / Locators / Stickers tabs.
    Fetches the full fleet ONCE; tab + status switches are pure client-side.
 ────────────────────────────────────────────────────────────────────────────── */
-function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel }) {
+function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel, statusTabsNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, getCategories } = useCityTag()
@@ -611,8 +648,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* Search + count */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
+      {/* Search + count + filters */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0, width: '100%' }}>
         <div style={{ position: 'relative' }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
           <input
@@ -638,9 +675,11 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400 }}>
           {fetching ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}
         </span>
-        {onBind && (
-          <button onClick={onBind}
-            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, cursor: 'pointer', flexShrink: 0,
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {statusTabsNode}
+          {onBind && (
+            <button onClick={onBind}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, cursor: 'pointer', flexShrink: 0,
               background: isLight ? '#A72C32' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
               border: isLight ? '1px solid #8B2328' : '1px solid rgba(167,44,50,0.45)',
               color: '#fff', fontSize: 13, fontWeight: 700,
@@ -653,6 +692,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           </button>
         )}
       </div>
+    </div>
 
       {/* Device grid — fills remaining height, fixed 4 col × 4 row.
           Always render exactly PAGE_SIZE slots so gridTemplateRows distributes space correctly. */}
@@ -1126,26 +1166,17 @@ export default function Devices() {
   const canBind   = !isOfflineView && (showTypeTabs ? (activeTab === 'locator' || activeTab === 'sticker') : true)
   const effectiveBindType = showTypeTabs ? bindDeviceType : (isStickerSN(bindSn.trim()) ? 'sticker' : 'locator')
 
+  const statusTabsNode = (
+    <AnimatedStatusTabs 
+      tabs={visibleStatusTabs} 
+      activeTab={statusTab} 
+      onChange={setStatus} 
+      isLight={isLight} 
+    />
+  )
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
-
-      {/* ── Status filters — type tabs (All/Locators/Stickers) now live in the topbar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap', width: 'fit-content' }}>
-          {visibleStatusTabs.map(s => {
-            const active = statusTab === s
-            return (
-              <button key={s} onClick={() => setStatus(s)}
-                style={{ padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-                  background: active ? '#A72C32' : 'transparent',
-                  color:      active ? '#FFFFFF' : T.txt2,
-                }}>
-                {s}
-              </button>
-            )
-          })}
-        </div>
-      </div>
 
       {/* ── Content — fills remaining height ─────────────────────────────────── */}
       <div style={{ flex: 1, overflow: 'hidden', minHeight: 0, position: 'relative' }}>
@@ -1156,7 +1187,7 @@ export default function Devices() {
           flexDirection: 'column',
           gap: 12,
         }}>
-          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
             <div style={{ position: 'relative' }}>
               <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
               <input
@@ -1174,6 +1205,9 @@ export default function Devices() {
                 </button>
               )}
             </div>
+            <div style={{ marginLeft: 'auto' }}>
+              {statusTabsNode}
+            </div>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
             <MissingDevices embedded deviceType={offlineDeviceType} externalSearch={offlineSearch} />
@@ -1189,6 +1223,7 @@ export default function Devices() {
             refreshSignal={refreshKey}
             onBind={canBind ? () => openBindModal(showTypeTabs ? activeTab : 'locator') : undefined}
             bindLabel={bindLabel}
+            statusTabsNode={statusTabsNode}
           />
         </div>
       </div>

@@ -9,6 +9,7 @@ import { useResizablePanel } from '../hooks/useResizablePanel.js';
 import ZoneSidebar from '../components/ZoneSidebar.jsx';
 import ZoneToolbox from '../components/ZoneToolbox.jsx';
 import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
+import ZoneDetailSidebar from '../components/ZoneDetailSidebar.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
 import { frameBounds } from '../utils/frameBounds.js';
 import './FencePage.css';
@@ -92,6 +93,8 @@ function FencePageInner() {
 
   // User-adjustable zone sidebar width (drag the divider, double-click resets).
   const zonePanel = useResizablePanel('fp_sidebar_w', { defaultWidth: 260, min: 220, max: 480, edge: 'right' });
+  const rightPanel = useResizablePanel('fp_sidebar_right_w', { defaultWidth: 260, min: 220, max: 480, edge: 'left' });
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
 
   // Keep refs in sync
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
@@ -398,7 +401,7 @@ function FencePageInner() {
         <ZoneSidebar
           zones={zones}
           selectedZoneId={selectedZoneId}
-          onSelect={setSelectedZoneId}
+          onSelect={(id) => { setSelectedZoneId(id); if (id) setIsRightSidebarOpen(true); }}
           zoneStatuses={displayStatuses}
           assignments={assignments}
           onOpenAssign={isAdmin ? (zone) => setAssignModal({ zone }) : null}
@@ -419,7 +422,47 @@ function FencePageInner() {
         <div className="fp-map-wrap" ref={mapWrapRef}>
           <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />
           {tracksLoading && <TPLLoader overlay label="Fetching GPS tracks…" />}
+          
+          {/* Floating Expand Button (only when closed) */}
+          {!isRightSidebarOpen && selectedZoneId && (
+            <div className="fp-expand-hover-zone">
+              <div className="fp-expand-btn-wrapper">
+                <button className="btn-uiverse" onClick={() => setIsRightSidebarOpen(true)} title="Expand sidebar">
+                  <div className="btn-uiverse-box" style={{ transform: 'scaleX(-1)', left: 'auto', right: 0 }}>
+                    <span className="btn-uiverse-elem">
+                      <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path>
+                      </svg>
+                    </span>
+                    <span className="btn-uiverse-elem">
+                      <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path>
+                      </svg>
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+
+        {isRightSidebarOpen && (
+          <>
+            <div className="pb-resizer" {...rightPanel.handleProps} />
+            <div className="pb-panel-resizable" style={{ width: rightPanel.width, background: 'var(--surface-1)', borderLeft: '1px solid var(--border-default)', height: '100%' }}>
+              <ZoneDetailSidebar
+                zone={zones.find(z => z.zone_id === selectedZoneId)}
+                zoneDevices={displayStatuses[selectedZoneId] || []}
+                statusLoading={false}
+                isAssigning={assigningZoneId === selectedZoneId}
+                deviceTracks={deviceTracks}
+                tracksLoading={tracksLoading}
+                onClose={() => setIsRightSidebarOpen(false)}
+              />
+            </div>
+          </>
+        )}
+
 
         {toolboxMode && (
           <ZoneToolbox
