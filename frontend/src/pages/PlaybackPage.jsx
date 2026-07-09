@@ -155,8 +155,8 @@ function StopDetail({ group, getGeocode, onBack, onFocusPoint }) {
         {geo?.secondary && <div className="pb-vl-item-area">{geo.secondary}</div>}
         <div className="pb-vl-item-ts">{formatDay(group.startTs)}</div>
         <div className="pb-vl-detail-summary">
-          <div className="pb-vl-summary-item"><span>Arrival</span><b>{formatTime(group.firstPoint)}</b></div>
-          <div className="pb-vl-summary-item"><span>Departure</span><b>{formatTime(group.lastPoint)}</b></div>
+          <div className="pb-vl-summary-item"><span>First</span><b>{formatTime(group.firstPoint)}</b></div>
+          <div className="pb-vl-summary-item"><span>Last</span><b>{formatTime(group.lastPoint)}</b></div>
           <div className="pb-vl-summary-item"><span>Total Samples</span><b>{group.totalSamples}</b></div>
         </div>
       </div>
@@ -173,8 +173,8 @@ function StopDetail({ group, getGeocode, onBack, onFocusPoint }) {
               <div className="pb-vl-item-num">{i + 1}</div>
               <div className="pb-vl-item-body">
                 <div className="pb-vl-item-ts pb-tl-time">{formatTs(pt)}</div>
-                {i === 0 && <span className="pb-tl-badge pb-tl-badge-arrival">Arrival</span>}
-                {i === lastIdx && lastIdx > 0 && <span className="pb-tl-badge pb-tl-badge-departure">Departure</span>}
+                {i === 0 && <span className="pb-tl-badge pb-tl-badge-arrival">First</span>}
+                {i === lastIdx && lastIdx > 0 && <span className="pb-tl-badge pb-tl-badge-departure">Last</span>}
               </div>
             </div>
           ))}

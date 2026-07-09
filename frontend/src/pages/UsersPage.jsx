@@ -108,17 +108,16 @@ function ActiveAvatarStack({ users, isLight }) {
 /* ── Role badge ───────────────────────────────────────────────────────────── */
 function RoleBadge({ role }) {
   const r = (role || 'user').toLowerCase()
-  const cfg = {
-    admin:      { bg: 'rgba(167,44,50,0.12)',  color: '#C44E54', border: 'rgba(167,44,50,0.25)',  label: 'Admin' },
-    superadmin: { bg: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: 'rgba(139,92,246,0.25)', label: 'Super Admin' },
-    user:       { bg: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: 'rgba(59,130,246,0.25)', label: 'User' },
-    operator:   { bg: 'rgba(16,185,129,0.12)', color: '#34d399', border: 'rgba(16,185,129,0.25)', label: 'Operator' },
+  const map = {
+    admin:      'badge-red-500',
+    superadmin: 'badge-primary',
+    user:       'badge-secondary',
+    operator:   'badge-teal-500',
   }
-  const c = cfg[r] || cfg.user
+  const cls = map[r] || 'badge-secondary'
+  const label = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User'
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
-      {c.label}
-    </span>
+    <span className={`badge ${cls}`}>{label}</span>
   )
 }
 
@@ -231,19 +230,19 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
         onClick={onToggle}
       >
         {/* Name + avatar */}
-        <td style={{ padding: '13px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7em' }}>
             <div style={{
-              width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+              width: '2.4em', height: '2.4em', borderRadius: '50%', flexShrink: 0,
               background: '#A72C32', border: '1px solid #8B2328',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, fontWeight: 700, color: '#FFFFFF',
+              fontSize: '0.8em', fontWeight: 700, color: '#FFFFFF',
             }}>
               {initials}
             </div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: txt1 }}>{u.name || '—'}</div>
-              <div style={{ fontSize: 10, color: txt4, fontFamily: 'var(--font-mono)' }}>
+              <div style={{ fontSize: '0.92em', fontWeight: 600, color: txt1 }}>{u.name || '—'}</div>
+              <div style={{ fontSize: '0.7em', color: txt4, fontFamily: 'var(--font-mono)' }}>
                 {String(u._id || u.id || '').slice(-10)}
               </div>
             </div>
@@ -251,31 +250,25 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
         </td>
 
         {/* Email */}
-        <td style={{ padding: '13px 16px' }}>
-          <span style={{ fontSize: 12, color: txt2, fontFamily: 'var(--font-mono)' }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
             {contact || '—'}
           </span>
         </td>
 
         {/* Role */}
-        <td style={{ padding: '13px 16px' }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
           <RoleBadge role={u.role} />
         </td>
 
         {/* Last active — Online badge while logged in; elapsed-since-logout after */}
-        <td style={{ padding: '13px 16px' }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
           {isUserOnline(u) ? (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '2px 9px', borderRadius: 999, fontSize: 10, fontWeight: 700,
-              color: '#34d399', background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.25)',
-              textTransform: 'uppercase', letterSpacing: '0.05em',
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', boxShadow: '0 0 5px #10B981' }} />
+            <span className="badge badge-teal-500 text-uppercase tracking-wider">
               Online
             </span>
           ) : (
-            <span style={{ fontSize: 11, color: txt3, fontFamily: 'var(--font-mono)' }}>
+            <span style={{ fontSize: '0.8em', color: txt3, fontFamily: 'var(--font-mono)' }}>
               {lastActiveStamp(u)
                 ? fmtRelTime(lastActiveStamp(u))
                 : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
@@ -284,68 +277,68 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
         </td>
 
         {/* Devices */}
-        <td style={{ padding: '13px 16px' }}>
-          <span style={{ fontSize: 12, color: boundDevices.length > 0 ? '#60a5fa' : txt4, fontWeight: boundDevices.length > 0 ? 600 : 400 }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <span style={{ fontSize: '0.85em', color: boundDevices.length > 0 ? '#60a5fa' : txt4, fontWeight: boundDevices.length > 0 ? 600 : 400 }}>
             {boundDevices.length} device{boundDevices.length !== 1 ? 's' : ''}
           </span>
         </td>
 
         {/* Actions */}
-        <td style={{ padding: '13px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.57em' }} onClick={e => e.stopPropagation()}>
             <button
               onClick={onToggle}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: txt3, padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: txt3, padding: '0.28em', display: 'flex', alignItems: 'center', gap: '0.28em', fontSize: '0.8em' }}
             >
               {expanded
-                ? <ChevronDown style={{ width: 13, height: 13 }} />
-                : <ChevronRight style={{ width: 13, height: 13 }} />}
+                ? <ChevronDown style={{ width: '0.92em', height: '0.92em' }} />
+                : <ChevronRight style={{ width: '0.92em', height: '0.92em' }} />}
             </button>
             {isAdmin && (
               <button
                 onClick={() => onEdit(u)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.28em',
+                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
                   background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)',
-                  color: '#C44E54', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                  color: '#C44E54', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.18)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.40)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.25)' }}
               >
-                <Pencil style={{ width: 11, height: 11 }} /> Edit
+                <Pencil style={{ width: '0.8em', height: '0.8em' }} /> Edit
               </button>
             )}
             {isAdmin && (
               <button
                 onClick={() => onAddDevice(u)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.28em',
+                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
                   background: isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)',
                   border: `1px solid ${isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)'}`,
-                  color: isLight ? '#1D4ED8' : '#60A5FA', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                  color: isLight ? '#1D4ED8' : '#60A5FA', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.13)' : 'rgba(59,130,246,0.18)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.35)' : 'rgba(59,130,246,0.40)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)' }}
               >
-                <Link2 style={{ width: 11, height: 11 }} /> Add Device
+                <Link2 style={{ width: '0.8em', height: '0.8em' }} /> Add Device
               </button>
             )}
             {isAdmin && (
               <button
                 onClick={() => onDelete(u)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.28em',
+                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
                   background: isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)',
                   border: `1px solid ${isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)'}`,
-                  color: isLight ? '#B91C1C' : '#f87171', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                  color: isLight ? '#B91C1C' : '#f87171', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.12)' : 'rgba(220,38,38,0.16)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.30)' : 'rgba(220,38,38,0.35)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)' }}
               >
-                <Trash2 style={{ width: 11, height: 11 }} /> Delete
+                <Trash2 style={{ width: '0.8em', height: '0.8em' }} /> Delete
               </button>
             )}
           </div>
@@ -648,21 +641,7 @@ export default function UsersPage() {
                 Updated {fmtRelTime(lastFetched)}
               </span>
             )}
-            <button
-              onClick={refresh}
-              disabled={loading}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-                background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)',
-                borderRadius: 10, color: '#C44E54', fontSize: 12, fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { if (!loading) e.currentTarget.style.background = 'rgba(167,44,50,0.18)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)' }}
-            >
-              <RefreshCw style={{ width: 12, height: 12, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
+
             <button
               onClick={openCreate}
               style={{
@@ -723,11 +702,11 @@ export default function UsersPage() {
       ) : (
         <div style={{ ...panelStyle, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="scalable-container" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.theadBdr}`, background: T.theadBg }}>
                   {['User', 'Email', 'Role', 'Last Active', 'Devices', 'Actions'].map(col => (
-                    <th key={col} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: T.theadTxt, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
+                    <th key={col} style={{ padding: '0.85em 1.15em', textAlign: 'left', fontSize: '0.65em', fontWeight: 700, color: T.theadTxt, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
                   ))}

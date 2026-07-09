@@ -159,29 +159,17 @@ function BattBar({ v, isLight }) {
   )
 }
 
-function StatusBadge({ status, isLight }) {
-  const mapLight = {
-    Active:    { bg: '#ECFDF5', border: '#A7F3D0', color: '#059669' },
-    Offline:   { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' },
-    'At Risk': { bg: '#FFFBEB', border: '#FDE68A', color: '#D97706' },
-    Missing:   { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' },
-    Lost:      { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' },
+function StatusBadge({ status }) {
+  const map = {
+    Active:    'badge-teal-500',
+    Offline:   'badge-secondary',
+    'At Risk': 'badge-yellow-500',
+    Missing:   'badge-red-500',
+    Lost:      'badge-red-500',
   }
-  const mapDark = {
-    Active:    { bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.25)',  color: '#6ee7b7' },
-    Offline:   { bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.25)',   color: '#fca5a5' },
-    'At Risk': { bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.25)',  color: '#fbbf24' },
-    Missing:   { bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.25)',   color: '#fca5a5' },
-    Lost:      { bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.25)',   color: '#fca5a5' },
-  }
-  const map = isLight ? mapLight : mapDark
-  const s = map[status] || (isLight ? mapLight.Active : mapDark.Active)
+  const cls = map[status] || 'badge-plain'
   return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
-      background: s.bg, border: `1px solid ${s.border}`, color: s.color,
-      letterSpacing: '0.04em', whiteSpace: 'nowrap',
-    }}>{status}</span>
+    <span className={`badge ${cls}`}>{status}</span>
   )
 }
 

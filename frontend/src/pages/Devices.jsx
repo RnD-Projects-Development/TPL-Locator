@@ -661,12 +661,12 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           <TPLLoader label="Loading devices…" />
         </div>
       ) : (
-        <div ref={gridScrollRef} style={{
+        <div ref={gridScrollRef} className="scalable-container" style={{
           flex: 1, minHeight: 0, overflow: 'auto',
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(200px, 1fr))',
-          gridTemplateRows: 'repeat(4, minmax(88px, 1fr))',
-          gap: 10,
+          gridTemplateColumns: 'repeat(4, minmax(14.3em, 1fr))',
+          gridTemplateRows: 'repeat(4, minmax(6.3em, 1fr))',
+          gap: '0.7em',
         }}>
           {pageDevices.length === 0 ? (
             /* No results — single cell spanning full grid */
@@ -690,8 +690,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   key={d.sn}
                   onClick={() => navigate(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + location.search } })}
                   style={{
-                    ...panel, height: '100%', padding: '12px 14px', cursor: 'pointer', boxSizing: 'border-box',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                    ...panel, height: '100%', padding: '0.85em 1em', cursor: 'pointer', boxSizing: 'border-box',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.7em',
                     transition: 'box-shadow 0.22s ease, transform 0.22s ease',
                     ...(isLight ? { borderLeft: '3px solid #A72C32' } : {}),
                   }}
@@ -707,25 +707,25 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   }}
                 >
                   <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-                      <DeviceIcon style={{ width: 11, height: 11, color: T.txt3, flexShrink: 0 }} />
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 4px ${dotGlow}` }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.42em', overflow: 'hidden' }}>
+                      <DeviceIcon style={{ width: '0.8em', height: '0.8em', color: T.txt3, flexShrink: 0 }} />
+                      <span style={{ width: '0.42em', height: '0.42em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 4px ${dotGlow}` }} />
+                      <span style={{ fontSize: '0.92em', fontWeight: 700, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
                     </div>
-                    <div style={{ fontSize: 10, color: T.txt3, marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 19 }}>
+                    <div style={{ fontSize: '0.7em', color: T.txt3, marginTop: '0.21em', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: '1.35em' }}>
                       {d.sn}
                     </div>
                     {lastSeen ? (
-                      <div style={{ fontSize: 9.5, color: T.txt1, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 19 }}>
+                      <div style={{ fontSize: '0.67em', color: T.txt1, marginTop: '0.14em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: '1.35em' }}>
                         Last seen: {lastSeen}
                       </div>
                     ) : (
-                      <div style={{ fontSize: 9.5, color: '#6b7280', marginTop: 2, paddingLeft: 19, fontStyle: 'italic' }}>
+                      <div style={{ fontSize: '0.67em', color: '#6b7280', marginTop: '0.14em', paddingLeft: '1.35em', fontStyle: 'italic' }}>
                         No last report
                       </div>
                     )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.42em', flexShrink: 0 }}>
                     {externalStatus === 'all' && isAdmin && isBound(d) && (
                       <ActionsDropdown
                         isLight={isLight}
@@ -733,7 +733,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                         onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
                       />
                     )}
-                    <ChevronRight style={{ width: 14, height: 14, color: T.txt3 }} />
+                    <ChevronRight style={{ width: '1em', height: '1em', color: T.txt3 }} />
                   </div>
                 </div>
               )

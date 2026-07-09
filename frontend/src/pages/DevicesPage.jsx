@@ -381,15 +381,7 @@ const HomePage = () => {
                 </button>
               )}
 
-              <button
-                onClick={() => viewMode === 'devices' ? refreshDevices() : refreshUsers()}
-                style={{ display:'flex', alignItems:'center', gap: '0.375em', padding:'0.5em 0.875em', background:'transparent', border:'0.0625em solid #3f3f46', borderRadius: '0.5em', color:'#a1a1aa', fontSize: '0.75em', cursor:'pointer' }}
-              >
-                <svg viewBox="0 0 20 20" fill="currentColor" width={14} height={14}>
-                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
-                </svg>
-                Refresh
-              </button>
+
             </div>
           </div>
 

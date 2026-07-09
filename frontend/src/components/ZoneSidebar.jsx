@@ -3,30 +3,15 @@ import React from 'react';
 import { deviceColor } from '../utils/zonePolygonManager.js';
 import tplLogo from '../assets/tpl.png';
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-const STATUS_CONFIG = {
-  INSIDE:  { color: '#4ade80', dot: '#22c55e', label: 'Inside'  },
-  OUTSIDE: { color: '#f87171', dot: '#ef4444', label: 'Outside' },
-  OFFLINE: { color: '#6b7280', dot: '#4b5563', label: 'Offline' },
-};
-
 function StatusBadge({ status }) {
-  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.OFFLINE;
+  const map = {
+    INSIDE:  'badge-teal-500',
+    OUTSIDE: 'badge-red-500',
+    OFFLINE: 'badge-secondary',
+  }
+  const cls = map[status] || 'badge-secondary'
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 7px', borderRadius: 999, fontSize: 10, fontWeight: 600,
-      letterSpacing: '0.05em', textTransform: 'uppercase',
-      background: `${cfg.color}18`, color: cfg.color,
-      border: `1px solid ${cfg.color}30`,
-    }}>
-      <span style={{
-        width: 5, height: 5, borderRadius: '50%',
-        background: cfg.dot,
-        boxShadow: status === 'INSIDE' ? `0 0 4px ${cfg.dot}` : 'none',
-      }} />
-      {cfg.label}
-    </span>
+    <span className={`badge ${cls}`}>{status}</span>
   );
 }
 

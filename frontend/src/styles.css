@@ -151,31 +151,19 @@ html {
   margin-top: -1px;
 }
 
-/* ── Playback-page pin tooltips (hover — aggregated stop summary) ─────────── */
-.pb-map-label-hint {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.45);
-  font-style: italic;
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-}
-
 .pb-map-label-tip.leaflet-tooltip {
-  background: rgba(15, 15, 20, 0.92);
-  border: 1px solid rgba(167, 44, 50, 0.5);
-  border-radius: 6px;
-  padding: 3px 7px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  opacity: 1;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
 }
 
-.pb-map-label-tip.leaflet-tooltip-top:before {
-  border-top-color: rgba(167, 44, 50, 0.5);
-}
-
-.pb-map-label-tip-main {
-  border-color: #A72C32;
+.pb-map-label-tip.leaflet-tooltip-top:before,
+.pb-map-label-tip.leaflet-tooltip-bottom:before,
+.pb-map-label-tip.leaflet-tooltip-left:before,
+.pb-map-label-tip.leaflet-tooltip-right:before {
+  display: none !important;
 }
 
 .pb-map-label {
@@ -520,3 +508,65 @@ input[type="time"] {
     animation: none !important;
   }
 }
+
+/* ── Proportional Scaling Architecture ── */
+.scalable-container {
+  /* Master scale definition based on viewport height and width for balance */
+  /* Keeps font size visible (min 11px) and uses a higher vh multiplier for clarity */
+  font-size: clamp(11px, min(1.4vw, 1.9vh), 16px);
+}
+
+/* ── Global Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375em;
+  padding: 0.375em 0.75em;
+  border-radius: 9999px;
+  font-size: 0.75em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge-secondary {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.badge-surface-4 {
+  background: var(--surface-4);
+  color: var(--text-primary);
+}
+
+.badge-teal-500 {
+  background: #14b8a6;
+  color: #ffffff;
+}
+
+.badge-primary {
+  background: var(--brand);
+  color: #ffffff;
+}
+
+.badge-red-500 {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.badge-yellow-500 {
+  background: #eab308;
+  color: #ffffff;
+}
+
+.badge-plain {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.badge-dot {
+  width: 0.375em;
+  height: 0.375em;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

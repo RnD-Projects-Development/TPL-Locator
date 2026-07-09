@@ -548,23 +548,7 @@ export default function FieldStaffDashboard() {
             />
           </div>
 
-          {/* Refresh button */}
-          {selectedZoneId && (
-            <button
-              onClick={fetchTracks}
-              disabled={tracksLoading}
-              title="Refresh"
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: '2.75em', height: '2.75em', borderRadius: '0.5em', alignSelf: 'flex-end',
-                background: 'rgba(255,255,255,0.04)', border: '0.0625em solid rgba(255,255,255,0.10)',
-                color: '#FFFFFF', cursor: tracksLoading ? 'not-allowed' : 'pointer',
-                opacity: tracksLoading ? 0.50 : 0.85, transition: 'all 0.12s', flexShrink: 0,
-              }}
-            >
-              <RefreshCw style={{ width: '1.125em', height: '1.125em', animation: tracksLoading ? 'spin 1s linear infinite' : 'none' }} />
-            </button>
-          )}
+
         </div>
       </div>
 

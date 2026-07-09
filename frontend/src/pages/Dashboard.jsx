@@ -248,9 +248,9 @@ function RecentActivityPanel({ activityRows, totalActive }) {
   const trueTotal = totalActive ?? activeRows.length
 
   return (
-    <div {...bind} style={{ ...CARD_ROOT, ...hoverStyle }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
-        <div style={{ minWidth: 0, flex: '1 1 140px' }}>
+    <div {...bind} className="scalable-container" style={{ ...CARD_ROOT, ...hoverStyle }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.85em 1.15em', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: '0.7em', flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ minWidth: 0, flex: '1 1 10em' }}>
           <div style={CARD_TTL}>Recent Activity</div>
           <div style={CARD_SUB}>
             {isSearching
@@ -265,53 +265,50 @@ function RecentActivityPanel({ activityRows, totalActive }) {
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{
-            flexShrink: 0, height: '28px', padding: '0 12px', fontSize: '11px',
+            flexShrink: 0, height: '2em', padding: '0 0.85em', fontSize: '0.8em',
             background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
             borderRadius: 0, color: '#F5F5F5', outline: 'none',
-            width: 'min(140px, 100%)', maxWidth: '100%', transition: 'border-color 0.15s, width 0.2s',
+            width: 'min(10em, 100%)', maxWidth: '100%', transition: 'border-color 0.15s, width 0.2s',
           }}
-          onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = 'min(180px, 100%)' }}
-          onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = 'min(140px, 100%)' }}
+          onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.55)'; e.target.style.width = 'min(13em, 100%)' }}
+          onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.10)'; e.target.style.width = 'min(10em, 100%)' }}
         />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(60px, 0.8fr) minmax(0, 1fr)', padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(4.5em, 0.8fr) minmax(0, 1fr)', padding: '0.57em 1.15em', borderBottom: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
         {['Device Name', 'User / Label', 'Status', 'Last Reported'].map(h => (
-          <span key={h} style={{ fontSize: '9px', fontWeight: 700, color: '#B8B8B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</span>
+          <span key={h} style={{ fontSize: '0.65em', fontWeight: 700, color: '#B8B8B8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</span>
         ))}
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {visibleRows.length === 0 ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: '#B8B8B8', fontSize: '13px' }}>
+          <div style={{ padding: '2.3em', textAlign: 'center', color: '#B8B8B8', fontSize: '0.92em' }}>
             {isSearching ? `No results for "${search.trim()}"` : 'No active devices'}
           </div>
         ) : visibleRows.map((row, idx) => (
           <div key={row.id}
             style={{
-              display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(60px, 0.8fr) minmax(0, 1fr)',
-              padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)',
+              display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(4.5em, 0.8fr) minmax(0, 1fr)',
+              padding: '0.7em 1.15em', borderBottom: '1px solid rgba(255,255,255,0.03)',
               background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)',
               transition: 'background 0.12s', cursor: 'default',
             }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(167,44,50,0.06)'}
             onMouseLeave={e => e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</span>
-              <span style={{
-                flexShrink: 0, fontSize: '9px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase',
-                padding: '1px 6px', borderRadius: 0, whiteSpace: 'nowrap',
-                ...(row.type === 'Sticker'
-                  ? { background: 'rgba(255,183,3,0.12)', color: '#FFB703', border: '1px solid rgba(255,183,3,0.24)' }
-                  : { background: 'rgba(0,180,216,0.12)', color: '#00B4D8', border: '1px solid rgba(0,180,216,0.24)' })
-              }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45em', overflow: 'hidden' }}>
+              <span style={{ fontSize: '0.85em', fontWeight: 600, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</span>
+              <span className={`badge ${row.type === 'Sticker' ? 'badge-yellow-500' : 'badge-primary'}`}>
                 {row.type}
               </span>
             </span>
-            <span style={{ fontSize: '12px', color: '#F0F0F0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '8px' }}>{row.user}</span>
+            <span style={{ fontSize: '0.85em', color: '#F0F0F0', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '0.57em' }}>{row.user}</span>
             <span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 10px', borderRadius: 0, fontSize: '11px', fontWeight: 700, background: 'rgba(74,222,128,0.10)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.22)' }}>● Active</span>
+              <span className="badge badge-teal-500">
+                <span className="badge-dot bg-current animate-pulse" />
+                Active
+              </span>
             </span>
-            <span style={{ fontSize: '12px', color: '#D4D4D4', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{fmtRelTime(row.lastSeen)}</span>
+            <span style={{ fontSize: '0.85em', color: '#D4D4D4', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{fmtRelTime(row.lastSeen)}</span>
           </div>
         ))}
       </div>
