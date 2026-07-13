@@ -100,14 +100,21 @@ function useStopGeo(group, getGeocode) {
   );
   const [geo, setGeo] = useState(() => peekGeocode(geoPoint));
 
+  // Re-resolve whenever the point changes — e.g. clicking a different pin on the
+  // map swaps StopDetail's `group` without remounting, so this instance's geo
+  // must refresh. Peek the synchronous cache first (shows a known landmark
+  // immediately); otherwise clear the stale value and fetch. Guarding on `geo`
+  // here would wrongly keep the previous stop's landmark.
   useEffect(() => {
-    if (geo) return;
     let isMounted = true;
+    const cached = peekGeocode(geoPoint);
+    setGeo(cached);
+    if (cached) return;
     resolveGeocode(geoPoint, getGeocode).then((result) => {
       if (isMounted) setGeo(result);
     });
     return () => { isMounted = false; };
-  }, [geoPoint, geo, getGeocode]);
+  }, [geoPoint, getGeocode]);
 
   return geo;
 }
