@@ -144,7 +144,7 @@ const DevicesTable = ({
       <table className="devices-table">
         <thead>
           <tr>
-            <th style={{ width: 40, textAlign: 'center', color: 'rgba(226,160,160,0.5)', fontWeight: 500, fontSize: 11 }}>#</th>
+            <th style={{ width: '2.5em', textAlign: 'center', color: 'rgba(226,160,160,0.5)', fontWeight: 500, fontSize: '0.6875em' }}>#</th>
             {COLUMNS.map((col) => (
               <th key={col.key} onClick={() => handleSort(col.key)}>
                 <span className="th-inner">{col.label}<SortIcon colKey={col.key} /></span>
@@ -159,7 +159,7 @@ const DevicesTable = ({
             <tr key={device.sn || `row-${index}`}>
 
               {/* Row number */}
-              <td style={{ textAlign: 'center', color: '#52525b', fontSize: 11, fontWeight: 500, userSelect: 'none' }}>
+              <td style={{ textAlign: 'center', color: '#52525b', fontSize: '0.6875em', fontWeight: 500, userSelect: 'none' }}>
                 {rowOffset + index + 1}.
               </td>
 
@@ -197,20 +197,20 @@ const DevicesTable = ({
                 {device.category ? (
                   <span style={{
                     display: 'inline-block',
-                    padding: '2px 9px',
-                    borderRadius: 99,
-                    fontSize: 11,
+                    padding: '0.125em 0.5625em',
+                    borderRadius: '6.1875em',
+                    fontSize: '0.6875em',
                     fontWeight: 600,
                     letterSpacing: '0.03em',
                     background: 'rgba(128,0,0,0.18)',
                     color: '#fca5a5',
-                    border: '1px solid rgba(128,0,0,0.35)',
+                    border: '0.0625em solid rgba(128,0,0,0.35)',
                     textTransform: 'capitalize',
                   }}>
                     {device.category}
                   </span>
                 ) : (
-                  <span style={{ color: '#52525b', fontStyle: 'italic', fontSize: 12 }}>—</span>
+                  <span style={{ color: '#52525b', fontStyle: 'italic', fontSize: '0.75em' }}>—</span>
                 )}
               </td>
 
@@ -234,18 +234,18 @@ const DevicesTable = ({
               {(() => {
                 const bat = locations[device.sn]?.batteryStatus;
                 if (bat == null) {
-                  return <td><span style={{ color: '#52525b', fontStyle: 'italic', fontSize: 12 }}>—</span></td>;
+                  return <td><span style={{ color: '#52525b', fontStyle: 'italic', fontSize: '0.75em' }}>—</span></td>;
                 }
                 const color = bat >= 60 ? '#4CAF50' : bat >= 20 ? '#F4A261' : '#ef4444';
                 const label = bat >= 60 ? 'High' : bat >= 20 ? 'Medium' : 'Low';
                 return (
                   <td>
                     <span style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 5,
-                      padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600,
+                      display: 'inline-flex', alignItems: 'center', gap: '0.3125em',
+                      padding: '0.125em 0.5em', borderRadius: '6.1875em', fontSize: '0.6875em', fontWeight: 600,
                       background: `${color}18`, color, border: `1px solid ${color}35`,
                     }}>
-                      <span style={{ fontSize: 9 }}>●</span>
+                      <span style={{ fontSize: '0.5625em' }}>●</span>
                       {bat}% {label}
                     </span>
                   </td>

@@ -214,7 +214,7 @@ export default function ZoneToolbox({
 
   // ── Render — portal into document.body bypasses all ancestor stacking issues ─
   return createPortal(
-    <div className="zt-panel" style={{ top: topOffset, left: leftOffset, height: `calc(100vh - ${topOffset}px)` }}>
+    <div className="zt-panel" style={{ top: topOffset, left: leftOffset, height: 'auto', maxHeight: `calc(100vh - ${topOffset}px)` }}>
 
       {/* ── Header ── */}
       <div className="zt-header">

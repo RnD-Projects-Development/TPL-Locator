@@ -26,7 +26,13 @@ const crumbs = {
   '/field-staff': ['Dashboard', 'Field Staff'],
   '/users':       ['Reports & Admin', 'Users'],
 }
-const getCrumbs = path => {
+const getCrumbs = (path, state) => {
+  if ((path === '/playback' || path === '/map') && state?.fromDeviceType) {
+    const parentRoute = state.fromDeviceType === 'sticker' ? 'Smart Stickers' : 'Locators'
+    const name = state.fromDeviceName || state.fromDeviceId
+    const pageName = path === '/playback' ? 'Playback' : 'Map View'
+    return ['Devices', parentRoute, name, pageName]
+  }
   if (crumbs[path]) return crumbs[path]
   if (path.startsWith('/locators/')) return ['Devices', 'Locators', path.split('/')[2]]
   if (path.startsWith('/stickers/')) return ['Devices', 'Smart Stickers', path.split('/')[2]]
@@ -78,7 +84,7 @@ function AlertIcon({ type, color }) {
 }
 
 export default function Header({ pageTheme, setPageTheme }) {
-  const { pathname } = useLocation()
+  const { pathname, state } = useLocation()
   const navigate     = useNavigate()
 
   let alertsCtx = null
@@ -324,7 +330,10 @@ export default function Header({ pageTheme, setPageTheme }) {
               onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
             {parts.map((p, i) => {
               const isLast = i === parts.length - 1
-              const route  = !isLast ? crumbRouteMap[p] : null
+              let route  = !isLast ? crumbRouteMap[p] : null
+              if (!isLast && p === (state?.fromDeviceName || state?.fromDeviceId)) {
+                route = `/${state.fromDeviceType}s/${state.fromDeviceId}`
+              }
               return (
                 <React.Fragment key={i}>
                   <ChevronRight className="w-3 h-3 text-gray-700" />
@@ -591,7 +600,8 @@ export default function Header({ pageTheme, setPageTheme }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24 }}>
             <div onClick={e => e.stopPropagation()}
               style={{ background: '#000', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16,
-                boxShadow: '0 24px 64px rgba(0,0,0,0.80)', width: '100%', maxWidth: 420, padding: 28 }}>
+                boxShadow: '0 24px 64px rgba(0,0,0,0.80)', width: '42em', maxWidth: '100%', padding: 24, transition: 'width 0.3s ease',
+                maxHeight: '90vh', overflowY: 'auto' }}>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
                 <div style={{ position: 'relative', width: 54, height: 54, flexShrink: 0 }}>
@@ -648,70 +658,73 @@ export default function Header({ pageTheme, setPageTheme }) {
                 <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginBottom: 14 }}>Loading profile...</div>
               ) : null}
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Name
-                </label>
-                <input value={profileName} onChange={e => setProfileName(e.target.value)}
-                  placeholder="Your name" style={{ ...inp }}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                  onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
-              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px 16px', marginBottom: 14 }}>
+                {/* Name & Email */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Name
+                  </label>
+                  <input value={profileName} onChange={e => setProfileName(e.target.value)}
+                    placeholder="Your name" style={{ ...inp }}
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Email (read only)
+                  </label>
+                  <input value={profileEmail} readOnly style={{ ...inp, opacity: 0.75 }} />
+                </div>
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Email (read only)
-                </label>
-                <input value={profileEmail} readOnly style={{ ...inp, opacity: 0.75 }} />
-              </div>
+                {/* Phone & Emergency */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Phone (read only)
+                  </label>
+                  <input value={profilePhone || ''} readOnly style={{ ...inp, opacity: 0.75 }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Emergency Contact
+                  </label>
+                  <input value={profileEmergency} onChange={e => setProfileEmergency(e.target.value)} placeholder="03001234567" style={{ ...inp }} />
+                </div>
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Phone (read only)
-                </label>
-                <input value={profilePhone || ''} readOnly style={{ ...inp, opacity: 0.75 }} />
-              </div>
+                {/* CNIC & CNIC Expiry */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    CNIC / ID Number
+                  </label>
+                  <input value={profileCnic} onChange={e => setProfileCnic(e.target.value)} placeholder="12345-1234567-1" style={{ ...inp }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    CNIC Expiry
+                  </label>
+                  <input type="date" value={profileCnicExpiry} onChange={e => setProfileCnicExpiry(e.target.value)} style={{ ...inp }} />
+                </div>
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  CNIC / ID Number
-                </label>
-                <input value={profileCnic} onChange={e => setProfileCnic(e.target.value)} placeholder="12345-1234567-1" style={{ ...inp }} />
-              </div>
+                {/* License & License Expiry */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Driving License No.
+                  </label>
+                  <input value={profileLicenseNo} onChange={e => setProfileLicenseNo(e.target.value)} placeholder="ABC12345" style={{ ...inp }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    License Expiry
+                  </label>
+                  <input type="date" value={profileLicenseExp} onChange={e => setProfileLicenseExp(e.target.value)} style={{ ...inp }} />
+                </div>
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  CNIC Expiry
-                </label>
-                <input type="date" value={profileCnicExpiry} onChange={e => setProfileCnicExpiry(e.target.value)} style={{ ...inp }} />
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Driving License No.
-                </label>
-                <input value={profileLicenseNo} onChange={e => setProfileLicenseNo(e.target.value)} placeholder="ABC12345" style={{ ...inp }} />
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  License Expiry
-                </label>
-                <input type="date" value={profileLicenseExp} onChange={e => setProfileLicenseExp(e.target.value)} style={{ ...inp }} />
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Emergency Contact
-                </label>
-                <input value={profileEmergency} onChange={e => setProfileEmergency(e.target.value)} placeholder="03001234567" style={{ ...inp }} />
-              </div>
-
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Address
-                </label>
-                <input value={profileAddress} onChange={e => setProfileAddress(e.target.value)} placeholder="Lahore" style={{ ...inp }} />
+                {/* Address */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Address
+                  </label>
+                  <input value={profileAddress} onChange={e => setProfileAddress(e.target.value)} placeholder="Lahore" style={{ ...inp }} autoComplete="street-address" type="text" />
+                </div>
               </div>
 
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '18px 0' }} />
@@ -725,17 +738,19 @@ export default function Header({ pageTheme, setPageTheme }) {
                   onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
                   onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <input type="password" value={profileNewPw} onChange={e => setProfileNewPw(e.target.value)}
-                  placeholder="New password" style={{ ...inp }}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                  onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
-              </div>
-              <div style={{ marginBottom: 18 }}>
-                <input type="password" value={profileConfirmPw} onChange={e => setProfileConfirmPw(e.target.value)}
-                  placeholder="Confirm new password" style={{ ...inp }}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                  onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px 16px', marginBottom: 18 }}>
+                <div>
+                  <input type="password" value={profileNewPw} onChange={e => setProfileNewPw(e.target.value)}
+                    placeholder="New password" style={{ ...inp }}
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
+                <div>
+                  <input type="password" value={profileConfirmPw} onChange={e => setProfileConfirmPw(e.target.value)}
+                    placeholder="Confirm new password" style={{ ...inp }}
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
               </div>
 
               {profileErr && (

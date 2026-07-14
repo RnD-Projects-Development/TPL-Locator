@@ -54,6 +54,15 @@ export function AuthProvider({ children }) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       },
       logout: () => {
+        // Best-effort: stamp last_logged_out so admin views can show this
+        // account as offline. Fire-and-forget — never block the local logout.
+        if (accessToken) {
+          fetch("/api/logout", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            keepalive: true,
+          }).catch(() => {});
+        }
         clearAppCaches();
         setUser(null);
         setAccessToken(null);

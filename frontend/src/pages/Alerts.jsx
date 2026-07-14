@@ -157,15 +157,6 @@ export default function Alerts() {
             </div>
           )}
 
-          <button onClick={refresh} disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 36, height: 36, borderRadius: 10,
-              background: T.btnGhostBg, border: `1px solid ${T.btnGhostBdr}`,
-              cursor: loading ? 'not-allowed' : 'pointer', color: loading ? T.txt3 : T.btnGhostTxt }}
-            onMouseEnter={e => { if (!loading) { if (isLight) e.currentTarget.style.background = '#8B2328'; else e.currentTarget.style.color = T.txt1 } }}
-            onMouseLeave={e => { if (isLight) e.currentTarget.style.background = T.btnGhostBg; else e.currentTarget.style.color = loading ? T.txt3 : T.btnGhostTxt }}>
-            <RefreshCw style={{ width: 14, height: 14, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-          </button>
         </div>
       </div>
 

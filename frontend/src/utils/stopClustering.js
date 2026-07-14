@@ -73,6 +73,94 @@ export function clusterStops(points, { radiusMeters = STOP_RADIUS_METERS, maxGap
 }
 
 /**
+ * Per landmark per local day, keep only the FIRST and LAST stop-group —
+ * regardless of whether the visits were consecutive. A device that keeps
+ * returning to (or idling at) the same place all day otherwise stacks
+ * dozens of identical labels on the map and near-duplicate rows in the
+ * visit log; what matters is that the device was there — earliest and
+ * latest reading of the day tell that story.
+ *
+ * Groups without a landmark string are never collapsed. Kept entries stay
+ * in chronological order. A landmark visited across several days keeps a
+ * first/last pair for each day.
+ */
+export function collapseSameLandmarkRuns(groups) {
+  const dayOf = (g) => {
+    if (g?.startTs == null) return null;
+    const d = new Date(g.startTs);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  };
+
+  const range = new Map(); // `${landmark}|${day}` -> { first: idx, last: idx }
+  groups.forEach((g, i) => {
+    if (!g.landmark) return;
+    const key = `${g.landmark}|${dayOf(g)}`;
+    const entry = range.get(key);
+    if (!entry) range.set(key, { first: i, last: i });
+    else entry.last = i;
+  });
+
+  return groups.filter((g, i) => {
+    if (!g.landmark) return true;
+    const entry = range.get(`${g.landmark}|${dayOf(g)}`);
+    return i === entry.first || i === entry.last;
+  });
+}
+
+/**
+ * Aggregate raw playback points into ONE entry per (landmark, local day).
+ * All samples a device produced at the same place on the same calendar day
+ * collapse into a single marker/row — e.g. 40 GPS samples at the office on
+ * July 5 become one entry carrying its full timeline.
+ *
+ * Points without a backend landmark are grouped by rounded coordinates
+ * (~11 m) instead, so nothing is dropped.
+ *
+ * Returns entries sorted chronologically by first sample:
+ *   { key, landmark, day, coords, points, firstPoint, lastPoint,
+ *     startTs, endTs, totalSamples, intermediateSamples }
+ */
+export function aggregateByLandmarkAndDay(points) {
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const groups = new Map();
+
+  for (const p of points || []) {
+    const c = getCoords(p);
+    if (!c) continue;
+    const ts = getPointTimestamp(p);
+    const landmark = landmarkFromPoint(p);
+    const d = ts != null ? new Date(ts) : null;
+    const day = d ? `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` : "unknown";
+    const placeKey = landmark || `@${c.lat.toFixed(4)},${c.lng.toFixed(4)}`;
+    const key = `${placeKey}|${day}`;
+
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, landmark: landmark || null, day, coords: c, points: [], startTs: ts, endTs: ts };
+      groups.set(key, g);
+    }
+    g.points.push(p);
+    if (ts != null) {
+      if (g.startTs == null || ts < g.startTs) g.startTs = ts;
+      if (g.endTs == null || ts > g.endTs) g.endTs = ts;
+    }
+  }
+
+  const out = [...groups.values()];
+  for (const g of out) {
+    // Input points arrive chronologically sorted (playback cache sorts them),
+    // so first/last in insertion order are arrival/departure.
+    g.firstPoint = g.points[0];
+    g.lastPoint = g.points[g.points.length - 1];
+    g.coords = getCoords(g.firstPoint) ?? g.coords;
+    g.totalSamples = g.points.length;
+    g.intermediateSamples = Math.max(0, g.points.length - 2);
+  }
+  out.sort((a, b) => (a.startTs ?? Infinity) - (b.startTs ?? Infinity));
+  return out;
+}
+
+/**
  * Stop duration is not the span of points *within* a group — this locator
  * only logs a point while it detects movement, so a device sitting
  * completely still produces zero data until it moves again. The points in a
@@ -102,3 +190,4 @@ export function formatStopDuration(ms) {
   if (min > 0) return `${min}m`;
   return `${sec}s`;
 }
+

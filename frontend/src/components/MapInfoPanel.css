@@ -1,18 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════
-   MapInfoPanel — right-side device info sidebar for map pages
-   Single container, generous spacing, sections split by dividers.
+   MapInfoPanel — right-side device info sidebar for map pages.
+   Icon-less, card-less: one full-bleed section per selected device,
+   separated by prominent divider bands. Width is user-resizable
+   (inline style from useResizablePanel).
    ═══════════════════════════════════════════════════════════════ */
 
 .mip-panel {
-  width: 232px;
-  flex: 0 0 232px;
+  width: 14.5em;
+  flex: 0 0 14.5em;
   height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  padding: 20px 16px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   background:
     linear-gradient(165deg, rgba(167, 44, 50, 0.18) 0%, rgba(167, 44, 50, 0.04) 30%, var(--surface-1) 70%);
   border-left: 1px solid var(--border-subtle);
@@ -20,52 +20,85 @@
   color: var(--text-primary);
 }
 
-/* ── One container holds everything ──────────────────────────── */
-.mip-card {
-  box-sizing: border-box;
-  width: 100%;
+/* Count strip shown when multiple devices are selected */
+.mip-panel-head {
+  flex-shrink: 0;
+  padding: 0.75em 1em;
+  font-size: 0.625em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.mip-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  border-radius: var(--radius-lg);
-  background: var(--surface-2);
-  border: 1px solid var(--border-subtle);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
 }
 
-/* sections (everything after the header) get a soft top divider */
-.mip-card > .mip-stat,
-.mip-card > .mip-row {
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
+/* ── One device section ──────────────────────────────────────── */
+.mip-device {
+  padding: 1em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  border-left: 0.1875em solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mip-device.clickable { cursor: pointer; }
+.mip-device.clickable:hover { background: rgba(255, 255, 255, 0.03); }
+.mip-device.focused {
+  background: rgba(167, 44, 50, 0.08);
+  border-left-color: var(--dev-color, var(--brand));
 }
 
-/* ── Header ──────────────────────────────────────────────────── */
-.mip-header {
+/* Prominent divider between device sections */
+.mip-divider {
+  flex-shrink: 0;
+  height: 0.375em;
+  background: var(--surface-inset, rgba(0, 0, 0, 0.25));
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* ── Section header (name + status) ──────────────────────────── */
+.mip-dev-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.5625em;
 }
 
-.mip-avatar {
+.mip-dev-dot {
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  color: var(--brand);
+  width: 0.625em;
+  height: 0.625em;
+  border-radius: 50%;
+  background: var(--dev-color, var(--brand));
+  box-shadow: 0 0 0.375em var(--dev-color, var(--brand));
 }
-.mip-avatar svg { width: 16px; height: 16px; }
 
 .mip-head-text { min-width: 0; flex: 1 1 auto; }
 
+.mip-dev-status {
+  flex: 0 0 auto;
+  font-size: 0.5625em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 62.4375em;
+  padding: 0.125em 0.5em;
+}
+.mip-dev-status.on  { background: rgba(34, 197, 94, 0.14);  color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+.mip-dev-status.off { background: rgba(148, 163, 184, 0.12); color: var(--text-tertiary); border: 1px solid var(--border-default); }
+
 .mip-name {
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: 0.875em;
   font-weight: 700;
   line-height: 1.25;
   color: var(--text-primary);
@@ -75,74 +108,56 @@
 }
 
 .mip-sn {
-  margin-top: 3px;
+  margin-top: 0.1875em;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 0.625em;
   color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ── Detections stat (inline) ────────────────────────────────── */
+/* ── Detections stat ─────────────────────────────────────────── */
 .mip-stat {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5em;
 }
 .mip-stat-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 0.5em;
 }
 .mip-stat-num {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 1.25em;
   font-weight: 700;
   line-height: 1;
   color: var(--text-brand);
 }
 .mip-stat-label {
-  font-size: 10px;
+  font-size: 0.625em;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-tertiary);
 }
 
-/* ── Detail rows ─────────────────────────────────────────────── */
-.mip-row {
-  display: flex;
-  gap: 12px;
-}
+/* ── Detail fields (label above value — no icons) ────────────── */
+.mip-field { min-width: 0; }
 
-.mip-row-icon {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  color: var(--brand);
-}
-.mip-row-icon svg { width: 13px; height: 13px; }
-
-.mip-row-body { min-width: 0; flex: 1 1 auto; }
-
-/* Labels: small, subtle, low-emphasis */
 .mip-row-label {
-  font-size: 10px;
+  font-size: 0.625em;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  margin-bottom: 5px;
+  margin-bottom: 0.3125em;
 }
 
 /* Main values: single line, scroll horizontally instead of wrapping */
 .mip-row-val {
-  font-size: 13px;
+  font-size: 0.8125em;
   font-weight: 600;
   line-height: 1.35;
   color: var(--text-primary);
@@ -156,8 +171,8 @@
 
 /* Supporting text: medium weight, secondary — also single line */
 .mip-row-meta {
-  margin-top: 4px;
-  font-size: 11px;
+  margin-top: 0.25em;
+  font-size: 0.6875em;
   font-weight: 500;
   color: var(--text-tertiary);
   line-height: 1.35;
@@ -170,11 +185,11 @@
 
 .mip-coords {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875em;
   color: var(--text-tertiary);
   background: var(--surface-inset);
   border-radius: var(--radius-sm);
-  padding: 5px 9px;
+  padding: 0.3125em 0.5625em;
   display: block;
   white-space: nowrap;
   overflow-x: auto;
@@ -190,19 +205,19 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 5px;
-  padding: 28px 20px;
+  gap: 0.3125em;
+  padding: 1.75em 1.25em;
 }
 .mip-empty-title {
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: 0.75em;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text-secondary);
 }
 .mip-empty-text {
-  font-size: 11px;
+  font-size: 0.6875em;
   color: var(--text-tertiary);
   line-height: 1.45;
-  max-width: 200px;
+  max-width: 12.5em;
 }

@@ -6,6 +6,7 @@ import { useFieldStaffCache } from '../context/FieldStaffCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import loadTPLMaps from '../components/loadTPLMaps.js';
 import { landmarkFromPoint, clientReverseGeocode } from '../utils/landmark.js';
+import { frameBounds } from '../utils/frameBounds.js';
 import './FieldStaffDashboard.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -31,8 +32,8 @@ function ZoneDropdown({ value, onChange, kmlZones, userZones }) {
   const selected = allZones.find(z => z.zone_id === value);
 
   const ITEM_STYLE = (active) => ({
-    padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-    display: 'flex', alignItems: 'center', gap: 9,
+    padding: '0.5625em 0.875em', fontSize: '0.8125em', fontWeight: 600, cursor: 'pointer',
+    display: 'flex', alignItems: 'center', gap: '0.5625em',
     color:      active ? '#FFFFFF' : 'rgba(255,255,255,0.72)',
     background: active ? 'rgba(167,44,50,0.18)' : 'transparent',
     transition: 'background 0.1s',
@@ -43,34 +44,34 @@ function ZoneDropdown({ value, onChange, kmlZones, userZones }) {
       <button
         onClick={() => setOpen(o => !o)}
         style={{
-          height: 36, padding: '0 12px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+          height: '2.75em', padding: '0 0.875em', borderRadius: '0.5em', fontSize: '0.9375em', fontWeight: 600,
           background: '#1a1a1a', border: `1px solid ${open ? 'rgba(167,44,50,0.55)' : 'rgba(255,255,255,0.12)'}`,
           color: selected ? '#FFFFFF' : 'rgba(255,255,255,0.38)',
-          cursor: 'pointer', outline: 'none', minWidth: 220,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+          cursor: 'pointer', outline: 'none', minWidth: '15em',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.625em',
           transition: 'border-color 0.15s',
         }}
       >
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-          {selected && <span style={{ width: 6, height: 6, borderRadius: '50%', background: selected.color || '#A72C32', flexShrink: 0 }} />}
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5em', overflow: 'hidden' }}>
+          {selected && <span style={{ width: '0.375em', height: '0.375em', borderRadius: '50%', background: selected.color || '#A72C32', flexShrink: 0 }} />}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {selected?.name || '— Select a zone —'}
           </span>
         </span>
-        <ChevronDown style={{ width: 12, height: 12, color: 'rgba(255,255,255,0.40)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+        <ChevronDown style={{ width: '0.75em', height: '0.75em', color: 'rgba(255,255,255,0.40)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
       </button>
 
       {open && (
         <div style={{
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-          background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: 8, zIndex: 9999,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.70)',
-          maxHeight: 280, overflowY: 'auto',
+          background: '#1a1a1a', border: '0.0625em solid rgba(255,255,255,0.12)',
+          borderRadius: '0.5em', zIndex: 9999,
+          boxShadow: '0 0.5em 2em rgba(0,0,0,0.70)',
+          maxHeight: '17.5em', overflowY: 'auto',
         }}>
           <div
             onClick={() => { onChange(''); setOpen(false); }}
-            style={{ ...ITEM_STYLE(false), color: 'rgba(255,255,255,0.30)', borderBottom: '1px solid rgba(255,255,255,0.07)', fontSize: 12 }}
+            style={{ ...ITEM_STYLE(false), color: 'rgba(255,255,255,0.30)', borderBottom: '1px solid rgba(255,255,255,0.07)', fontSize: '0.75em' }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
           >
@@ -79,7 +80,7 @@ function ZoneDropdown({ value, onChange, kmlZones, userZones }) {
 
           {kmlZones.length > 0 && (
             <>
-              <div style={{ padding: '7px 14px 3px', fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>KML Zones</div>
+              <div style={{ padding: '0.4375em 0.875em 0.1875em', fontSize: '0.5625em', fontWeight: 700, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>KML Zones</div>
               {kmlZones.map(z => (
                 <div key={z.zone_id}
                   onClick={() => { onChange(z.zone_id); setOpen(false); }}
@@ -87,7 +88,7 @@ function ZoneDropdown({ value, onChange, kmlZones, userZones }) {
                   onMouseEnter={e => { if (z.zone_id !== value) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = z.zone_id === value ? 'rgba(167,44,50,0.18)' : 'transparent'; }}
                 >
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: z.color || '#A72C32', flexShrink: 0 }} />
+                  <span style={{ width: '0.375em', height: '0.375em', borderRadius: '50%', background: z.color || '#A72C32', flexShrink: 0 }} />
                   {z.name}
                 </div>
               ))}
@@ -96,7 +97,7 @@ function ZoneDropdown({ value, onChange, kmlZones, userZones }) {
 
           {userZones.length > 0 && (
             <>
-              <div style={{ padding: '7px 14px 3px', fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.10em', borderTop: kmlZones.length > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none', marginTop: kmlZones.length > 0 ? 4 : 0 }}>Custom Zones</div>
+              <div style={{ padding: '0.4375em 0.875em 0.1875em', fontSize: '0.5625em', fontWeight: 700, color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', letterSpacing: '0.10em', borderTop: kmlZones.length > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none', marginTop: kmlZones.length > 0 ? 4 : 0 }}>Custom Zones</div>
               {userZones.map(z => (
                 <div key={z.zone_id}
                   onClick={() => { onChange(z.zone_id); setOpen(false); }}
@@ -104,7 +105,7 @@ function ZoneDropdown({ value, onChange, kmlZones, userZones }) {
                   onMouseEnter={e => { if (z.zone_id !== value) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = z.zone_id === value ? 'rgba(167,44,50,0.18)' : 'transparent'; }}
                 >
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: z.color || '#A72C32', flexShrink: 0 }} />
+                  <span style={{ width: '0.375em', height: '0.375em', borderRadius: '50%', background: z.color || '#A72C32', flexShrink: 0 }} />
                   {z.name}
                 </div>
               ))}
@@ -180,7 +181,7 @@ function MapSection({ devices, selectedZone, mapContainerRef, accessToken }) {
     polygonRef.current = poly;
     try {
       const bounds = poly.getBounds();
-      if (bounds.isValid()) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
+      if (bounds.isValid()) frameBounds(map, bounds, { padding: [60, 60], maxZoom: 14 });
     } catch {}
   }, [selectedZone]);
 
@@ -195,16 +196,16 @@ function MapSection({ devices, selectedZone, mapContainerRef, accessToken }) {
     withCoords.forEach(device => {
       const outerColor = device.isOnline ? '#14532d' : '#8B0000';
       const innerColor = device.isOnline ? '#22c55e' : '#E8192C';
-      const iconHtml = `<div style="position:relative;display:flex;flex-direction:column;align-items:center;width:30px;height:48px;"><div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;background:${outerColor};display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,0.45);"><div style="width:16px;height:16px;border-radius:50%;background:${innerColor};"></div></div><div style="width:4px;height:18px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 3px 3px;"></div><div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:16px;height:6px;border-radius:50%;background:rgba(0,0,0,0.18);"></div></div>`;
+      const iconHtml = `<div style="position:relative;display:flex;flex-direction:column;align-items:center;width: '1.875em'px;height: '3em'px;"><div style="width: '1.625em'px;height: '1.625em'px;border-radius:50%;flex-shrink:0;background:${outerColor};display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,0.45);"><div style="width: '1em'px;height: '1em'px;border-radius:50%;background:${innerColor};"></div></div><div style="width: '0.25em'px;height: '1.125em'px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 3px 3px;"></div><div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width: '1em'px;height: '0.375em'px;border-radius:50%;background:rgba(0,0,0,0.18);"></div></div>`;
       const icon = window.L.divIcon({ html: iconHtml, className: '', iconSize: [30, 48], iconAnchor: [15, 42], popupAnchor: [0, -44] });
       const marker = window.L.marker([device.latitude, device.longitude], { icon }).addTo(map);
 
       const buildPopup = (addr) =>
-        `<div style="font-family:sans-serif;padding:4px 2px;min-width:160px;max-width:220px;">` +
+        `<div style="font-family:sans-serif;padding: '0.25em'px 2px;min-width: '10em'px;max-width: '13.75em'px;">` +
         `<div style="font-weight:700;font-size:13px;color:#f9fafb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${device.name || device.sn}</div>` +
         `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">${device.assignedUser || 'Unassigned'}</div>` +
         (addr
-          ? `<div style="font-size:10px;color:#86efac;margin-top:4px;line-height:1.4;">${addr}</div>`
+          ? `<div style="font-size:10px;color:#86efac;margin-top:4px;line-height: '0.0875em';">${addr}</div>`
           : `<div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:4px;">Loading address…</div>`) +
         `</div>`;
 
@@ -246,10 +247,10 @@ function MapSection({ devices, selectedZone, mapContainerRef, accessToken }) {
           position: 'absolute', inset: 0, zIndex: 10,
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           background: 'rgba(14,14,14,0.70)', backdropFilter: 'blur(4px)',
-          gap: 10, pointerEvents: 'none',
+          gap: '0.625em', pointerEvents: 'none',
         }}>
-          <MapPin style={{ width: 32, height: 32, color: 'rgba(255,255,255,0.20)' }} />
-          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', fontWeight: 600 }}>Select a zone to focus the map</span>
+          <MapPin style={{ width: '2em', height: '2em', color: 'rgba(255,255,255,0.20)' }} />
+          <span style={{ fontSize: '0.8125em', color: 'rgba(255,255,255,0.35)', fontWeight: 600 }}>Select a zone to focus the map</span>
         </div>
       )}
       <div ref={mapContainerRef} id="fsd-map" className="fsd-map-container" />
@@ -262,16 +263,16 @@ function KPIChip({ label, value, color, icon: Icon }) {
   return (
     <div style={{
       background: `${color}0D`, border: `1px solid ${color}28`,
-      borderRadius: 12, padding: '12px 14px',
-      display: 'flex', flexDirection: 'column', gap: 6, flex: 1,
+      borderRadius: '0.875em', padding: '1em',
+      display: 'flex', flexDirection: 'column', gap: '0.5em', flex: 1,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <div style={{ width: 24, height: 24, borderRadius: 6, background: `${color}1A`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon style={{ width: 12, height: 12, color }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em' }}>
+        <div style={{ width: '1.75em', height: '1.75em', borderRadius: '0.375em', background: `${color}1A`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon style={{ width: '0.875em', height: '0.875em', color }} />
         </div>
-        <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>{label}</span>
+        <span style={{ fontSize: '0.625em', fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: '2em', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
     </div>
   );
 }
@@ -294,18 +295,18 @@ function ZoneInfoPanel({ zone, stats, devices, loading, date }) {
 
   const PANEL = {
     background: '#1a1a1a',
-    border: '1px solid rgba(255,255,255,0.07)',
-    borderRadius: 16,
-    boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
+    border: '0.0625em solid rgba(255,255,255,0.07)',
+    borderRadius: '1em',
+    boxShadow: '0 0.25em 1.5em rgba(0,0,0,0.4)',
     display: 'flex', flexDirection: 'column',
     height: '100%', overflow: 'hidden',
   };
 
   if (!zone) {
     return (
-      <div style={{ ...PANEL, alignItems: 'center', justifyContent: 'center', gap: 14 }}>
-        <MapPin style={{ width: 40, height: 40, color: 'rgba(255,255,255,0.10)' }} />
-        <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: 13, margin: 0, textAlign: 'center', maxWidth: 180, lineHeight: 1.5 }}>
+      <div style={{ ...PANEL, alignItems: 'center', justifyContent: 'center', gap: '0.875em' }}>
+        <MapPin style={{ width: '2.5em', height: '2.5em', color: 'rgba(255,255,255,0.10)' }} />
+        <p style={{ color: 'rgba(255,255,255,0.28)', fontSize: '0.8125em', margin: 0, textAlign: 'center', maxWidth: '11.25em', lineHeight: 1.5 }}>
           Select a zone above to view visit analytics
         </p>
       </div>
@@ -316,40 +317,45 @@ function ZoneInfoPanel({ zone, stats, devices, loading, date }) {
     <div style={PANEL}>
 
       {/* ── Zone identity header ── */}
-      <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+      <div style={{ padding: '1.5em 1.5em 1.25em', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.625em' }}>
           <div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.01em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{zone.name}</div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', marginTop: 5, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: zone.color || '#A72C32', display: 'inline-block', flexShrink: 0 }} />
-              <span>TPL TRAKKER</span>
+            <div style={{ fontSize: '1.25em', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.01em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{zone.name}</div>
+            <div style={{ fontSize: '0.75em', color: 'rgba(255,255,255,0.38)', marginTop: '0.375em', display: 'flex', alignItems: 'center', gap: '0.5em', flexWrap: 'wrap' }}>
+              <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', background: zone.color || '#A72C32', display: 'inline-block', flexShrink: 0 }} />
+              <span style={{ fontWeight: 600 }}>TPL TRAKKER</span>
               <span style={{ opacity: 0.35 }}>·</span>
               <span>{allSns.length} device{allSns.length !== 1 ? 's' : ''} assigned</span>
               {date && <><span style={{ opacity: 0.35 }}>·</span><span>{date}</span></>}
             </div>
           </div>
           {loading && (
-            <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.12)', borderTopColor: '#A72C32', animation: 'spin 0.8s linear infinite', flexShrink: 0, marginTop: 2 }} />
+            <div style={{ width: '1.5em', height: '1.5em', borderRadius: '50%', border: '0.125em solid rgba(255,255,255,0.12)', borderTopColor: '#A72C32', animation: 'spin 0.8s linear infinite', flexShrink: 0, marginTop: '0.125em' }} />
           )}
         </div>
       </div>
 
       {/* ── KPI chips ── */}
-      <div style={{ padding: '14px 20px 0', display: 'flex', gap: 10, flexShrink: 0 }}>
-        <KPIChip label="Total Assigned" value={allSns.length} color="#60A5FA" icon={Users} />
-        <KPIChip label="Visited"        value={loading ? '—' : stats.visited}    color="#4ade80"  icon={CheckCircle} />
-        <KPIChip label="Not Visited"    value={loading ? '—' : stats.notVisited} color="#f87171"  icon={XCircle} />
+      <div style={{ padding: '1.25em 1.5em 0', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.875em', flexShrink: 0 }}>
+        <KPIChip label="Assigned" value={allSns.length} color="#60A5FA" icon={Users} />
+        <KPIChip label="Visited"  value={loading ? '—' : stats.visited}    color="#4ade80"  icon={CheckCircle} />
+        <KPIChip label="Missed"   value={loading ? '—' : stats.notVisited} color="#f87171"  icon={XCircle} />
       </div>
 
       {/* ── Donut + Visit Rate ── */}
-      <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 }}>
+      <div style={{ 
+        padding: '1.25em 1.5em', 
+        display: 'flex', alignItems: 'center', gap: '2em', flexShrink: 0,
+        margin: '1.25em 1.5em', background: 'rgba(255,255,255,0.02)',
+        borderRadius: '0.875em', border: '1px solid rgba(255,255,255,0.04)'
+      }}>
         {/* Donut */}
-        <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
-          <ResponsiveContainer width={96} height={96}>
+        <div style={{ position: 'relative', width: '9em', height: '9em', flexShrink: 0 }}>
+          <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={donutData} dataKey="value" cx="50%" cy="50%"
-                innerRadius={28} outerRadius={44}
+                innerRadius="70%" outerRadius="100%"
                 strokeWidth={0} startAngle={90} endAngle={-270}
                 isAnimationActive={!loading}
               >
@@ -360,7 +366,7 @@ function ZoneInfoPanel({ zone, stats, devices, loading, date }) {
                   if (!active || !payload?.length) return null;
                   const p = payload[0];
                   return (
-                    <div style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 8, padding: '6px 10px', fontSize: 11 }}>
+                    <div style={{ background: '#161616', border: '0.0625em solid rgba(255,255,255,0.10)', borderRadius: '0.5em', padding: '0.375em 0.625em', fontSize: '0.6875em' }}>
                       <span style={{ color: '#fff', fontWeight: 700 }}>{p.name}: {p.value}</span>
                     </div>
                   );
@@ -370,7 +376,7 @@ function ZoneInfoPanel({ zone, stats, devices, loading, date }) {
           </ResponsiveContainer>
           {/* Centre label */}
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-            <span style={{ fontSize: 14, fontWeight: 800, color: pctColor }}>
+            <span style={{ fontSize: '1.25em', fontWeight: 800, color: pctColor }}>
               {loading ? '—' : `${stats.pct}%`}
             </span>
           </div>
@@ -378,27 +384,27 @@ function ZoneInfoPanel({ zone, stats, devices, loading, date }) {
 
         {/* Visit rate detail */}
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 6 }}>Visit Rate</div>
-          <div style={{ fontSize: 42, fontWeight: 800, lineHeight: 1, color: pctColor, letterSpacing: '-0.03em' }}>
+          <div style={{ fontSize: '0.625em', fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: '0.5em' }}>Compliance Score</div>
+          <div style={{ fontSize: '3em', fontWeight: 800, lineHeight: 1, color: pctColor, letterSpacing: '-0.03em' }}>
             {loading ? '—' : `${stats.pct}%`}
           </div>
-          <div style={{ marginTop: 10, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${stats.pct}%`, background: pctColor, borderRadius: 3, transition: 'width 0.6s ease' }} />
+          <div style={{ marginTop: '0.875em', height: '0.375em', borderRadius: '0.1875em', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${stats.pct}%`, background: pctColor, borderRadius: '0.1875em', transition: 'width 0.6s ease' }} />
           </div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', marginTop: 5 }}>
-            {stats.pct >= 70 ? 'Excellent compliance' : stats.pct >= 40 ? 'Needs improvement' : allSns.length === 0 ? 'No devices assigned' : 'Low compliance'}
+          <div style={{ fontSize: '0.75em', fontWeight: 500, color: 'rgba(255,255,255,0.35)', marginTop: '0.625em' }}>
+            {stats.pct >= 70 ? 'Excellent compliance target met' : stats.pct >= 40 ? 'Compliance needs improvement' : allSns.length === 0 ? 'No devices assigned to zone' : 'Critical low compliance alert'}
           </div>
         </div>
       </div>
 
       {/* ── Device visit list ── */}
       <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ padding: '10px 20px 6px', fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.30)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>
+        <div style={{ padding: '1em 1.5em 0.5em', fontSize: '0.625em', fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>
           Device Visit Log · {date || 'Today'}
         </div>
 
         {allSns.length === 0 ? (
-          <div style={{ padding: '28px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>
+          <div style={{ padding: '2em 1.5em', textAlign: 'center', color: 'rgba(255,255,255,0.25)', fontSize: '0.8125em' }}>
             No devices assigned to this zone
           </div>
         ) : allSns.map(sn => {
@@ -407,21 +413,21 @@ function ZoneInfoPanel({ zone, stats, devices, loading, date }) {
           return (
             <div
               key={sn}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 20px', borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.12s' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.875em', padding: '0.75em 1.5em', borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.12s' }}
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: visited ? '#4ade80' : '#1f2937', flexShrink: 0, border: `1px solid ${visited ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.12)'}` }} />
+              <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', background: visited ? '#4ade80' : '#1f2937', flexShrink: 0, border: `1px solid ${visited ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.12)'}` }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#FFFFFF', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: '0.875em', fontWeight: 600, color: '#FFFFFF', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {dev?.name || sn}
                 </div>
                 {dev?.assignedUser && (
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.32)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.assignedUser}</div>
+                  <div style={{ fontSize: '0.6875em', color: 'rgba(255,255,255,0.40)', marginTop: '0.125em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dev.assignedUser}</div>
                 )}
               </div>
               <span style={{
-                fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 5, flexShrink: 0,
+                fontSize: '0.6875em', fontWeight: 700, padding: '0.25em 0.75em', borderRadius: '0.375em', flexShrink: 0,
                 background: visited ? 'rgba(74,222,128,0.10)' : 'rgba(31,41,55,0.80)',
                 color:      visited ? '#4ade80'               : 'rgba(255,255,255,0.28)',
                 border:     `1px solid ${visited ? 'rgba(74,222,128,0.22)' : 'rgba(255,255,255,0.06)'}`,
@@ -507,16 +513,16 @@ export default function FieldStaffDashboard() {
       <div className="fsd-header">
         <div className="fsd-header-left">
           <div className="fsd-header-text">
-            <h1 className="fsd-title">Field Staff Dashboard</h1>
+            <h1 className="fsd-title">Field Staff Analytics</h1>
             <p className="fsd-subtitle">Zone visit compliance monitoring</p>
           </div>
         </div>
 
-        <div className="fsd-filters-bar" style={{ alignItems: 'flex-end', gap: 12 }}>
+        <div className="fsd-filters-bar" style={{ alignItems: 'flex-end', gap: '0.75em' }}>
 
           {/* Zone selector */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Zone</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3125em' }}>
+            <label style={{ fontSize: '0.6875em', fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Zone</label>
             <ZoneDropdown
               value={selectedZoneId}
               onChange={setSelectedZoneId}
@@ -526,8 +532,8 @@ export default function FieldStaffDashboard() {
           </div>
 
           {/* Date picker */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <label style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Date</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3125em' }}>
+            <label style={{ fontSize: '0.6875em', fontWeight: 700, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.09em' }}>Date</label>
             <input
               type="date"
               value={selectedDate}
@@ -535,30 +541,14 @@ export default function FieldStaffDashboard() {
               onChange={e => setSelectedDate(e.target.value)}
               onClick={e => { try { e.target.showPicker(); } catch {} }}
               style={{
-                height: 36, padding: '0 12px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                height: '2.75em', padding: '0 0.875em', borderRadius: '0.5em', fontSize: '0.9375em', fontWeight: 600,
+                background: 'rgba(255,255,255,0.05)', border: '0.0625em solid rgba(255,255,255,0.12)',
                 color: '#FFFFFF', cursor: 'pointer', outline: 'none',
               }}
             />
           </div>
 
-          {/* Refresh button */}
-          {selectedZoneId && (
-            <button
-              onClick={fetchTracks}
-              disabled={tracksLoading}
-              title="Refresh"
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 36, height: 36, borderRadius: 8, alignSelf: 'flex-end',
-                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
-                color: '#FFFFFF', cursor: tracksLoading ? 'not-allowed' : 'pointer',
-                opacity: tracksLoading ? 0.50 : 0.85, transition: 'all 0.12s', flexShrink: 0,
-              }}
-            >
-              <RefreshCw style={{ width: 14, height: 14, animation: tracksLoading ? 'spin 1s linear infinite' : 'none' }} />
-            </button>
-          )}
+
         </div>
       </div>
 

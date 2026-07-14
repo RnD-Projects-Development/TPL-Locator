@@ -389,15 +389,15 @@ export default function Reports() {
                 </div>
                 <div className="rp-card">
                   <span className="rp-card-label">Start</span>
-                  <span className="rp-card-val" style={{ fontSize: 13 }}>{rangeStart}</span>
+                  <span className="rp-card-val" style={{ fontSize: '0.92em' }}>{rangeStart}</span>
                 </div>
                 <div className="rp-card">
                   <span className="rp-card-label">End</span>
-                  <span className="rp-card-val" style={{ fontSize: 13 }}>{rangeEnd}</span>
+                  <span className="rp-card-val" style={{ fontSize: '0.92em' }}>{rangeEnd}</span>
                 </div>
               </div>
 
-              <div className="rp-table-wrap">
+              <div className="rp-table-wrap scalable-container">
                 <table className="rp-table">
                   <thead>
                     <tr>
@@ -420,7 +420,7 @@ export default function Reports() {
                           <td style={{ color: "#e5e5e5", fontWeight: 500 }}>
                             <div>{primaryLoc}</div>
                             {secondaryLoc && (
-                              <div style={{ fontSize: "0.85em", opacity: 0.6, marginTop: 2 }}>
+                              <div style={{ fontSize: "0.85em", opacity: 0.6, marginTop: '0.14em' }}>
                                 {secondaryLoc}
                               </div>
                             )}

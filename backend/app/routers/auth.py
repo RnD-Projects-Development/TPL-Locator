@@ -380,6 +380,26 @@ async def login(
         )
 
 
+# ── Logout ───────────────────────────────────────────────────────────────────
+
+@router.post("/logout")
+async def logout(
+    current_account: Annotated[Any, Depends(require_role("any"))],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """
+    Stamp last_logged_out on the account. Presence semantics: an account is
+    "online" from login until it logs out (last_logged_in > last_logged_out),
+    and its "last active" time is the logout timestamp.
+    """
+    await mongo.accounts.update_one(
+        {"_id": ObjectId(str(current_account.id))},
+        {"$set": {"last_logged_out": datetime.now(timezone.utc)}},
+    )
+    logger.info("logout completed account_id=%s", current_account.id)
+    return {"message": "Logged out"}
+
+
 # ── Register ─────────────────────────────────────────────────────────────────
 
 @router.post("/register")
