@@ -11,7 +11,7 @@ const LOGIN_METHOD = { PASSWORD: "password", OTP: "otp" };
 
 export default function LoginForm() {
   const navigate = useNavigate();
-  const { login, signup, requestSignupVerification, requestLoginOtp } = useCityTag();
+  const { login, signup, requestLoginOtp } = useCityTag();
   const { loginSuccess } = useAuth();
 
   const [mode, setMode] = useState(MODE.LOGIN);
@@ -23,9 +23,7 @@ export default function LoginForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [otp, setOtp] = useState("");
-  const [verificationToken, setVerificationToken] = useState("");
   const [loginToken, setLoginToken] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
   const [loginOtpSent, setLoginOtpSent] = useState(false);
   const [deliveryEmail, setDeliveryEmail] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -44,16 +42,12 @@ export default function LoginForm() {
   const phoneError = phone && !isValidPakistaniPhone(phone);
 
   const signupFormReady =
-    name.trim() &&
-    email.trim() &&
-    isValidEmail(email) &&
     phone.trim() &&
     isValidPakistaniPhone(phone) &&
+    (!email.trim() || isValidEmail(email)) &&
     password.length >= 6 &&
     confirmPassword &&
     password === confirmPassword;
-
-  const canSendOtp = isSignup && signupFormReady && !sendingOtp && !loading;
 
   const canSendLoginOtp =
     isOtpLogin &&
@@ -69,16 +63,8 @@ export default function LoginForm() {
       if (isPasswordLogin) return Boolean(password);
       return loginOtpSent && loginToken && otp.trim().length >= 4;
     }
-    if (!signupFormReady) return false;
-    return otpSent && verificationToken && otp.trim().length >= 4;
+    return signupFormReady;
   })();
-
-  function resetVerification() {
-    setOtp("");
-    setVerificationToken("");
-    setOtpSent(false);
-    setInfo("");
-  }
 
   function resetLoginOtp() {
     setOtp("");
@@ -96,7 +82,6 @@ export default function LoginForm() {
     setEmail("");
     setPhone("");
     setLoginMethod(LOGIN_METHOD.PASSWORD);
-    resetVerification();
     resetLoginOtp();
   }
 
@@ -131,55 +116,23 @@ export default function LoginForm() {
     }
   }
 
-  async function onSendOtp() {
-    setError("");
-    setInfo("");
-    const normalizedEmail = normalizeEmail(email);
-    if (!canSendOtp || !isValidEmail(normalizedEmail)) return;
-
-    setSendingOtp(true);
-    try {
-      const res = await requestSignupVerification({
-        email: normalizedEmail,
-        phone: phone.trim(),
-      });
-      if (!res.verification_token) {
-        setError("Unable to send verification code. Please try again.");
-        return;
-      }
-      setVerificationToken(res.verification_token);
-      setOtpSent(true);
-      setInfo(res.message || "Verification code sent. Check your email.");
-    } catch (err) {
-      setError(err.message || "Unable to send verification code");
-    } finally {
-      setSendingOtp(false);
-    }
-  }
-
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
       if (isSignup) {
-        const normalizedEmail = normalizeEmail(email);
-        await signup({
-          email: normalizedEmail,
+        const normalizedEmail = email.trim() ? normalizeEmail(email) : "";
+        const res = await signup({
           phone: phone.trim(),
           password,
-          name: name.trim(),
-          verification_token: verificationToken,
-          otp: otp.trim(),
-        });
-        const res = await login({
-          identifier: normalizedEmail,
-          password,
+          ...(name.trim() ? { name: name.trim() } : {}),
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
         });
         loginSuccess({
-          user: res.account ?? null,
+          user: res.user ?? res.account ?? null,
           accessToken: res.access_token,
-          role: res.account?.role ?? "user",
+          role: res.user?.role ?? res.account?.role ?? "user",
         });
         navigate("/devices");
       } else {
@@ -253,7 +206,6 @@ export default function LoginForm() {
               type="text"
               placeholder="e.g. John Doe"
               autoComplete="name"
-              required
             />
           </div>
         )}
@@ -332,18 +284,11 @@ export default function LoginForm() {
                 className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
                 style={{ borderColor: emailError ? "#ef4444" : "#cbd5e1" }}
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  resetVerification();
-                }}
+                onChange={(e) => setEmail(e.target.value)}
                 type="email"
                 autoComplete="email"
-                placeholder="you@example.com"
-                required
+                placeholder="you@example.com (optional)"
               />
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-                We&apos;ll send a verification code to this email
-              </p>
               {emailError && (
                 <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>Enter a valid email address</p>
               )}
@@ -355,10 +300,7 @@ export default function LoginForm() {
                 className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
                 style={{ borderColor: phoneError ? "#ef4444" : "#cbd5e1" }}
                 value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  resetVerification();
-                }}
+                onChange={(e) => setPhone(e.target.value)}
                 type="tel"
                 autoComplete="tel"
                 placeholder="03XXXXXXXXX or +92XXXXXXXXX"
@@ -472,54 +414,6 @@ export default function LoginForm() {
               type="button"
               disabled={sendingOtp}
               onClick={onSendLoginOtp}
-              style={{
-                marginTop: 8,
-                background: "none",
-                border: "none",
-                color: "#cc4444",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 12,
-                textDecoration: "underline",
-                textUnderlineOffset: 2,
-              }}
-            >
-              Resend code
-            </button>
-          </div>
-        )}
-
-        {isSignup && !otpSent && (
-          <button
-            type="button"
-            disabled={!canSendOtp}
-            onClick={onSendOtp}
-            className="w-full rounded-lg border border-slate-400 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/10 transition"
-          >
-            {sendingOtp ? "Sending code..." : "Send verification code"}
-          </button>
-        )}
-
-        {isSignup && otpSent && (
-          <div>
-            <label className="block text-sm font-medium text-white">Verification Code</label>
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="000000"
-              required
-            />
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-              Enter the code sent to <strong style={{ color: "#fff" }}>{normalizeEmail(email)}</strong>
-            </p>
-            <button
-              type="button"
-              disabled={sendingOtp}
-              onClick={onSendOtp}
               style={{
                 marginTop: 8,
                 background: "none",
