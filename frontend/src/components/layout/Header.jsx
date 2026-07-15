@@ -152,8 +152,11 @@ export default function Header({ pageTheme, setPageTheme }) {
   const [profileAddress,   setProfileAddress]   = useState('')
   const [profileImageFile, setProfileImageFile] = useState(null)
   const [profileImageUrl,  setProfileImageUrl]  = useState('')
+  const [profileImageApiUrl, setProfileImageApiUrl] = useState('')
+  const [profileImageReloadKey, setProfileImageReloadKey] = useState(0)
   const [profileReady,     setProfileReady]     = useState(false)
   const profileImageInputRef = useRef(null)
+  const profileImageObjectUrlRef = useRef(null)
   const [profileCurrentPw, setProfileCurrentPw] = useState('')
   const [profileNewPw,     setProfileNewPw]     = useState('')
   const [profileConfirmPw, setProfileConfirmPw] = useState('')
@@ -172,6 +175,13 @@ export default function Header({ pageTheme, setPageTheme }) {
       setProfileNewPw('')
       setProfileConfirmPw('')
       setProfileImageFile(null)
+      setProfileImageApiUrl('')
+      // Clear object URL (if any); the effect below will repopulate.
+      if (profileImageObjectUrlRef.current) {
+        URL.revokeObjectURL(profileImageObjectUrlRef.current)
+        profileImageObjectUrlRef.current = null
+      }
+      setProfileImageUrl('')
       try {
         const p = await getMyProfile()
         if (cancelled) return
@@ -184,7 +194,7 @@ export default function Header({ pageTheme, setPageTheme }) {
         setProfileLicenseExp(p?.license_expiry || '')
         setProfileEmergency(p?.emergency_contact || '')
         setProfileAddress(p?.address || '')
-        setProfileImageUrl(p?.profile_image_url || '')
+        setProfileImageApiUrl(p?.profile_image_url || '')
       } catch (e) {
         if (!cancelled) setProfileErr(e.message || 'Unable to load profile')
       } finally {
@@ -194,6 +204,38 @@ export default function Header({ pageTheme, setPageTheme }) {
     loadProfile()
     return () => { cancelled = true }
   }, [showProfile, getMyProfile])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadImage = async () => {
+      if (!showProfile) return
+      if (!profileImageApiUrl) return
+      try {
+        // Cache-bust to force fetching latest image bytes.
+        const bustUrl = `${profileImageApiUrl}${profileImageApiUrl.includes("?") ? "&" : "?"}v=${profileImageReloadKey}`
+        const res = await fetch(bustUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        })
+        if (!res.ok) throw new Error(`Image fetch failed (${res.status})`)
+        const blob = await res.blob()
+        if (cancelled) return
+        if (profileImageObjectUrlRef.current) {
+          URL.revokeObjectURL(profileImageObjectUrlRef.current)
+        }
+        const objUrl = URL.createObjectURL(blob)
+        profileImageObjectUrlRef.current = objUrl
+        setProfileImageUrl(objUrl)
+      } catch (e) {
+        if (!cancelled) {
+          // Keep initials fallback if image can't be fetched.
+          setProfileImageUrl('')
+        }
+      }
+    }
+    loadImage()
+    return () => { cancelled = true }
+  }, [showProfile, profileImageApiUrl, accessToken, profileImageReloadKey])
 
   const handleProfileSave = async () => {
     setProfileErr(''); setProfileSuccess('')
@@ -238,7 +280,9 @@ export default function Header({ pageTheme, setPageTheme }) {
       setProfileImageFile(null)
       try {
         const refreshed = await getMyProfile()
-        setProfileImageUrl(refreshed?.profile_image_url || '')
+        setProfileImageApiUrl(refreshed?.profile_image_url || '')
+        setProfileImageUrl('')
+        setProfileImageReloadKey(Date.now())
       } catch {}
     } catch (e) {
       setProfileErr(e.message || 'Update failed.')
@@ -247,7 +291,18 @@ export default function Header({ pageTheme, setPageTheme }) {
     }
   }
 
-  const parts    = getCrumbs(pathname, state)
+  useEffect(() => {
+    if (showProfile) return
+    // Modal closed: cleanup object URL.
+    if (profileImageObjectUrlRef.current) {
+      URL.revokeObjectURL(profileImageObjectUrlRef.current)
+      profileImageObjectUrlRef.current = null
+    }
+    setProfileImageUrl('')
+    setProfileImageApiUrl('')
+  }, [showProfile])
+
+  const parts    = getCrumbs(pathname)
   const initials = (user?.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 
   return (
@@ -584,6 +639,11 @@ export default function Header({ pageTheme, setPageTheme }) {
                       const file = e.target.files?.[0]
                       if (!file) return
                       setProfileImageFile(file)
+                      // Use locally selected file preview; don't fetch from API again.
+                      if (profileImageObjectUrlRef.current) {
+                        URL.revokeObjectURL(profileImageObjectUrlRef.current)
+                        profileImageObjectUrlRef.current = null
+                      }
                       setProfileImageUrl(URL.createObjectURL(file))
                     }}
                   />

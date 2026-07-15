@@ -11,7 +11,7 @@ const LOGIN_METHOD = { PASSWORD: "password", OTP: "otp" };
 
 export default function LoginForm() {
   const navigate = useNavigate();
-  const { login, signup, requestSignupVerification, requestLoginOtp } = useCityTag();
+  const { login, signup, requestLoginOtp } = useCityTag();
   const { loginSuccess } = useAuth();
 
   const [mode, setMode] = useState(MODE.LOGIN);
@@ -23,9 +23,7 @@ export default function LoginForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [otp, setOtp] = useState("");
-  const [verificationToken, setVerificationToken] = useState("");
   const [loginToken, setLoginToken] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
   const [loginOtpSent, setLoginOtpSent] = useState(false);
   const [deliveryEmail, setDeliveryEmail] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -44,16 +42,12 @@ export default function LoginForm() {
   const phoneError = phone && !isValidPakistaniPhone(phone);
 
   const signupFormReady =
-    name.trim() &&
-    email.trim() &&
-    isValidEmail(email) &&
     phone.trim() &&
     isValidPakistaniPhone(phone) &&
+    (!email.trim() || isValidEmail(email)) &&
     password.length >= 6 &&
     confirmPassword &&
     password === confirmPassword;
-
-  const canSendOtp = isSignup && signupFormReady && !sendingOtp && !loading;
 
   const canSendLoginOtp =
     isOtpLogin &&
@@ -69,16 +63,8 @@ export default function LoginForm() {
       if (isPasswordLogin) return Boolean(password);
       return loginOtpSent && loginToken && otp.trim().length >= 4;
     }
-    if (!signupFormReady) return false;
-    return otpSent && verificationToken && otp.trim().length >= 4;
+    return signupFormReady;
   })();
-
-  function resetVerification() {
-    setOtp("");
-    setVerificationToken("");
-    setOtpSent(false);
-    setInfo("");
-  }
 
   function resetLoginOtp() {
     setOtp("");
@@ -96,7 +82,6 @@ export default function LoginForm() {
     setEmail("");
     setPhone("");
     setLoginMethod(LOGIN_METHOD.PASSWORD);
-    resetVerification();
     resetLoginOtp();
   }
 
@@ -131,55 +116,23 @@ export default function LoginForm() {
     }
   }
 
-  async function onSendOtp() {
-    setError("");
-    setInfo("");
-    const normalizedEmail = normalizeEmail(email);
-    if (!canSendOtp || !isValidEmail(normalizedEmail)) return;
-
-    setSendingOtp(true);
-    try {
-      const res = await requestSignupVerification({
-        email: normalizedEmail,
-        phone: phone.trim(),
-      });
-      if (!res.verification_token) {
-        setError("Unable to send verification code. Please try again.");
-        return;
-      }
-      setVerificationToken(res.verification_token);
-      setOtpSent(true);
-      setInfo(res.message || "Verification code sent. Check your email.");
-    } catch (err) {
-      setError(err.message || "Unable to send verification code");
-    } finally {
-      setSendingOtp(false);
-    }
-  }
-
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
       if (isSignup) {
-        const normalizedEmail = normalizeEmail(email);
-        await signup({
-          email: normalizedEmail,
+        const normalizedEmail = email.trim() ? normalizeEmail(email) : "";
+        const res = await signup({
           phone: phone.trim(),
           password,
-          name: name.trim(),
-          verification_token: verificationToken,
-          otp: otp.trim(),
-        });
-        const res = await login({
-          identifier: normalizedEmail,
-          password,
+          ...(name.trim() ? { name: name.trim() } : {}),
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
         });
         loginSuccess({
-          user: res.account ?? null,
+          user: res.user ?? res.account ?? null,
           accessToken: res.access_token,
-          role: res.account?.role ?? "user",
+          role: res.user?.role ?? res.account?.role ?? "user",
         });
         navigate("/devices");
       } else {
@@ -257,7 +210,6 @@ export default function LoginForm() {
               type="text"
               placeholder="e.g. John Doe"
               autoComplete="name"
-              required
             />
           </div>
         )}
@@ -336,18 +288,11 @@ export default function LoginForm() {
                 className="auth-input"
                 style={emailError ? { borderColor: "#ef4444" } : {}}
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  resetVerification();
-                }}
+                onChange={(e) => setEmail(e.target.value)}
                 type="email"
                 autoComplete="email"
-                placeholder="you@example.com"
-                required
+                placeholder="you@example.com (optional)"
               />
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-                We&apos;ll send a verification code to this email
-              </p>
               {emailError && (
                 <p className="auth-error">Enter a valid email address</p>
               )}
@@ -359,10 +304,7 @@ export default function LoginForm() {
                 className="auth-input"
                 style={phoneError ? { borderColor: "#ef4444" } : {}}
                 value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  resetVerification();
-                }}
+                onChange={(e) => setPhone(e.target.value)}
                 type="tel"
                 autoComplete="tel"
                 placeholder="03XXXXXXXXX or +92XXXXXXXXX"
@@ -478,50 +420,6 @@ export default function LoginForm() {
                 textDecoration: "underline",
                 textUnderlineOffset: 2,
               }}
-            >
-              Resend code
-            </button>
-          </div>
-        )}
-
-
-
-        {isSignup && !otpSent && (
-          <div style={{ gridColumn: isSignup ? "1 / -1" : undefined }}>
-            <button
-              type="button"
-              disabled={!canSendOtp}
-              onClick={onSendOtp}
-              className="auth-btn-secondary"
-            >
-              {sendingOtp ? "Sending code..." : "Send verification code"}
-            </button>
-          </div>
-        )}
-
-        {isSignup && otpSent && (
-          <div style={{ gridColumn: isSignup ? "1 / -1" : undefined }}>
-            <label className="auth-label">Verification Code</label>
-            <input
-              className="auth-input"
-              style={{ letterSpacing: "0.2em" }}
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="000000"
-              required
-            />
-            <p className="auth-helper">
-              Enter the code sent to <strong style={{ color: "#fff" }}>{normalizeEmail(email)}</strong>
-            </p>
-            <button
-              type="button"
-              disabled={sendingOtp}
-              onClick={onSendOtp}
-              className="auth-link"
-              style={{ marginTop: "0.6em" }}
             >
               Resend code
             </button>

@@ -22,20 +22,21 @@ def phone_placeholder_email(phone: str) -> str:
     return f"p{digits}@accounts.tpllocator.com"
 
 
-def validate_signup_contact(email: str, phone: str) -> Tuple[str, str]:
+def validate_signup_contact(email: Optional[str], phone: str) -> Tuple[str, str]:
     """
-    Validate signup email and phone (both required).
-    Returns (normalized_email, normalized_phone).
+    Validate signup contact.
+    Phone is required; email is optional (placeholder email used when omitted).
+    Returns (storage_email, normalized_phone).
     """
-    verified_email = (email or "").strip().lower()
-    if not verified_email:
-        raise ValueError("Email is required")
-
     normalized_phone = normalize_phone(phone or "")
     if not normalized_phone:
         raise ValueError(INVALID_PHONE_MSG)
     if not validate_pakistani_phone(normalized_phone):
         raise ValueError(INVALID_PHONE_MSG)
+
+    verified_email = (email or "").strip().lower()
+    if not verified_email:
+        return phone_placeholder_email(normalized_phone), normalized_phone
 
     return verified_email, normalized_phone
 
