@@ -393,7 +393,11 @@ export default function UsersPage() {
   const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache()
 
   useEffect(() => {
-    const id = setInterval(() => { silentRefresh(); silentRefreshDevices() }, 60_000)
+    const id = setInterval(async () => {
+      // Sequential (users → devices) to avoid a double request spike / lag.
+      await silentRefresh()
+      await silentRefreshDevices()
+    }, 15 * 60 * 1000)
     return () => clearInterval(id)
   }, [silentRefresh, silentRefreshDevices])
   const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser } = useCityTag()

@@ -97,7 +97,7 @@ export function HomePageCacheProvider({ children }) {
 
   useEffect(() => registerCacheResetListener(resetInMemoryCache), [resetInMemoryCache]);
 
-  const fetchDevices = useCallback(async ({ force = false } = {}) => {
+  const fetchDevices = useCallback(async ({ force = false, silent = false } = {}) => {
     const cacheKey = 'devices';
     const cacheAgeMs = Date.now() - deviceCacheRef.current.fetchedAt;
     if (!force && deviceCacheRef.current.key === cacheKey && cacheAgeMs < 5 * 60 * 1000 && deviceCacheRef.current.data.length) {
@@ -106,7 +106,7 @@ export function HomePageCacheProvider({ children }) {
       return deviceCacheRef.current.data;
     }
 
-    setDevLoading(true);
+    if (!silent) setDevLoading(true);
     try {
       // Backend hard-caps `limit` at 500 per request, so page through the rest
       // to load the whole fleet — dashboard counts (unassigned, per-user, top
@@ -136,11 +136,11 @@ export function HomePageCacheProvider({ children }) {
     } catch {
       return deviceCacheRef.current.data;
     } finally {
-      setDevLoading(false);
+      if (!silent) setDevLoading(false);
     }
   }, [getDevices, updateFromDevices]);
 
-  const fetchSummary = useCallback(async ({ force = false } = {}) => {
+  const fetchSummary = useCallback(async ({ force = false, silent = false } = {}) => {
     const cacheAgeMs = Date.now() - summaryCacheRef.current.fetchedAt;
     if (
       !force &&
@@ -151,7 +151,7 @@ export function HomePageCacheProvider({ children }) {
       return summaryCacheRef.current.data;
     }
 
-    setSummaryLoading(true);
+    if (!silent) setSummaryLoading(true);
     try {
       const res = await getDevicesSummary();
       const data =
@@ -164,7 +164,7 @@ export function HomePageCacheProvider({ children }) {
     } catch {
       return summaryCacheRef.current.data;
     } finally {
-      setSummaryLoading(false);
+      if (!silent) setSummaryLoading(false);
     }
   }, [getDevicesSummary]);
 
@@ -208,7 +208,7 @@ export function HomePageCacheProvider({ children }) {
   }, [getLatestLocationsBatch]);
 
   // ── Internal: fetch activity only ─────────────────────────────────────────
-  const fetchActivity = useCallback(async (dateStr, live, { force = false, deviceList = null } = {}) => {
+  const fetchActivity = useCallback(async (dateStr, live, { force = false, deviceList = null, silent = false } = {}) => {
     const devs = (deviceList || devicesRef.current).slice();
     const sns = devs.map(d => d.sn ?? d.serialNumber ?? '').filter(Boolean);
     if (!sns.length) {
@@ -227,7 +227,7 @@ export function HomePageCacheProvider({ children }) {
 
     const requestId = ++activityRequestRef.current;
     const { start, end } = dayRange(dateStr, live);
-    setChartLoading(true);
+    if (!silent) setChartLoading(true);
     try {
       const res = await getPlaybackBatch(sns, start, end);
       if (requestId !== activityRequestRef.current) return cache?.data ?? {};
@@ -236,15 +236,24 @@ export function HomePageCacheProvider({ children }) {
       activityCacheRef.current.set(sig, { fetchedAt: Date.now(), data: map });
       return map;
     } finally {
-      if (requestId === activityRequestRef.current) {
+      if (requestId === activityRequestRef.current && !silent) {
         setChartLoading(false);
       }
     }
   }, [getPlaybackBatch]);
 
   // ── refreshAll — single entry point for both manual button and auto-refresh
-  const refreshAll = useCallback(async ({ force = true } = {}) => {
+  const refreshAll = useCallback(async ({ force = true, silent = false } = {}) => {
     const f = filtersRef.current;
+    if (silent) {
+      // Background auto-refresh: run calls sequentially (not Promise.all) to
+      // avoid a request / CPU spike, and keep loaders off so old data stays.
+      const deviceList = await fetchDevices({ force, silent });
+      await fetchSummary({ force, silent });
+      await fetchLocations({ force, deviceList });
+      await fetchActivity(f.date, f.date === todayStr(), { force, silent, deviceList });
+      return;
+    }
     const [deviceList] = await Promise.all([
       fetchDevices({ force }),
       fetchSummary({ force }),
