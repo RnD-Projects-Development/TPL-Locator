@@ -28,21 +28,20 @@ function deviceSignature(devices) {
     .join('|');
 }
 
-// Pakistan Time (PKT) offset: UTC+5, so subtract 5 hours to align queries with stored data
-const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+// Stored timestamps are PKT wall-clock and the backend matches query bounds
+// directly, so emit the day's naive PKT wall-clock with no offset.
+const pad2 = (n) => String(n).padStart(2, "0");
+function naiveLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
+         `T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
 
 function dayRange(dateStr, isLive) {
-  // Subtract 5 hours to convert from UTC to Pakistan time for database alignment
-  const startUtc = new Date(`${dateStr}T00:00:00.000Z`);
-  const start = new Date(startUtc.getTime() - PKT_OFFSET_MS);
-
-  let end;
-  if (isLive) {
-    end = new Date(Date.now() + 2 * 3600 * 1000);
-  } else {
-    const endUtc = new Date(`${dateStr}T23:59:59.999Z`);
-    end = new Date(endUtc.getTime() - PKT_OFFSET_MS);
-  }
+  const start = `${dateStr}T00:00:00`;
+  // Live: extend ~2h past now (PKT wall-clock) so the newest fixes are included.
+  const end = isLive
+    ? naiveLocal(new Date(Date.now() + 2 * 3600 * 1000))
+    : `${dateStr}T23:59:59`;
   return { start, end };
 }
 

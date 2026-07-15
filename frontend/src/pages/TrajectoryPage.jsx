@@ -22,12 +22,12 @@ function isDuplicate(p1, p2) {
 
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 
-// Pakistan Time (PKT) offset: UTC+5, so subtract 5 hours to align queries with stored data
-const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
-
-function toPktTime(utcDateStr, timeStr) {
-  const utc = new Date(`${utcDateStr}T${timeStr}Z`);
-  return new Date(utc.getTime() - PKT_OFFSET_MS);
+// Stored timestamps are PKT wall-clock and the backend matches query bounds
+// directly, so send the picker's naive local (PKT) wall-clock with no offset.
+const pad2 = (n) => String(n).padStart(2, "0");
+function naiveLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
+         `T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
 function formatDateTime(point) {
@@ -174,9 +174,9 @@ export default function TrajectoryPage() {
     setHistError("");
     setHistLoading(true);
     try {
-      // Convert picker values to Pakistan time for database alignment
-      const start = overrideStart ?? toPktTime(startDate, `${startTime}:00`);
-      const end   = overrideEnd   ?? toPktTime(endDate, `${endTime}:59`);
+      // Send the picker's naive PKT wall-clock as-is — stored timestamps are PKT.
+      const start = overrideStart ?? `${startDate}T${startTime}:00`;
+      const end   = overrideEnd   ?? `${endDate}T${endTime}:59`;
       if (start >= end) throw new Error("Start must be before end");
       const res    = await getTrajectory(sn, start, end);
       const points = normaliseTrajectoryResponse(res);
@@ -194,15 +194,15 @@ export default function TrajectoryPage() {
     if (!sn) { setHistError("Select a device first"); return; }
     const now   = new Date();
     const start = new Date(now.getTime() - shortcut.hours * 60 * 60 * 1000);
-    const toDateStr = (d) => d.toISOString().split("T")[0];
-    const toTimeStr = (d) => d.toTimeString().slice(0, 5);
+    const toDateStr = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const toTimeStr = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
     setStartDate(toDateStr(start));
     setStartTime(toTimeStr(start));
     setEndDate(toDateStr(now));
     setEndTime(toTimeStr(now));
     setActiveShortcut(shortcut.label);
-    // Shortcut passes real Date objects — no PKT adjustment needed
-    loadHistorical(start, now);
+    // Send naive local (PKT) wall-clock — stored timestamps are PKT wall-clock.
+    loadHistorical(naiveLocal(start), naiveLocal(now));
   };
 
   const activeTraj   = mode === "historical" ? historicalTraj : sessionTraj;

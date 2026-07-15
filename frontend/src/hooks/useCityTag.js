@@ -5,17 +5,21 @@ import { useAuth } from "../context/AuthContext.jsx";
 
 const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL || "");
 
-// Helper to convert naive PKT strings (e.g. "2026-07-08T00:00:00") into valid UTC ISO strings.
-// The backend treats naive strings as UTC, causing a 5-hour shift. This ensures exact PKT boundaries.
-const toIsoPKT = (val) => {
-  if (val instanceof Date) return val.toISOString();
-  if (typeof val === 'string' && val.length <= 19 && !val.includes('Z') && !val.includes('+')) {
-    const d = new Date(val + "Z");
-    if (!isNaN(d.getTime())) {
-      return new Date(d.getTime() - 5 * 3600 * 1000).toISOString();
-    }
+// History timestamps are stored as PKT wall-clock (each vendor's raw time is
+// offset on ingest — TrackSolid/Zoqin +5h, CityTag -3h — so all land in PKT),
+// and the backend matches query bounds against those values directly (it only
+// strips tz, it does NOT shift). So every history query (playback, trajectory,
+// activity batch) must send the picker's naive PKT wall-clock, unshifted. An
+// earlier design stored UTC and shifted these bounds −5h; that shift now moves
+// the whole window 5h early, dropping the most recent 5h of points — e.g. a
+// device whose latest fix is 08:38 never appears when the range ends before ~04:00.
+const pad2 = (n) => String(n).padStart(2, "0");
+const toNaivePkt = (val) => {
+  if (val instanceof Date) {
+    return `${val.getFullYear()}-${pad2(val.getMonth() + 1)}-${pad2(val.getDate())}` +
+           `T${pad2(val.getHours())}:${pad2(val.getMinutes())}:${pad2(val.getSeconds())}`;
   }
-  return val;
+  return val; // already a naive wall-clock string from the page's date pickers
 };
 
 // In-flight GET request cache — if the same URL is already being fetched,
@@ -372,8 +376,8 @@ export function useCityTag() {
   const getTrajectory = useCallback(
     async (sn, start, end) => {
       const params = new URLSearchParams({
-        start: toIsoPKT(start),
-        end:   toIsoPKT(end),
+        start: toNaivePkt(start),
+        end:   toNaivePkt(end),
       });
       return apiFetch(`/api/devices/${encodeURIComponent(sn)}/trajectory?${params}`, {}, accessToken, logout);
     }, [accessToken, logout]
@@ -382,8 +386,8 @@ export function useCityTag() {
   const getPlayback = useCallback(
     async (sn, start, end) => {
       const params = new URLSearchParams({
-        start: toIsoPKT(start),
-        end:   toIsoPKT(end),
+        start: toNaivePkt(start),
+        end:   toNaivePkt(end),
       });
       return apiFetch(`/api/devices/${encodeURIComponent(sn)}/playback?${params}`, {}, accessToken, logout);
     }, [accessToken, logout]
@@ -404,8 +408,8 @@ export function useCityTag() {
         method: "POST",
         body: {
           sns: Array.isArray(sns) ? sns : [],
-          start: toIsoPKT(start),
-          end: toIsoPKT(end),
+          start: toNaivePkt(start),
+          end: toNaivePkt(end),
         },
       },
       accessToken,
