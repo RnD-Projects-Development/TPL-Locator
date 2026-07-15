@@ -6,7 +6,6 @@ import {
   Users, Search, X, RefreshCw, Shield, UserCog,
   Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown, Pencil, Link2,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
@@ -17,6 +16,18 @@ import { isUserOnline, lastActiveTs, lastActiveStamp } from '../utils/userPresen
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
+import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
+
+// Remembers the Users list view (search + page + which rows are expanded) so
+// returning via the breadcrumb restores it instantly. Data itself lives in the
+// always-mounted UserCache context, so there is no re-fetch.
+const USERS_VIEW_KEY = 'bc:usersview'
+function loadUsersView() {
+  try { return JSON.parse(sessionStorage.getItem(USERS_VIEW_KEY)) || null } catch { return null }
+}
+function saveUsersView(v) {
+  try { sessionStorage.setItem(USERS_VIEW_KEY, JSON.stringify(v)) } catch { /* ignore */ }
+}
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 function fmtRelTime(ts) {
@@ -35,14 +46,14 @@ function fmtRelTime(ts) {
 
 /* ── Active avatar stack ──────────────────────────────────────────────────── */
 const AVATAR_COLORS = [
-  { bg: 'rgba(167,44,50,0.28)',  color: '#E87178' },
-  { bg: 'rgba(59,130,246,0.24)', color: '#60A5FA' },
-  { bg: 'rgba(16,185,129,0.24)', color: '#34D399' },
-  { bg: 'rgba(245,158,11,0.24)', color: '#FBBF24' },
-  { bg: 'rgba(139,92,246,0.24)', color: '#A78BFA' },
-  { bg: 'rgba(236,72,153,0.24)', color: '#F472B6' },
-  { bg: 'rgba(14,165,233,0.24)', color: '#38BDF8' },
-  { bg: 'rgba(234,179,8,0.24)',  color: '#EAB308' },
+  { bg: '#E87178', color: '#FFFFFF' },
+  { bg: '#60A5FA', color: '#FFFFFF' },
+  { bg: '#34D399', color: '#FFFFFF' },
+  { bg: '#FBBF24', color: '#FFFFFF' },
+  { bg: '#A78BFA', color: '#FFFFFF' },
+  { bg: '#F472B6', color: '#FFFFFF' },
+  { bg: '#38BDF8', color: '#FFFFFF' },
+  { bg: '#EAB308', color: '#FFFFFF' },
 ]
 
 function ActiveAvatarStack({ users, isLight }) {
@@ -90,11 +101,11 @@ function ActiveAvatarStack({ users, isLight }) {
         {extra > 0 && (
           <div style={{
             width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-            background: isLight ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)',
+            background: isLight ? '#E5E7EB' : '#3F3F46',
             border: `2.5px solid ${ringColor}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 10, fontWeight: 700,
-            color: isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.38)',
+            color: isLight ? '#4B5563' : '#D4D4D8',
             marginLeft: -10, position: 'relative', zIndex: 0,
           }}>
             +{extra}
@@ -106,7 +117,7 @@ function ActiveAvatarStack({ users, isLight }) {
 }
 
 /* ── Role badge ───────────────────────────────────────────────────────────── */
-function RoleBadge({ role }) {
+function RoleBadge({ role, isLight }) {
   const r = (role || 'user').toLowerCase()
   const map = {
     admin:      'badge-red-500',
@@ -116,8 +127,13 @@ function RoleBadge({ role }) {
   }
   const cls = map[r] || 'badge-secondary'
   const label = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User'
+  
+  const customStyle = (isLight && cls === 'badge-secondary')
+    ? { background: '#F3F4F6', color: '#4B5563', border: '1px solid #E5E7EB' }
+    : {}
+
   return (
-    <span className={`badge ${cls}`}>{label}</span>
+    <span className={`badge ${cls}`} style={customStyle}>{label}</span>
   )
 }
 
@@ -135,7 +151,7 @@ function BattBar({ v }) {
 }
 
 /* ── Device card ──────────────────────────────────────────────────────────── */
-function DeviceCard({ device, navigate, isAdmin, onUnbind, isLight }) {
+function DeviceCard({ device, pushTrail, isAdmin, onUnbind, isLight }) {
   const [hov, setHov] = useState(false)
   const isSticker = /^\d+$/.test(String(device.sn ?? ''))
   const DevIcon = isSticker ? Tag : Radio
@@ -149,7 +165,7 @@ function DeviceCard({ device, navigate, isAdmin, onUnbind, isLight }) {
 
   return (
     <div
-      onClick={() => navigate(path)}
+      onClick={() => pushTrail(path)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -203,7 +219,7 @@ function DeviceCard({ device, navigate, isAdmin, onUnbind, isLight }) {
 }
 
 /* ── User row ─────────────────────────────────────────────────────────────── */
-function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onToggle, boundDevices, navigate, onUnbindDevice, isLight }) {
+function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onToggle, boundDevices, pushTrail, onUnbindDevice, isLight }) {
   const [hov, setHov] = useState(false)
   const contact = displayContact(u)
   const initials = (u.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
@@ -258,7 +274,7 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
 
         {/* Role */}
         <td style={{ padding: '0.92em 1.15em' }}>
-          <RoleBadge role={u.role} />
+          <RoleBadge role={u.role} isLight={isLight} />
         </td>
 
         {/* Last active — Online badge while logged in; elapsed-since-logout after */}
@@ -356,7 +372,7 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10, paddingTop: 10 }}>
                 {boundDevices.map(d => (
-                  <DeviceCard key={d.sn} device={d} navigate={navigate} isAdmin={isAdmin} onUnbind={onUnbindDevice} isLight={isLight} />
+                  <DeviceCard key={d.sn} device={d} pushTrail={pushTrail} isAdmin={isAdmin} onUnbind={onUnbindDevice} isLight={isLight} />
                 ))}
               </div>
             )}
@@ -371,7 +387,7 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
 export default function UsersPage() {
-  const navigate = useNavigate()
+  const pushTrail = useTrailNav()
   const { users, loading, error, refresh, silentRefresh, lastFetched } = useUserCache()
   const { isAdmin } = useAuth()
   const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache()
@@ -463,12 +479,18 @@ export default function UsersPage() {
     },
   }), [isLight])
 
-  const [query,      setQuery]    = useState('')
-  const [debouncedQ, setDQ]       = useState('')
-  const [page,       setPage]     = useState(1)
-  const [expanded,   setExpanded] = useState(new Set())
+  const savedUsersView = useRef(loadUsersView()).current
+  const [query,      setQuery]    = useState(savedUsersView?.q || '')
+  const [debouncedQ, setDQ]       = useState((savedUsersView?.q || '').trim().toLowerCase())
+  const [page,       setPage]     = useState(savedUsersView?.page || 1)
+  const [expanded,   setExpanded] = useState(() => new Set(savedUsersView?.expanded || []))
   const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
+
+  // Persist the list view so returning via the breadcrumb restores it.
+  useEffect(() => {
+    saveUsersView({ q: query, page, expanded: [...expanded] })
+  }, [query, page, expanded])
 
   /* Create User state */
   const [showCreate,    setShowCreate]    = useState(false)
@@ -730,7 +752,7 @@ export default function UsersPage() {
                         onDelete={setDeleteTarget} onEdit={openEdit}
                         onAddDevice={setAddDeviceTarget}
                         expanded={expanded.has(uid)} onToggle={() => toggleExpand(uid)}
-                        boundDevices={bound} navigate={navigate}
+                        boundDevices={bound} pushTrail={pushTrail}
                         onUnbindDevice={setUnbindTarget} isLight={isLight}
                       />
                     )

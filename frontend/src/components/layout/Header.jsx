@@ -10,51 +10,7 @@ import { useDashboardChrome } from '../../context/DashboardChromeContext.jsx'
 import Switch from '../Switch.jsx'
 import ModalPortal from '../common/ModalPortal.jsx'
 import { useCityTag } from '../../hooks/useCityTag.js'
-
-const crumbs = {
-  '/dashboard':   ['Dashboard'],
-  '/search':      ['Search'],
-  '/locators':    ['Devices', 'Locators'],
-  '/stickers':    ['Devices', 'Smart Stickers'],
-  '/missing':     ['Devices', 'Offline Devices'],
-  '/map':         ['Intelligence', 'Map View'],
-  '/trajectory':  ['Intelligence', 'Trajectory'],
-  '/playback':    ['Intelligence', 'Playback'],
-  '/fence':       ['Intelligence', 'Fence'],
-  '/alerts':      ['Alerts'],
-  '/reports':     ['Reports & Admin', 'Reports'],
-  '/field-staff': ['Dashboard', 'Field Staff'],
-  '/users':       ['Reports & Admin', 'Users'],
-}
-const getCrumbs = (path, state) => {
-  if ((path === '/playback' || path === '/map') && state?.fromDeviceType) {
-    const parentRoute = state.fromDeviceType === 'sticker' ? 'Smart Stickers' : 'Locators'
-    const name = state.fromDeviceName || state.fromDeviceId
-    const pageName = path === '/playback' ? 'Playback' : 'Map View'
-    return ['Devices', parentRoute, name, pageName]
-  }
-  if (crumbs[path]) return crumbs[path]
-  if (path.startsWith('/locators/')) return ['Devices', 'Locators', path.split('/')[2]]
-  if (path.startsWith('/stickers/')) return ['Devices', 'Smart Stickers', path.split('/')[2]]
-  return ['Devices']
-}
-
-const crumbRouteMap = {
-  'Dashboard':       '/dashboard',
-  'Devices':         '/locators',
-  'Locators':        '/locators',
-  'Smart Stickers':  '/stickers',
-  'Offline Devices': '/missing',
-  'Map View':        '/map',
-  'Trajectory':      '/trajectory',
-  'Playback':        '/playback',
-  'Fence':           '/fence',
-  'Alerts':          '/alerts',
-  'Reports':         '/reports',
-  'Field Staff':     '/field-staff',
-  'Users':           '/users',
-  'Search':          '/search',
-}
+import { buildCrumbs } from '../../utils/breadcrumbs.js'
 
 const inp = {
   width: '100%', background: '#18181b',
@@ -84,7 +40,7 @@ function AlertIcon({ type, color }) {
 }
 
 export default function Header({ pageTheme, setPageTheme }) {
-  const { pathname, state } = useLocation()
+  const { pathname, search, state } = useLocation()
   const navigate     = useNavigate()
 
   let alertsCtx = null
@@ -302,7 +258,7 @@ export default function Header({ pageTheme, setPageTheme }) {
     setProfileImageApiUrl('')
   }, [showProfile])
 
-  const parts    = getCrumbs(pathname)
+  const parts    = buildCrumbs(pathname, search, state)
   const initials = (user?.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 
   return (
@@ -328,26 +284,19 @@ export default function Header({ pageTheme, setPageTheme }) {
           <div className="flex items-center gap-1.5 text-xs flex-1">
             <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
               onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
-            {parts.map((p, i) => {
-              const isLast = i === parts.length - 1
-              let route  = !isLast ? crumbRouteMap[p] : null
-              if (!isLast && p === (state?.fromDeviceName || state?.fromDeviceId)) {
-                route = `/${state.fromDeviceType}s/${state.fromDeviceId}`
-              }
-              return (
-                <React.Fragment key={i}>
-                  <ChevronRight className="w-3 h-3 text-gray-700" />
-                  {isLast ? (
-                    <span className="text-white font-semibold">{p}</span>
-                  ) : route ? (
-                    <span className="text-gray-400 cursor-pointer hover:text-gray-200 transition-colors"
-                      onClick={() => navigate(route)}>{p}</span>
-                  ) : (
-                    <span className="text-gray-400">{p}</span>
-                  )}
-                </React.Fragment>
-              )
-            })}
+            {parts.map((p, i) => (
+              <React.Fragment key={i}>
+                <ChevronRight className="w-3 h-3 text-gray-700" />
+                {p.isCurrent ? (
+                  <span className="text-white font-semibold">{p.label}</span>
+                ) : p.url ? (
+                  <span className="text-gray-400 cursor-pointer hover:text-gray-200 transition-colors"
+                    onClick={() => navigate(p.url)}>{p.label}</span>
+                ) : (
+                  <span className="text-gray-400">{p.label}</span>
+                )}
+              </React.Fragment>
+            ))}
           </div>
         )}
 

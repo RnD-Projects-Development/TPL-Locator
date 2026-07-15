@@ -3,7 +3,7 @@ import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { createPortal } from 'react-dom'
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil } from 'lucide-react'
 import MissingDevices from './MissingDevices.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
@@ -24,6 +24,7 @@ import {
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
+import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
 
 const TYPE_TABS = [
   { key: 'all',     label: 'All',           icon: Layers },
@@ -60,15 +61,18 @@ const AnimatedStatusTabs = ({ tabs, activeTab, onChange, isLight }) => {
   }, [activeTab, tabs]);
 
   const showIndicator = indicatorStyle.width > 0;
-  const inactiveColor = isLight ? '#4b5563' : 'rgb(156, 163, 175)';
+  const inactiveColor = isLight ? '#4b5563' : '#94a3b8';
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', height: 36, padding: 3, borderRadius: 999, background: 'rgba(167, 44, 50, 0.15)', border: '1px solid rgba(167, 44, 50, 0.35)', backdropFilter: 'blur(12px)', flexShrink: 0 }}>
-      <div style={{ position: 'absolute', top: 3, left: indicatorStyle.left, width: indicatorStyle.width || 63, height: 'calc(100% - 6px)', borderRadius: 999, background: 'linear-gradient(135deg, rgb(167, 44, 50) 0%, rgb(139, 35, 40) 100%)', border: '1px solid rgba(255, 255, 255, 0.12)', boxShadow: 'rgba(167, 44, 50, 0.45) 0px 4px 18px', transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)', pointerEvents: 'none', opacity: showIndicator ? 1 : 0 }} />
+    <div ref={containerRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', height: 36, padding: 3, borderRadius: 8, background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.04)', border: isLight ? '1px solid #C9C9C9' : '1px solid #2a2a2a', flexShrink: 0 }}>
+      <div style={{ position: 'absolute', top: 3, left: indicatorStyle.left, width: indicatorStyle.width || 63, height: 'calc(100% - 6px)', borderRadius: 6, background: '#A72C32', border: '1px solid rgba(255, 255, 255, 0.10)', transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)', pointerEvents: 'none', opacity: showIndicator ? 1 : 0 }} />
       {tabs.map(s => {
         const active = activeTab === s;
         return (
-          <button key={s} onClick={() => onChange(s)} style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 7, padding: '0 13px', height: '100%', borderRadius: 999, border: 'none', background: 'transparent', cursor: 'pointer', color: active ? 'rgb(255, 255, 255)' : inactiveColor, fontSize: 13, fontWeight: active ? 600 : 500, whiteSpace: 'nowrap', letterSpacing: '0.01em', transition: 'color 0.25s' }}>
+          <button key={s} onClick={() => onChange(s)}
+            onMouseEnter={e => { if (!active) e.currentTarget.style.color = isLight ? '#111111' : '#FFFFFF' }}
+            onMouseLeave={e => { if (!active) e.currentTarget.style.color = inactiveColor }}
+            style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 7, padding: '0 13px', height: '100%', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: active ? 'rgb(255, 255, 255)' : inactiveColor, fontSize: 13, fontWeight: active ? 600 : 500, whiteSpace: 'nowrap', letterSpacing: '0.01em', transition: 'color 0.2s' }}>
             {s}
           </button>
         )
@@ -97,6 +101,16 @@ const SELECT_STYLE = {
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
 }
 const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
+
+// Remembers the All-Devices list view (search + page) so returning via the
+// breadcrumb restores it. Tab + status already round-trip through the URL.
+const DEV_VIEW_KEY = 'bc:devview'
+function loadDevView() {
+  try { return JSON.parse(sessionStorage.getItem(DEV_VIEW_KEY)) || null } catch { return null }
+}
+function saveDevView(v) {
+  try { sessionStorage.setItem(DEV_VIEW_KEY, JSON.stringify(v)) } catch { /* ignore */ }
+}
 
 // ── Search + dropdown combo for bind modal ────────────────────────────────────
 function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg, allowFreeText = false, onFreeTextChange }) {
@@ -404,8 +418,8 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
    Fetches the full fleet ONCE; tab + status switches are pure client-side.
 ────────────────────────────────────────────────────────────────────────────── */
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel, statusTabsNode }) {
-  const navigate = useNavigate()
   const location = useLocation()
+  const pushTrail = useTrailNav()
   const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, getCategories } = useCityTag()
   const { user, isAdmin } = useAuth()
   const { users, loading: usersLoading } = useUserCache()
@@ -420,11 +434,12 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
 
   const cacheValid = () => isFleetCacheValid()
 
+  const savedView = useRef(loadDevView()).current
   const [allDevices,   setAllDevices]   = useState(() => getFleetCache() ?? [])
   const [fetching,     setFetching]     = useState(() => !cacheValid())
-  const [rawQ,         setRawQ]         = useState('')
-  const [debQ,         setDebQ]         = useState('')
-  const [page,         setPage]         = useState(1)
+  const [rawQ,         setRawQ]         = useState(savedView?.q || '')
+  const [debQ,         setDebQ]         = useState(savedView?.q || '')
+  const [page,         setPage]         = useState(savedView?.page || 1)
   const [localRefresh, setLocalRefresh] = useState(0)
 
   const muiTheme = useMemo(() => createTheme({
@@ -468,8 +483,16 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     return () => clearTimeout(debRef.current)
   }, [rawQ])
 
-  // Reset page on filter/search change
-  useEffect(() => { setPage(1) }, [deviceType, externalStatus, debQ])
+  // Reset page on filter/search change — but NOT on the initial mount, so a
+  // page restored from the saved view survives.
+  const skipPageReset = useRef(true)
+  useEffect(() => {
+    if (skipPageReset.current) { skipPageReset.current = false; return }
+    setPage(1)
+  }, [deviceType, externalStatus, debQ])
+
+  // Persist search + page so returning to this list via the breadcrumb restores it.
+  useEffect(() => { saveDevView({ q: debQ, page }) }, [debQ, page])
 
   // Reset the grid scroll to the top on any tab / filter / search / page change
   useEffect(() => {
@@ -728,7 +751,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               return (
                 <div
                   key={d.sn}
-                  onClick={() => navigate(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + location.search } })}
+                  onClick={() => pushTrail(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + (location.search || '') } })}
                   style={{
                     ...panel, height: '100%', padding: '0.85em 1em', cursor: 'pointer', boxSizing: 'border-box',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.7em',

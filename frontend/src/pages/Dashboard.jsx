@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
 import { WifiOff, Battery, Activity, Users, Shield, Layers, Link2, Unlink, FileDown } from 'lucide-react'
 import {
   ComposedChart, Grid as ChartGrid, SeriesBar, Line as ChartLine,
@@ -477,6 +478,7 @@ function TopZonesCard({ zones, devices, onView }) {
 export default function Dashboard() {
   const { locations, activityData, devices: rawDevices, summary } = useHomePageCache()
   const navigate = useNavigate()
+  const pushTrail = useTrailNav()
   const { isAdmin } = useAuth()
   const { users } = useUserCache()
   const { zones } = useZoneCache()
@@ -746,7 +748,7 @@ export default function Dashboard() {
         onlineUsers={onlineUserCount}
         showUsers={isAdmin}
       />
-      <TopZonesCard zones={zones} devices={rawDevices} onView={() => navigate('/fence')} />
+      <TopZonesCard zones={zones} devices={rawDevices} onView={() => pushTrail('/fence')} />
     </div>
 
   )

@@ -4,11 +4,12 @@ import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  AlertOctagon, AlertTriangle, Shield, Clock,
-  Battery, MapPin, Radio, Tag, Search, X,
+  AlertOctagon, AlertTriangle, Shield, Clock, History as HistoryIcon,
+  Battery, MapPin, Radio, Tag, Search, X, Route, Info, EyeOff,
 } from 'lucide-react'
 import { useHomePageCache } from '../context/HomePageCacheContext.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
+import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 
@@ -55,27 +56,29 @@ function BattBar({ v, isLight }) {
 function RecoveryDonut({ score, isLight }) {
   const color = recoveryColor(score)
   const label = recoveryLabel(score)
-  const r     = 20
+  const r     = 16
   const circ  = 2 * Math.PI * r
   const dash  = (score / 100) * circ
-  const trackColor = isLight ? '#CACACA' : 'rgba(255,255,255,0.06)'
-  const labelColor = isLight ? '#333333' : 'rgba(255,255,255,0.32)'
+  const trackColor = isLight ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.09)'
+  const labelMuted = isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.35)'
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0, minWidth: 60 }}>
-      <span style={{ fontSize: 9, fontWeight: 700, color: labelColor, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>Recovery</span>
-      <div style={{ position: 'relative', width: 52, height: 52 }}>
-        <svg width={52} height={52} viewBox="0 0 52 52" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
-          <circle cx={26} cy={26} r={r} fill="none" stroke={trackColor} strokeWidth={5} />
-          <circle cx={26} cy={26} r={r} fill="none" stroke={color} strokeWidth={5}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <div style={{ position: 'relative', width: 40, height: 40 }}>
+        <svg width={40} height={40} viewBox="0 0 40 40" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
+          <circle cx={20} cy={20} r={r} fill="none" stroke={trackColor} strokeWidth={4} />
+          <circle cx={20} cy={20} r={r} fill="none" stroke={color} strokeWidth={4}
             strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
             style={{ transition: 'stroke-dasharray 0.5s ease' }}
           />
         </svg>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color }}>{score}%</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color }}>{score}%</span>
         </div>
       </div>
-      <span style={{ fontSize: 9, color: labelColor, textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: labelMuted, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>Recovery</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color, whiteSpace: 'nowrap' }}>{label}</span>
+      </div>
     </div>
   )
 }
@@ -83,15 +86,14 @@ function RecoveryDonut({ score, isLight }) {
 /* ── Status pill ──────────────────────────────────────────────────────────── */
 function StatusPill({ status, isLight }) {
   const isMissing = status === 'Missing'
-  const darkClr  = isMissing ? '#fca5a5' : '#fbbf24'
-  const bg       = isLight ? (isMissing ? '#DC2626' : '#D97706') : 'transparent'
-  const color    = isLight ? '#FFFFFF' : darkClr
-  const border   = isLight ? (isMissing ? '#B91C1C' : '#B45309') : (isMissing ? 'rgba(239,68,68,0.45)' : 'rgba(245,158,11,0.45)')
-  const dotColor = isLight ? '#FFFFFF' : darkClr
+  const color    = isMissing ? (isLight ? '#A72C32' : '#e79a9e') : (isLight ? '#B45309' : '#fbbf24')
+  const bg       = isMissing ? (isLight ? 'rgba(167,44,50,0.10)' : 'rgba(167,44,50,0.14)') : (isLight ? 'rgba(217,119,6,0.10)' : 'rgba(217,119,6,0.14)')
+  const border   = isMissing ? (isLight ? 'rgba(167,44,50,0.30)' : 'rgba(167,44,50,0.35)') : (isLight ? 'rgba(217,119,6,0.30)' : 'rgba(217,119,6,0.35)')
+  const dotColor = isMissing ? '#DC2626' : '#F59E0B'
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: '2px 10px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+      padding: '2px 9px', borderRadius: 6, fontSize: 11, fontWeight: 600,
       background: bg, color, border: `1px solid ${border}`,
     }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: dotColor, animation: 'mdPulse 2s ease-in-out infinite', flexShrink: 0 }} />
@@ -102,31 +104,30 @@ function StatusPill({ status, isLight }) {
 
 /* ── Recovery pill (score > 30 → recovery possible) ───────────────────────── */
 function RecoveryPill({ possible, isLight }) {
-  const darkClr = possible ? '#6ee7b7' : 'rgba(255,255,255,0.55)'
-  const bg      = isLight ? (possible ? '#059669' : '#6B7280') : 'transparent'
-  const color   = isLight ? '#FFFFFF' : darkClr
-  const border  = isLight ? (possible ? '#047857' : '#4B5563') : (possible ? 'rgba(5,150,105,0.45)' : 'rgba(255,255,255,0.22)')
+  const color  = possible ? (isLight ? '#047857' : '#6ee7b7') : (isLight ? '#555555' : '#94a3b8')
+  const bg     = possible ? (isLight ? 'rgba(5,150,105,0.10)' : 'rgba(5,150,105,0.12)') : (isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.04)')
+  const border = possible ? (isLight ? 'rgba(5,150,105,0.30)' : 'rgba(5,150,105,0.30)') : (isLight ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.12)')
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: '2px 10px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+      padding: '2px 9px', borderRadius: 6, fontSize: 11, fontWeight: 600,
       background: bg, color, border: `1px solid ${border}`,
     }}>
-      <Shield style={{ width: 10, height: 10, flexShrink: 0 }} />
-      {possible ? 'Recovery Possible' : 'Recovery Unlikely'}
+      {possible ? <Shield style={{ width: 12, height: 12, flexShrink: 0 }} /> : <EyeOff style={{ width: 12, height: 12, flexShrink: 0 }} />}
+      {possible ? 'Recovery Possible' : 'Recovery unlikely'}
     </span>
   )
 }
 
 /* ── Device card ──────────────────────────────────────────────────────────── */
-function DeviceCard({ device, navigate, isLight, T }) {
+function DeviceCard({ device, navigate, pushTrail, isLight, T }) {
   const [hov, setHov] = useState(false)
   const isMissing  = device.status === 'Missing'
   const battery    = device.battery ?? 0
   const hasLoc     = !!device.lastLocation && device.lastLocation !== '' && device.lastLocation !== '—'
   const DeviceIcon = device.deviceType === 'sticker' ? Tag : Radio
   const accentClr  = isMissing ? (isLight ? '#DC2626' : '#fca5a5') : (isLight ? '#D97706' : '#fbbf24')
-  const accentHardClr = isMissing ? '#DC2626' : '#D97706'
+  const accentHardClr = isMissing ? '#A72C32' : '#D97706'
 
   return (
     <div
@@ -134,7 +135,7 @@ function DeviceCard({ device, navigate, isLight, T }) {
       onMouseLeave={() => setHov(false)}
       style={{
         ...T.panel,
-        padding: '20px 22px',
+        padding: '14px 16px',
         borderLeft: `3px solid ${accentHardClr}`,
         transition: 'box-shadow 0.2s ease, transform 0.2s ease',
         boxShadow: hov
@@ -148,98 +149,112 @@ function DeviceCard({ device, navigate, isLight, T }) {
         {/* Icon */}
         <div style={{
           width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-          background: accentHardClr, border: `1px solid ${isMissing ? '#B91C1C' : '#B45309'}`,
+          background: isMissing ? (isLight ? 'rgba(167,44,50,0.1)' : 'rgba(167,44,50,0.14)') : (isLight ? 'rgba(217,119,6,0.1)' : 'rgba(217,119,6,0.14)'),
+          border: `1px solid ${isMissing ? (isLight ? 'rgba(167,44,50,0.2)' : 'rgba(167,44,50,0.24)') : (isLight ? 'rgba(217,119,6,0.2)' : 'rgba(217,119,6,0.24)')}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <DeviceIcon style={{ width: 17, height: 17, color: '#FFFFFF' }} />
+          <DeviceIcon style={{ width: 18, height: 18, color: isMissing ? '#C86A6A' : (isLight ? '#D97706' : '#fbbf24') }} />
         </div>
 
-        {/* Info block */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
-              {device.displayName}
-            </span>
-            <StatusPill status={device.status} isLight={isLight} />
-            <RecoveryPill possible={device.recovery > 30} isLight={isLight} />
+        {/* Right Content Column */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          
+          {/* Row 1 & 2 Wrapper (Top Content + Recovery Donut) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* Row 1: Name & Status */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
+                  {device.displayName}
+                </span>
+                <StatusPill status={device.status} isLight={isLight} />
+                <RecoveryPill possible={device.recovery > 30} isLight={isLight} />
+              </div>
+
+              {/* Row 2: ID, Offline Time, Battery */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: 12, color: T.txt2 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', color: T.txt3 }}>{device.id}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Clock style={{ width: 12, height: 12, color: accentHardClr, flexShrink: 0 }} />
+                  {device.lastSeen ? (
+                    <>
+                      <span style={{ fontWeight: 600, color: T.txt1 }}>{fmtHours(device.hoursAgo)}</span>
+                      <span style={{ color: T.txt3 }}>offline</span>
+                    </>
+                  ) : (
+                    <span style={{ fontWeight: 600, color: accentClr }}>No recent contact</span>
+                  )}
+                </span>
+                {hasLoc && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <MapPin style={{ width: 12, height: 12, flexShrink: 0, color: T.txt3 }} />
+                    {device.lastLocation}
+                  </span>
+                )}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Battery style={{ width: 12, height: 12, color: battery < 25 ? '#DC2626' : T.txt3, flexShrink: 0 }} />
+                  <BattBar v={battery} isLight={isLight} />
+                </span>
+              </div>
+            </div>
+
+            {/* Recovery Donut Right Aligned */}
+            <RecoveryDonut score={device.recovery} isLight={isLight} />
           </div>
 
-          <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: T.txt3, marginBottom: 8 }}>
-            {device.id}
+          {/* Row 3: Last Seen, Warning Chips & Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, color: T.txt3, fontFamily: 'var(--font-mono)' }}>
+                {fmtLastSeen(device.lastSeen)}
+              </div>
+              
+              {/* Warning Chips */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {battery < 25 && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                    color: isLight ? '#DC2626' : '#fca5a5', border: `1px solid ${isLight ? 'rgba(220,38,38,0.3)' : 'rgba(220,38,38,0.4)'}`, background: 'transparent' }}>
+                    <Battery style={{ width: 10, height: 10 }} /> Critical battery
+                  </span>
+                )}
+                {device.hoursAgo > 48 && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 6, fontSize: 10, fontWeight: 600,
+                    color: isLight ? '#D97706' : '#fbbf24', border: `1px solid ${isLight ? 'rgba(217,119,6,0.3)' : 'rgba(217,119,6,0.4)'}`, background: 'transparent' }}>
+                    <AlertTriangle style={{ width: 10, height: 10 }} /> Extended absence · 48h+
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+              <button
+                onClick={() => pushTrail(`/map?device=${device.id}`)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: '#A72C32', border: '1px solid #8B2328', borderRadius: 8, color: '#FFFFFF', fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#8B2328' }}
+                onMouseLeave={e => { e.currentTarget.style.background = '#A72C32' }}
+              >
+                <MapPin style={{ width: 12, height: 12 }} /> Map
+              </button>
+              <button
+                onClick={() => navigate(`/trajectory?device=${device.id}`)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'transparent', border: `1px solid ${T.divider}`, borderRadius: 8, color: T.txt2, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)'; e.currentTarget.style.color = T.txt1; e.currentTarget.style.background = isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.divider; e.currentTarget.style.color = T.txt2; e.currentTarget.style.background = 'transparent' }}
+              >
+                <HistoryIcon style={{ width: 12, height: 12 }} /> History
+              </button>
+              <button
+                onClick={() => pushTrail(device.deviceType === 'sticker' ? `/stickers/${device.id}` : `/locators/${device.id}`)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'transparent', border: `1px solid ${T.divider}`, borderRadius: 8, color: T.txt2, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)'; e.currentTarget.style.color = T.txt1; e.currentTarget.style.background = isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.divider; e.currentTarget.style.color = T.txt2; e.currentTarget.style.background = 'transparent' }}
+              >
+                <Info style={{ width: 12, height: 12 }} /> Details
+              </button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', fontSize: 12, color: T.txt2 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Clock style={{ width: 12, height: 12, color: accentHardClr, flexShrink: 0 }} />
-              {device.lastSeen ? (
-                <>
-                  <span style={{ fontWeight: 600, color: accentClr }}>{fmtHours(device.hoursAgo)}</span>
-                  <span style={{ color: T.txt3 }}>offline</span>
-                </>
-              ) : (
-                <span style={{ fontWeight: 600, color: accentClr }}>No recent contact</span>
-              )}
-            </span>
-            {hasLoc && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <MapPin style={{ width: 12, height: 12, flexShrink: 0, color: T.txt3 }} />
-                {device.lastLocation}
-              </span>
-            )}
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Battery style={{ width: 12, height: 12, color: battery < 25 ? '#DC2626' : T.txt3, flexShrink: 0 }} />
-              <BattBar v={battery} isLight={isLight} />
-            </span>
-          </div>
-
-          <div style={{ marginTop: 8, fontSize: 11, color: T.txt3, fontFamily: 'var(--font-mono)' }}>
-            Last seen: {fmtLastSeen(device.lastSeen)}
-          </div>
-        </div>
-
-        {/* Recovery donut */}
-        <RecoveryDonut score={device.recovery} isLight={isLight} />
-      </div>
-
-      {/* Anomaly warning chips + action buttons (one inline row) */}
-      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {battery < 25 && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-            background: '#DC2626', color: '#FFFFFF', border: '1px solid #B91C1C' }}>
-            <Battery style={{ width: 10, height: 10 }} /> Critical battery — may go offline soon
-          </span>
-        )}
-        {device.hoursAgo > 48 && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 600,
-            background: '#D97706', color: '#FFFFFF', border: '1px solid #B45309' }}>
-            <AlertTriangle style={{ width: 10, height: 10 }} /> Extended absence — 48h+
-          </span>
-        )}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <button
-          onClick={() => navigate(`/map?device=${device.id}`)}
-          style={{ padding: '6px 14px', background: '#A72C32', border: '1px solid #8B2328', borderRadius: 8, color: '#FFFFFF', fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s' }}
-          onMouseEnter={e => { e.currentTarget.style.background = '#8B2328' }}
-          onMouseLeave={e => { e.currentTarget.style.background = '#A72C32' }}
-        >
-          View on Map
-        </button>
-        <button
-          onClick={() => navigate(`/trajectory?device=${device.id}`)}
-          style={{ padding: '6px 14px', background: 'transparent', border: `1px solid ${T.divider}`, borderRadius: 8, color: T.txt2, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)'; e.currentTarget.style.color = T.txt1 }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = T.divider; e.currentTarget.style.color = T.txt2 }}
-        >
-          View History
-        </button>
-        <button
-          onClick={() => navigate(device.deviceType === 'sticker' ? `/stickers/${device.id}` : `/locators/${device.id}`)}
-          style={{ padding: '6px 14px', background: 'transparent', border: `1px solid ${T.divider}`, borderRadius: 8, color: T.txt2, fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = isLight ? '#D1D5DB' : 'rgba(255,255,255,0.20)'; e.currentTarget.style.color = T.txt1 }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = T.divider; e.currentTarget.style.color = T.txt2 }}
-        >
-          Device Details
-        </button>
         </div>
       </div>
     </div>
@@ -251,6 +266,7 @@ function DeviceCard({ device, navigate, isLight, T }) {
    ════════════════════════════════════════════════════════════════════════════ */
 export default function MissingDevices({ embedded = false, deviceType = undefined, externalSearch = '' }) {
   const navigate      = useNavigate()
+  const pushTrail     = useTrailNav()
   const { locations } = useHomePageCache()
 
   const pageTheme = React.useContext(ThemeContext)
@@ -576,7 +592,7 @@ export default function MissingDevices({ embedded = false, deviceType = undefine
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map(device => (
-            <DeviceCard key={device.id} device={device} navigate={navigate} isLight={isLight} T={T} />
+            <DeviceCard key={device.id} device={device} navigate={navigate} pushTrail={pushTrail} isLight={isLight} T={T} />
           ))}
         </div>
       )}

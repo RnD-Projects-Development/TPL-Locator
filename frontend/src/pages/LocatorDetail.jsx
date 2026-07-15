@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { Radio, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText, UserCog } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
@@ -10,6 +10,7 @@ import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
 import AssignUserModal from '../components/AssignUserModal.jsx'
+import { useTrailNav, useBackTarget } from '../hooks/useBreadcrumbTrail.js'
 
 const statusStyle = (s, isLight) => {
   if (isLight) {
@@ -25,8 +26,8 @@ const statusStyle = (s, isLight) => {
 export default function LocatorDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
-  const { state: navState } = useLocation()
-  const backTo = navState?.from || '/locators'
+  const pushTrail = useTrailNav()
+  const backTo = useBackTarget('/devices?tab=all')
   const { zones }            = useZoneCache()
   const { getLatestLocation, getDeviceBySn, getGeocode, adminAssignDeviceToUser } = useCityTag()
   const { isAdmin }          = useAuth()
@@ -241,9 +242,9 @@ export default function LocatorDetail() {
   ]
 
   const actionBtns = [
-    { label: 'Live Tracking',  sub: 'View current position on map',   icon: MapPin,  onClick: () => navigate(`/map?device=${loc.id}`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }),        primary: true },
-    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => navigate(`/playback?device=${loc.id}&range=1D`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }), primary: false },
-    { label: 'Export Report',  sub: 'Download location history',      icon: FileText,onClick: () => navigate(`/reports?device=${loc.id}`),    primary: false },
+    { label: 'Live Tracking',  sub: 'View current position on map',   icon: MapPin,  onClick: () => pushTrail(`/map?device=${loc.id}`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }),        primary: true },
+    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => pushTrail(`/playback?device=${loc.id}&range=1D`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }), primary: false },
+    { label: 'Export Report',  sub: 'Download location history',      icon: FileText,onClick: () => pushTrail(`/reports?device=${loc.id}`),    primary: false },
   ]
 
   return (
