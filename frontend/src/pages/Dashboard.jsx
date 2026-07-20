@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
 import { WifiOff, Battery, Activity, Users, Shield, Layers, Link2, Unlink, FileDown } from 'lucide-react'
 import {
   ComposedChart, Grid as ChartGrid, SeriesBar, Line as ChartLine,
@@ -475,8 +476,16 @@ function TopZonesCard({ zones, devices, onView }) {
    DASHBOARD — single scrollable page, fixed 4-column grid (2:4:5 rows)
    ══════════════════════════════════════════════════════════════════ */
 export default function Dashboard() {
-  const { locations, activityData, devices: rawDevices, summary } = useHomePageCache()
+  const { locations, activityData, devices: rawDevices, summary, refreshAll } = useHomePageCache()
+
+  // Silent auto-refresh every 15 min — keeps the current dashboard on screen
+  // (no loaders) while fresh data is fetched sequentially in the background.
+  useEffect(() => {
+    const iv = setInterval(() => { refreshAll({ force: true, silent: true }) }, 15 * 60 * 1000)
+    return () => clearInterval(iv)
+  }, [refreshAll])
   const navigate = useNavigate()
+  const pushTrail = useTrailNav()
   const { isAdmin } = useAuth()
   const { users } = useUserCache()
   const { zones } = useZoneCache()
@@ -746,7 +755,7 @@ export default function Dashboard() {
         onlineUsers={onlineUserCount}
         showUsers={isAdmin}
       />
-      <TopZonesCard zones={zones} devices={rawDevices} onView={() => navigate('/fence')} />
+      <TopZonesCard zones={zones} devices={rawDevices} onView={() => pushTrail('/fence')} />
     </div>
 
   )

@@ -35,11 +35,9 @@ export default function PillTabSwitcher({ tabs, activeKey, onSelect }) {
         alignItems: 'center',
         height: 36,
         padding: '3px',
-        borderRadius: 999,
-        background: 'rgba(167,44,50,0.15)',
-        border: '1px solid rgba(167,44,50,0.35)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
+        borderRadius: 8,
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid #2a2a2a',
         flexShrink: 0,
       }}
     >
@@ -52,10 +50,9 @@ export default function PillTabSwitcher({ tabs, activeKey, onSelect }) {
             left: pill.left,
             width: pill.width,
             height: 'calc(100% - 6px)',
-            borderRadius: 999,
-            background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            boxShadow: '0 4px 18px rgba(167,44,50,0.45)',
+            borderRadius: 6,
+            background: '#A72C32',
+            border: '1px solid rgba(255,255,255,0.10)',
             transition: ready
               ? 'left 0.25s cubic-bezier(0.4,0,0.2,1), width 0.25s cubic-bezier(0.4,0,0.2,1)'
               : 'none',
@@ -81,19 +78,19 @@ export default function PillTabSwitcher({ tabs, activeKey, onSelect }) {
               gap: 7,
               padding: '0 13px',
               height: '100%',
-              borderRadius: 999,
+              borderRadius: 6,
               border: 'none',
               background: 'transparent',
               cursor: 'pointer',
-              color: isActive ? '#FFFFFF' : '#A72C32',
+              color: isActive ? '#FFFFFF' : '#94a3b8',
               fontSize: 13,
               fontWeight: isActive ? 600 : 500,
               whiteSpace: 'nowrap',
               letterSpacing: '0.01em',
-              transition: 'color 0.25s ease',
+              transition: 'color 0.2s ease',
             }}
             onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = '#FFFFFF' }}
-            onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#9CA3AF' }}
+            onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#94a3b8' }}
           >
             {Icon && <Icon style={{ width: 14, height: 14, flexShrink: 0 }} />}
             {tab.label}
