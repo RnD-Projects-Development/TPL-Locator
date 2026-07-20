@@ -706,6 +706,23 @@ async def list_available_devices(
     ]
 
 
+@router.get("/devices/validate/{sn}")
+async def validate_device_sn(
+    sn: str,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+) -> dict:
+    """
+    Public SN validation — no authentication required.
+    Returns whether a device with the given serial number exists in the platform.
+    """
+    sn = (sn or "").strip()
+    if not sn:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device SN is required")
+
+    doc = await mongo.devices.find_one({"sn": sn}, {"sn": 1})
+    return {"sn": sn, "exists": doc is not None}
+
+
 @router.get("/devices/{sn}/check")
 async def check_device_available(
     sn: str,
