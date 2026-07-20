@@ -16,7 +16,7 @@ def _is_admin(account: Union[AdminInDB, UserInDB]) -> bool:
 
 
 async def _resolve_target_user(
-    current_account: Union[AdminInDB, UserInDB],
+    current_account: Optional[Union[AdminInDB, UserInDB]],
     mongo: MongoService,
     *,
     identifier: Optional[str] = None,
@@ -52,6 +52,12 @@ async def _resolve_target_user(
             )
         return target_user
 
+    if current_account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required or provide user identifier (email or phone)",
+        )
+
     if _is_admin(current_account):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -63,7 +69,7 @@ async def _resolve_target_user(
 
 
 async def bind_device_service(
-    current_account: Union[AdminInDB, UserInDB],
+    current_account: Optional[Union[AdminInDB, UserInDB]],
     *,
     sn: str,
     mongo: MongoService,
@@ -73,9 +79,10 @@ async def bind_device_service(
     client: Optional[str] = None,
     category: Optional[str] = None,
 ) -> dict:
+    actor_label = current_account.email if current_account else (identifier or "anonymous")
     logger.info(
         "bind_device_service started account_email=%s sn=%s target_identifier=%s target_user_id=%s",
-        current_account.email,
+        actor_label,
         sn,
         identifier,
         user_id,
@@ -84,10 +91,26 @@ async def bind_device_service(
     if not sn:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device SN is required")
 
+    if user_id and (current_account is None or not _is_admin(current_account)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required to assign device to another user",
+        )
+
+    if current_account is None and not identifier:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Provide authorization token or user identifier (email or phone)",
+        )
+
     target_user = await _resolve_target_user(current_account, mongo, identifier=identifier, user_id=user_id)
 
     # Non-admin cannot bind on behalf of others
-    if not _is_admin(current_account) and str(target_user.id) != str(current_account.id):
+    if (
+        current_account is not None
+        and not _is_admin(current_account)
+        and str(target_user.id) != str(current_account.id)
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign device to another user")
 
     # Single-company deployment: every admin login shares one fleet and user pool,
@@ -127,15 +150,16 @@ async def bind_device_service(
         await mongo.devices.update_one({"sn": sn}, {"$set": update_fields})
 
     # Auto-link regular user to device admin if needed
-    if not _is_admin(current_account) and not current_account.admin_id and device.admin_id:
-        await mongo.update_user_admin(str(current_account.id), str(device.admin_id))
+    actor = current_account or target_user
+    if not _is_admin(actor) and not actor.admin_id and device.admin_id:
+        await mongo.update_user_admin(str(actor.id), str(device.admin_id))
 
     updated = await mongo.devices.find_one({"sn": sn})
     device_name = (updated or {}).get("name", "")
 
     logger.info(
         "bind_device_service completed actor=%s target=%s sn=%s",
-        current_account.email,
+        actor_label,
         target_user.email,
         sn,
     )

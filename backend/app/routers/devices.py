@@ -6,7 +6,7 @@ from typing import Annotated, List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from app.dependencies import get_current_account, get_mongo_service
+from app.dependencies import get_current_account, get_mongo_service, get_optional_current_account
 from app.models.admin import AdminInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
@@ -607,7 +607,7 @@ async def list_user_devices(
 
 class BindDeviceRequest(BaseModel):
     sn: str
-    identifier: Optional[str] = None  # optional; JWT current_account can be used when not targeting another user
+    identifier: Optional[str] = None  # email or phone; required when no Bearer token (user self-bind)
     name: Optional[str] = None       # label shown in table; stamped on device doc at bind time
     client: Optional[str] = None     # optional client/company name
     user_id: Optional[str] = None    # admin-only: assign to a specific user
@@ -633,23 +633,29 @@ class UpdateDeviceRequest(BaseModel):
 @router.post("/devices")
 async def bind_device(
     payload: BindDeviceRequest,
-    current_account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
+    current_account: Annotated[
+        Union[AdminInDB, UserInDB, None], Depends(get_optional_current_account)
+    ] = None,
 ):
     """
     Bind a device to a user.
 
-    Regular user path: device must exist and be unassigned (or already theirs).
+    Regular user path (with or without Bearer token):
+      - With token: binds to the authenticated user (identifier optional).
+      - Without token: pass identifier (email or phone) to identify the user.
+      - Device must exist and be unassigned (or already theirs).
       - name and client from the request are stamped on the device doc.
       - user is auto-linked to the device's admin if not already linked.
 
-    Admin-initiated path: pass user_id to assign an unbound device to a
-      specific user under the same admin. name/client are optional stamps.
+    Admin-initiated path: requires Bearer token; pass user_id to assign an
+      unbound device to a specific user. name/client are optional stamps.
     """
+    actor_label = current_account.email if current_account else (payload.identifier or "anonymous")
     try:
         logger.info(
             "bind_device route started actor=%s sn=%s target_identifier=%s target_user_id=%s",
-            current_account.email,
+            actor_label,
             payload.sn,
             payload.identifier,
             payload.user_id,
@@ -664,13 +670,13 @@ async def bind_device(
             category=payload.category,
             mongo=mongo,
         )
-        logger.info("bind_device route completed actor=%s sn=%s", current_account.email, payload.sn)
+        logger.info("bind_device route completed actor=%s sn=%s", actor_label, payload.sn)
         return response
 
     except HTTPException:
         raise
     except Exception as err:
-        logger.exception("bind_device route failed actor=%s sn=%s", current_account.email, payload.sn)
+        logger.exception("bind_device route failed actor=%s sn=%s", actor_label, payload.sn)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error: {str(err)}",

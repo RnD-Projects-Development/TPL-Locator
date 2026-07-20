@@ -142,6 +142,22 @@ async def get_current_account(
     raise HTTPException(status_code=401, detail="Account not found")
 
 
+async def get_optional_current_account(
+    request: Request,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+) -> AdminInDB | UserInDB | None:
+    """Return the authenticated account when a Bearer token is present, else None."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return None
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header",
+        )
+    return await get_current_account(request, mongo)
+
+
 def _decode_jwt_from_request(request: Request) -> dict[str, Any]:
     """Extract and decode JWT from Authorization header, raising HTTP errors on failure."""
     auth_header = request.headers.get("Authorization")
