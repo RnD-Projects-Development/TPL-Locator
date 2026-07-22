@@ -116,6 +116,11 @@ class SendLoginOtpRequest(BaseModel):
     identifier: str
 
 
+class NoPasswordLoginRequest(BaseModel):
+    identifier: str                 # email address OR phone number
+    password: Optional[str] = None  # accepted for shape-compatibility with /login, ignored
+
+
 class LoginResponse(BaseModel):
     account: Optional[dict] = None
     access_token: str
@@ -378,6 +383,80 @@ async def login(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Database connection error: {type(exc).__name__}: {exc}",
         )
+
+
+# ── Password-less login (copy of /login, password optional) ────────────────────
+
+async def _resolve_user_for_passwordless_login(mongo: MongoService, identifier: str):
+    """Resolve a user account by email or phone for password-less login.
+
+    Users only — admin accounts are rejected (admins must use /login with a
+    password). Unlike the OTP flow this does NOT require a real email address,
+    since no verification code is delivered.
+    """
+    raw = identifier.strip()
+    is_email = "@" in raw
+
+    if is_email:
+        email = raw.lower()
+        admin = await mongo.get_admin_by_email(email)
+        if admin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password-less login is not available for admin accounts. Use your password.",
+            )
+        user = await mongo.get_user_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No account found with this identifier.",
+            )
+        return user
+
+    phone = normalize_phone(raw)
+    user = await mongo.get_user_by_phone(phone)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No account found with this identifier.",
+        )
+    return user
+
+
+@router.post("/login/no-password", response_model=LoginResponse)
+async def login_no_password(
+    payload: NoPasswordLoginRequest,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """
+    Password-less login — a copy of /login with the password made optional.
+
+    Provide only an `identifier` (email or phone number). Any `password` field
+    is accepted for request-shape compatibility with /login but is ignored.
+
+    Users only — the admin table is never matched (admins must use /login).
+    """
+    raw = payload.identifier.strip()
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identifier is required")
+
+    try:
+        user = await _resolve_user_for_passwordless_login(mongo, raw)
+        await mongo.accounts.update_one(
+            {"_id": ObjectId(str(user.id))},
+            {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
+        )
+        access_token = create_access_token(str(user.id))
+        logger.info("user password-less login completed identifier=%s user_id=%s", raw, user.id)
+        return LoginResponse(account=_user_account_payload(user_to_public(user)), access_token=access_token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("password-less login failed for identifier=%s — MongoDB error: %s", raw, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database connection error: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 # ── Logout ───────────────────────────────────────────────────────────────────

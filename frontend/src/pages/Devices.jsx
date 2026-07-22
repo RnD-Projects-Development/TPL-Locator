@@ -24,7 +24,14 @@ import {
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
+import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
+import { useSearchHistory } from '../hooks/useSearchHistory.js'
+import { APP_CACHE_STORAGE_KEYS } from '../utils/clearAppCaches.js'
 import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
+import SwirlPin from '../components/common/SwirlPin.jsx'
+
+// Premium NFC-card typeface for the device tiles (Inter, loaded in index.html).
+const CARD_FONT = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
 
 const TYPE_TABS = [
   { key: 'all',     label: 'All',           icon: Layers },
@@ -259,16 +266,15 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
         onClick={toggle}
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-          fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-          background: open
-            ? (isLight ? '#DCDCDC' : 'rgba(255,255,255,0.12)')
-            : (isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'),
-          border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)',
-          color: isLight ? '#333333' : 'rgba(255,255,255,0.70)',
+          padding: '4px 10px', borderRadius: 10, cursor: 'pointer',
+          fontFamily: CARD_FONT, fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+          // Always on-dark (the tile is now the dark NFC-card face in both themes).
+          background: open ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          color: '#ECECEC',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.12)' }}
-        onMouseLeave={e => { if (!open) e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+        onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
       >
         Actions
         <ChevronDown style={{ width: 11, height: 11, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
@@ -476,6 +482,23 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const isSilentRef  = useRef(false)
   const gridScrollRef = useRef(null)
 
+  // Search-history dropdown (recent device searches, separate from the Users
+  // page). Recorded on Enter / on pick; the store is wiped on logout.
+  const { history, record: recordSearch, remove: removeSearch, clearAll: clearSearchHistory } =
+    useSearchHistory(APP_CACHE_STORAGE_KEYS.SEARCH_HISTORY_DEVICES)
+  const [histOpen, setHistOpen] = useState(false)
+  const searchWrapRef = useRef(null)
+
+  // Close the history dropdown on any click outside the search box.
+  useEffect(() => {
+    if (!histOpen) return
+    const onDocMouseDown = e => {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target)) setHistOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [histOpen])
+
   // Debounce search
   useEffect(() => {
     clearTimeout(debRef.current)
@@ -509,6 +532,18 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     }, 60_000)
     return () => clearInterval(id)
   }, [externalStatus])
+
+  // Silent auto-refresh every 15 min — mirrors the Dashboard and detail pages.
+  // Runs on every tab/filter; keeps the current tab, search and page in place
+  // (no loader) while the fleet is refetched in the background.
+  useEffect(() => {
+    const id = setInterval(() => {
+      isSilentRef.current = true
+      invalidateFleetCache()
+      setLocalRefresh(k => k + 1)
+    }, 15 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   // Fetch all devices — one call; re-fetches on refreshSignal or localRefresh change
   useEffect(() => {
@@ -664,20 +699,20 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const hasPrev     = safePage > 1
   const hasNext     = safePage < totalPages
 
-  const panel = isLight
-    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
-    : { background: 'linear-gradient(157deg, rgba(32,31,31,0.55) 0%, rgba(26,25,25,0.50) 58%, rgba(21,20,20,0.45) 100%)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '18px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
       {/* Search + count + filters */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0, width: '100%' }}>
-        <div style={{ position: 'relative' }}>
+        <div ref={searchWrapRef} style={{ position: 'relative' }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
           <input
             value={rawQ}
             onChange={e => setRawQ(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { recordSearch(rawQ); setHistOpen(false) }
+              else if (e.key === 'Escape') setHistOpen(false)
+            }}
             placeholder="Search devices…"
             style={{
               background: T.inputBg, border: `1px solid ${T.inputBorder}`,
@@ -685,7 +720,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220,
               boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
             }}
-            onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
+            onFocus={e => { setHistOpen(true); e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
             onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
           />
           {rawQ && (
@@ -693,6 +728,17 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}>
               <X style={{ width: 12, height: 12 }} />
             </button>
+          )}
+          {histOpen && (
+            <SearchHistoryDropdown
+              items={history}
+              query={rawQ}
+              onPick={term => { setRawQ(term); recordSearch(term); setHistOpen(false) }}
+              onRemove={removeSearch}
+              onClearAll={() => { clearSearchHistory(); setHistOpen(false) }}
+              isLight={isLight}
+              width={220}
+            />
           )}
         </div>
         <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400 }}>
@@ -742,10 +788,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               const d = pageDevices[idx] ?? null
               if (!d) return <div key={`_ph_${idx}`} aria-hidden="true" />
               const isSticker  = isStickerSN(d.sn)
-              const DeviceIcon = isSticker ? Tag : Radio
               const isActive   = d.status === 'online'
-              const dotColor   = isActive ? '#059669' : '#DC2626'
-              const dotGlow    = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
+              const dotColor   = isActive ? '#23D160' : '#DC2626'
+              const dotGlow    = isActive ? 'rgba(35,209,96,0.55)' : 'rgba(220,38,38,0.50)'
               const name       = deviceDisplayName(d)
               const lastSeen   = fmtLastSeen(d)
               return (
@@ -753,42 +798,57 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   key={d.sn}
                   onClick={() => pushTrail(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + (location.search || '') } })}
                   style={{
-                    ...panel, height: '100%', padding: '0.85em 1em', cursor: 'pointer', boxSizing: 'border-box',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.7em',
-                    transition: 'box-shadow 0.22s ease, transform 0.22s ease',
-                    ...(isLight ? { borderLeft: '3px solid #A72C32' } : {}),
+                    position: 'relative', overflow: 'hidden', height: '100%',
+                    borderRadius: 16, cursor: 'pointer', boxSizing: 'border-box',
+                    // Charcoal NFC-card face (not pure black) with a soft top-down
+                    // gradient; the red locator swirl is drawn on top (SwirlPin).
+                    background: 'linear-gradient(155deg, #343131 0%, #2C2929 100%)',
+                    boxShadow: '0 6px 22px rgba(0,0,0,0.45)',
+                    transition: 'box-shadow 0.24s ease',
                   }}
+                  // Matte premium hover — soft shadow + faint inset ring + brighter
+                  // chevron. No glow, no translate, so the grid never clips the tile.
                   onMouseEnter={e => {
-                    e.currentTarget.style.boxShadow = isLight
-                      ? '0 4px 16px rgba(167,44,50,0.14), 0 12px 32px rgba(0,0,0,0.08)'
-                      : '0 0 44px rgba(167,44,50,0.52), 0 12px 40px rgba(0,0,0,0.55)'
-                    e.currentTarget.style.transform = 'translateY(-2px)'
+                    e.currentTarget.style.boxShadow = '0 12px 34px rgba(0,0,0,0.58), inset 0 0 0 1px rgba(255,255,255,0.10)'
+                    const chev = e.currentTarget.querySelector('[data-chev]')
+                    if (chev) chev.style.color = 'rgba(255,255,255,0.80)'
                   }}
                   onMouseLeave={e => {
-                    e.currentTarget.style.boxShadow = panel.boxShadow
-                    e.currentTarget.style.transform = 'translateY(0)'
+                    e.currentTarget.style.boxShadow = '0 6px 22px rgba(0,0,0,0.45)'
+                    const chev = e.currentTarget.querySelector('[data-chev]')
+                    if (chev) chev.style.color = 'rgba(255,255,255,0.35)'
                   }}
                 >
-                  <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.42em', overflow: 'hidden' }}>
-                      <DeviceIcon style={{ width: '0.8em', height: '0.8em', color: T.txt3, flexShrink: 0 }} />
-                      <span style={{ width: '0.42em', height: '0.42em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 4px ${dotGlow}` }} />
-                      <span style={{ fontSize: '0.92em', fontWeight: 700, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                  {/* Redrawn TPL locator swirl — vector-traced from the physical card.
+                      Sized to the tile height so the whole pin (eye, body, point) shows,
+                      with a whisper of top bleed. It's tall, so on these wide tiles it
+                      naturally occupies the left ~third. */}
+                  <SwirlPin style={{ position: 'absolute', left: '0%', top: '-3%', height: '100%', width: 'auto', zIndex: 0, pointerEvents: 'none' }} />
+                  {/* Device info — offset from the left to clear the red swirl artwork */}
+                  <div style={{
+                    position: 'absolute', zIndex: 1, left: '44%', right: '1em', top: '0.55em', bottom: '2.1em',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.22em', minWidth: 0,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
+                      <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
+                      <span style={{ fontFamily: CARD_FONT, fontSize: '0.95em', fontWeight: 700, color: '#F7F7F7', letterSpacing: '0.005em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
                     </div>
-                    <div style={{ fontSize: '0.7em', color: T.txt3, marginTop: '0.21em', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: '1.35em' }}>
+                    <div style={{ fontFamily: CARD_FONT, fontSize: '0.7em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {d.sn}
                     </div>
                     {lastSeen ? (
-                      <div style={{ fontSize: '0.67em', color: T.txt1, marginTop: '0.14em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: '1.35em' }}>
+                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Last seen: {lastSeen}
                       </div>
                     ) : (
-                      <div style={{ fontSize: '0.67em', color: '#6b7280', marginTop: '0.14em', paddingLeft: '1.35em', fontStyle: 'italic' }}>
+                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.40)', fontStyle: 'italic' }}>
                         No last report
                       </div>
                     )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.42em', flexShrink: 0 }}>
+
+                  {/* Actions + chevron, bottom-right */}
+                  <div style={{ position: 'absolute', zIndex: 2, right: '0.9em', bottom: '0.6em', display: 'flex', alignItems: 'center', gap: '0.5em' }}>
                     {externalStatus === 'all' && isAdmin && isBound(d) && (
                       <ActionsDropdown
                         isLight={isLight}
@@ -796,7 +856,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                         onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
                       />
                     )}
-                    <ChevronRight style={{ width: '1em', height: '1em', color: T.txt3 }} />
+                    <ChevronRight data-chev strokeWidth={1.5} style={{ width: '1.05em', height: '1.05em', color: 'rgba(255,255,255,0.35)', transition: 'color 0.2s ease' }} />
                   </div>
                 </div>
               )

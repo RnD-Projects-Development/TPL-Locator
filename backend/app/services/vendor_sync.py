@@ -357,8 +357,9 @@ async def _sync_zoqin(
         logger.error("vendor_sync zoqin tpl admin missing email=%s", tpl_email)
         return devices_list, by_sn
 
-    tpl_uid     = str(tpl_doc.get("uid") or "zoqin_vendor_tpl")
-    time_adjust = float(
+    tpl_admin_id = str(tpl_doc["_id"])
+    tpl_uid      = str(tpl_doc.get("uid") or "zoqin_vendor_tpl")
+    time_adjust  = float(
         settings.get("zoqin_time_adjust_hours", DEFAULT_ZOQIN_TIME_ADJUST_HOURS)
     )
 
@@ -387,6 +388,21 @@ async def _sync_zoqin(
     async def _process_sn(sn: str) -> None:
         async with sem:
             try:
+                # Zoqin exposes no device-list endpoint — the registry is the only
+                # source of truth for which devices exist, so a registry entry alone
+                # must produce the device doc that /api/devices reads.  Done before
+                # the fetch so a device that has never reported still appears
+                # (offline) rather than silently missing.
+                #
+                # Create-only, deliberately NOT upsert_device_from_citytag like the
+                # other vendors: Zoqin sends no device name, so the label here can
+                # only ever be the SN, and that upsert writes assigned_name
+                # unconditionally — it would flatten the labels on every existing
+                # device on each sync.
+                if not await mongo.devices.find_one({"sn": sn}, {"_id": 1}):
+                    await mongo.create_device(sn, tpl_admin_id, name=sn)
+                    logger.info("zoqin device registered sn=%s admin_id=%s", sn, tpl_admin_id)
+
                 # Cache key includes the minute-truncated start so rotating the
                 # window every 5 min still benefits from caching within a run.
                 cache_key = f"{sn}:{start_time.strftime('%Y%m%d%H%M')}"

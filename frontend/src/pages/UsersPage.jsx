@@ -16,6 +16,9 @@ import { isUserOnline, lastActiveTs, lastActiveStamp } from '../utils/userPresen
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
+import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
+import { useSearchHistory } from '../hooks/useSearchHistory.js'
+import { APP_CACHE_STORAGE_KEYS } from '../utils/clearAppCaches.js'
 import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
 
 // Remembers the Users list view (search + page + which rows are expanded) so
@@ -491,6 +494,23 @@ export default function UsersPage() {
   const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
 
+  // Search-history dropdown (recent user searches, separate from the Devices
+  // page). Recorded on Enter / on pick; the store is wiped on logout.
+  const { history, record: recordSearch, remove: removeSearch, clearAll: clearSearchHistory } =
+    useSearchHistory(APP_CACHE_STORAGE_KEYS.SEARCH_HISTORY_USERS)
+  const [histOpen, setHistOpen] = useState(false)
+  const searchWrapRef = useRef(null)
+
+  // Close the history dropdown on any click outside the search box.
+  useEffect(() => {
+    if (!histOpen) return
+    const onDocMouseDown = e => {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target)) setHistOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [histOpen])
+
   // Persist the list view so returning via the breadcrumb restores it.
   useEffect(() => {
     saveUsersView({ q: query, page, expanded: [...expanded] })
@@ -689,7 +709,7 @@ export default function UsersPage() {
 
       {/* ── Search ──────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '0 0 260px' }}>
+        <div ref={searchWrapRef} style={{ position: 'relative', flex: '0 0 260px' }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
           <input
             type="search"
@@ -697,6 +717,10 @@ export default function UsersPage() {
             autoComplete="off"
             value={query}
             onChange={e => handleSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { recordSearch(query); setHistOpen(false) }
+              else if (e.key === 'Escape') setHistOpen(false)
+            }}
             placeholder="Search by name or email…"
             style={{
               width: '100%', boxSizing: 'border-box',
@@ -704,13 +728,23 @@ export default function UsersPage() {
               background: T.searchBg, border: `1px solid ${T.searchBdr}`,
               borderRadius: 10, color: T.txt1, fontSize: 12, outline: 'none',
             }}
-            onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.50)' }}
+            onFocus={e => { setHistOpen(true); e.target.style.borderColor = 'rgba(167,44,50,0.50)' }}
             onBlur={e  => { e.target.style.borderColor = T.searchBdr }}
           />
           {query && (
             <button onClick={() => handleSearch('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}>
               <X style={{ width: 12, height: 12 }} />
             </button>
+          )}
+          {histOpen && (
+            <SearchHistoryDropdown
+              items={history}
+              query={query}
+              onPick={term => { handleSearch(term); recordSearch(term); setHistOpen(false) }}
+              onRemove={removeSearch}
+              onClearAll={() => { clearSearchHistory(); setHistOpen(false) }}
+              isLight={isLight}
+            />
           )}
         </div>
         <span style={{ fontSize: 11, color: T.txt4, marginLeft: 'auto' }}>
