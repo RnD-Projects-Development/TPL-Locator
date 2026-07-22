@@ -148,7 +148,10 @@ class MongoService:
             oid = ObjectId(user_id)
         except Exception:
             return False
-        await self.devices.update_many({"user_id": oid}, {"$set": {"user_id": None, "bound_at": None}})
+        await self.devices.update_many(
+            {"user_id": oid},
+            {"$set": {"user_id": None, "bound_at": None}, "$unset": {"name": "", "client": ""}},
+        )
         result = await self.accounts.delete_one({"_id": oid, "role": "user"})
         return result.deleted_count == 1
 
@@ -299,7 +302,13 @@ class MongoService:
         if not device_doc or not device_doc.get("user_id"):
             return None
         user_id = device_doc["user_id"]
-        await self.devices.update_one({"sn": sn}, {"$set": {"user_id": None, "bound_at": None}})
+        # Unbinding wipes the binding metadata so the device reverts to its vendor
+        # label (e.g. "TPL Locator") instead of keeping the previous owner's custom
+        # name/client. Mirrors _clear_binding() in admin_devices.py.
+        await self.devices.update_one(
+            {"sn": sn},
+            {"$set": {"user_id": None, "bound_at": None}, "$unset": {"name": "", "client": ""}},
+        )
         await self.accounts.update_one(
             {"_id": user_id, "role": "user"},
             {"$pull": {"devices": device_doc["_id"]}}

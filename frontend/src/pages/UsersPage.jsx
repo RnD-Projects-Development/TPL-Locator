@@ -712,13 +712,13 @@ export default function UsersPage() {
         <div ref={searchWrapRef} style={{ position: 'relative', flex: '0 0 260px' }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
           <input
-            type="search"
+            type="text"
             name="users-table-search"
             autoComplete="off"
             value={query}
             onChange={e => handleSearch(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') { recordSearch(query); setHistOpen(false) }
+              if (e.key === 'Enter') { setHistOpen(false) }
               else if (e.key === 'Escape') setHistOpen(false)
             }}
             placeholder="Search by name or email…"
@@ -789,7 +789,7 @@ export default function UsersPage() {
                         u={u} idx={i} isAdmin={isAdmin}
                         onDelete={setDeleteTarget} onEdit={openEdit}
                         onAddDevice={setAddDeviceTarget}
-                        expanded={expanded.has(uid)} onToggle={() => toggleExpand(uid)}
+                        expanded={expanded.has(uid)} onToggle={() => { recordSearch(query); toggleExpand(uid) }}
                         boundDevices={bound} pushTrail={pushTrail}
                         onUnbindDevice={setUnbindTarget} isLight={isLight}
                       />

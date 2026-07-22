@@ -100,7 +100,7 @@ export function useCityTag() {
   const login = useCallback(
     async ({ identifier, password, otp, login_token }) =>
       apiFetch(
-        "/api/login",
+        "/api/login/portal",
         {
           method: "POST",
           body: {
@@ -122,7 +122,7 @@ export function useCityTag() {
 
   const adminLogin = useCallback(
     async ({ email, password }) =>
-      apiFetch("/api/login", { method: "POST", body: { identifier: email, password, uid: "" } }, null), []
+      apiFetch("/api/login/portal", { method: "POST", body: { identifier: email, password, uid: "" } }, null), []
   );
 
   const signup = useCallback(

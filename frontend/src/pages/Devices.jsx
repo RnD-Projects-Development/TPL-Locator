@@ -710,7 +710,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
             value={rawQ}
             onChange={e => setRawQ(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') { recordSearch(rawQ); setHistOpen(false) }
+              if (e.key === 'Enter') { setHistOpen(false) }
               else if (e.key === 'Escape') setHistOpen(false)
             }}
             placeholder="Search devices…"
@@ -796,13 +796,13 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               return (
                 <div
                   key={d.sn}
-                  onClick={() => pushTrail(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + (location.search || '') } })}
+                  onClick={() => { recordSearch(rawQ); pushTrail(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + (location.search || '') } }) }}
                   style={{
                     position: 'relative', overflow: 'hidden', height: '100%',
                     borderRadius: 16, cursor: 'pointer', boxSizing: 'border-box',
                     // Charcoal NFC-card face (not pure black) with a soft top-down
                     // gradient; the red locator swirl is drawn on top (SwirlPin).
-                    background: 'linear-gradient(155deg, #343131 0%, #2C2929 100%)',
+                    background: 'linear-gradient(155deg, #333333 0%, #292929 100%)',
                     boxShadow: '0 6px 22px rgba(0,0,0,0.45)',
                     transition: 'box-shadow 0.24s ease',
                   }}
