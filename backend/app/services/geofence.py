@@ -112,14 +112,29 @@ async def compute_zone_events(
     polygon: List[Dict],
     locations_col,
     point_limit: int = 10_000,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
 ) -> List[Dict]:
     """
     Walks location history oldest-first and emits ENTER / EXIT events.
     Returns list of {type, sn, timestamp, lat, lng}.
+
+    Pass start/end to scope the walk to a time window — callers that only care
+    about recent crossings (live monitoring, alert polling) should always do so,
+    otherwise every call re-reads the device's whole history.
     """
+    query: Dict = {"sn": sn}
+    if start is not None or end is not None:
+        window: Dict = {}
+        if start is not None:
+            window["$gte"] = start
+        if end is not None:
+            window["$lte"] = end
+        query["timestamp"] = window
+
     cursor = (
         locations_col
-        .find({"sn": sn}, {"lat": 1, "lng": 1, "timestamp": 1, "_id": 0})
+        .find(query, {"lat": 1, "lng": 1, "timestamp": 1, "_id": 0})
         .sort("timestamp", 1)
         .limit(point_limit)
     )

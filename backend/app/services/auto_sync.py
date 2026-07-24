@@ -6,7 +6,7 @@ from app.services.citytag import CityTagClient
 from app.services.mongodb import MongoService
 from app.services.vendor_sync import run_vendor_sync_all
 
-SYNC_INTERVAL_SECONDS = 300
+SYNC_INTERVAL_SECONDS = 120
 
 logger = logging.getLogger(__name__)
 

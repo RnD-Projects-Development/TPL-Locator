@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useCityTag } from '../hooks/useCityTag.js';
 import { useBindCache } from './BindCacheContext.jsx';
-import { parseKMLText } from '../utils/geofenceUtils.js';
 import { registerCacheResetListener } from '../utils/clearAppCaches.js';
 
 const SUMMARY_CACHE_MS = 5 * 60 * 1000; // 5 minutes — matches device list cache
@@ -61,7 +60,6 @@ export function HomePageCacheProvider({ children }) {
   const [locSync, setLocSync] = useState(null);
   const [activityData, setActivityData] = useState({});
   const [chartLoading, setChartLoading] = useState(false);
-  const [kmlAreas, setKmlAreas] = useState([]);
 
   // Stable refs so callbacks don't need devices/filters in their dep arrays
   const devicesRef = useRef([]);
@@ -168,14 +166,9 @@ export function HomePageCacheProvider({ children }) {
     }
   }, [getDevicesSummary]);
 
-  // ── Fetch devices + KML once on mount ─────────────────────────────────────
+  // ── Fetch devices once on mount ───────────────────────────────────────────
   useEffect(() => {
     void refreshAll({ force: true });
-
-    fetch('/areas.kml')
-      .then(r => r.text())
-      .then(text => setKmlAreas(parseKMLText(text)))
-      .catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -284,7 +277,6 @@ export function HomePageCacheProvider({ children }) {
       summary, summaryLoading, fetchSummary,
       locations, locSync,
       activityData, chartLoading,
-      kmlAreas,
       refreshAll,
     }}>
       {children}

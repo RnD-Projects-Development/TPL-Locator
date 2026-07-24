@@ -153,8 +153,8 @@ def _row_from_doc(doc: dict, latest_by_sn: dict[str, dict], users_by_id: dict[st
     user_doc = users_by_id.get(str(user_id)) if user_id else None
     if user_doc:
         raw_name = (user_doc.get("name") or "").strip()
-        email = user_doc.get("email", "")
-        user_display = raw_name or (email.split("@")[0] if "@" in email else email) or None
+        email = user_doc.get("email") or ""
+        user_display = raw_name or (email.split("@")[0] if "@" in email else email) or user_doc.get("phone") or None
     else:
         user_display = None
 

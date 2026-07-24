@@ -13,6 +13,8 @@ import { getCachedPlayback } from "../utils/playbackCache.js";
 import { aggregateByLandmarkAndDay } from "../utils/stopClustering.js";
 import "./PlaybackPage.css";
 import LocatingOverlay from "../components/LocatingOverlay.jsx";
+import DateRangePicker from "../components/common/DateRangePicker.jsx";
+import TimePicker from "../components/common/TimePicker.jsx";
 
 const PLAYBACK_SCOPE = "playback";
 
@@ -241,20 +243,9 @@ export default function PlaybackPage() {
     setFocusTarget({ ...pt, __focusKey: Date.now() });
   }, []);
 
-  // The lower bound is free — pick any start date. The end picker is then
-  // limited to at most MAX_RANGE_DAYS above it.
-  const endDateMax = startDate ? addDays(startDate, MAX_RANGE_DAYS) : undefined;
-
-  // Moving the start date drags the end date along if it falls outside the
-  // allowed [start, start + 7d] window.
-  const handleStartDateChange = (value) => {
-    setStartDate(value);
-    setActiveShortcut(null);
-    if (!value) return;
-    const maxEnd = addDays(value, MAX_RANGE_DAYS);
-    if (endDate < value) setEndDate(value);
-    else if (maxEnd && endDate > maxEnd) setEndDate(maxEnd);
-  };
+  // Range bounds are enforced inside DateRangePicker — it disables every day
+  // past start + MAX_RANGE_DAYS while the end date is being picked, so the two
+  // dates can no longer drift out of the allowed window in the first place.
 
   // Static pins: the loaded historical range (aggregation happens in MapView).
   const staticDots = useMemo(
@@ -442,33 +433,27 @@ export default function PlaybackPage() {
               </button>
             ))}
           </div>
+          <DateRangePicker
+            value={{ from: startDate, to: endDate }}
+            onChange={({ from, to }) => {
+              setStartDate(from);
+              setEndDate(to);
+              setActiveShortcut(null);
+            }}
+            maxRangeDays={MAX_RANGE_DAYS}
+            maxDate={todayStr()}
+          />
           <div className="pb-date-group">
-            <label>Start</label>
-            <div className="pb-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <svg viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/></svg>
-              <span>{startDate}</span>
-              <input type="date" value={startDate}
-                onChange={(e) => handleStartDateChange(e.target.value)} />
-            </div>
-            <div className="pb-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <svg viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/></svg>
-              <span>{startTime}</span>
-              <input type="time" value={startTime} onChange={(e) => { setStartTime(e.target.value); setActiveShortcut(null); }} />
-            </div>
-          </div>
-          <div className="pb-date-group">
-            <label>End</label>
-            <div className="pb-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <svg viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/></svg>
-              <span>{endDate}</span>
-              <input type="date" value={endDate} min={startDate} max={endDateMax}
-                onChange={(e) => { setEndDate(e.target.value); setActiveShortcut(null); }} />
-            </div>
-            <div className="pb-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <svg viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/></svg>
-              <span>{endTime}</span>
-              <input type="time" value={endTime} onChange={(e) => { setEndTime(e.target.value); setActiveShortcut(null); }} />
-            </div>
+            <label>From</label>
+            <TimePicker
+              value={startTime}
+              onChange={(v) => { setStartTime(v); setActiveShortcut(null); }}
+            />
+            <label>To</label>
+            <TimePicker
+              value={endTime}
+              onChange={(v) => { setEndTime(v); setActiveShortcut(null); }}
+            />
           </div>
           <button className="pb-btn-load" onClick={() => loadHistorical()} disabled={!sn || histLoading}>
             {histLoading ? <><span className="pb-spinner" /> Loading…</> : <>Load Playback</>}

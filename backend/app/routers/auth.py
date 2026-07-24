@@ -9,7 +9,8 @@ from typing import Annotated, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter, field_validator
+from pydantic import ValidationError as PydanticValidationError
 from bson import ObjectId
 
 from app.auth_utils import verify_password, hash_password
@@ -25,8 +26,8 @@ from app.models.admin import AdminCreate, AdminPublic
 from app.models.user import UserCreate, UserPublic
 from app.services.email_service import send_login_otp_email
 from app.services.mongodb import MongoService
-from app.account_identifier import normalize_phone, validate_signup_contact
-from app.user_display import is_synthetic_phone_email
+from app.account_identifier import normalize_phone, phone_placeholder_email, validate_signup_contact
+from app.user_display import has_real_email, is_synthetic_phone_email
 
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -73,6 +74,47 @@ def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
     return cleaned or None
 
 
+async def _normalize_profile_email(
+    value: Any,
+    *,
+    account_id: str,
+    mongo: MongoService,
+) -> Optional[str]:
+    """Validate an email a user is setting on their own profile.
+
+    Returns the lowercased address, or None to clear it. Raises 400 for a malformed
+    address, a legacy placeholder, or one already held by a different account.
+    """
+    cleaned = _normalize_optional_text(value if isinstance(value, str) else None)
+    if cleaned is None:
+        return None
+
+    email = cleaned.lower()
+    try:
+        TypeAdapter(EmailStr).validate_python(email)
+    except PydanticValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid email address",
+        ) from exc
+
+    # Placeholder addresses are derivable from any phone number — never let one be
+    # typed in by hand, or a user could claim another account's legacy identity.
+    if is_synthetic_phone_email(email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid email address",
+        )
+
+    owner = await mongo.get_account_by_email(email)
+    if owner and str(owner.id) != account_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+    return email
+
+
 def _normalize_optional_date(value: Optional[str], field_name: str) -> Optional[str]:
     cleaned = _normalize_optional_text(value)
     if cleaned is None:
@@ -80,6 +122,19 @@ def _normalize_optional_date(value: Optional[str], field_name: str) -> Optional[
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cleaned):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} must be in YYYY-MM-DD format")
     return cleaned
+
+
+def _wire_email(email: Optional[str], phone: Optional[str]) -> str:
+    """Value for the `email` field on the wire.
+
+    Phone-only accounts store NULL, but these endpoints have always returned the
+    synthetic placeholder address. Regenerate it here so responses stay
+    byte-identical for clients built before email became nullable. Storage is
+    unaffected — nothing fake is ever written to the database.
+    """
+    if email:
+        return email
+    return phone_placeholder_email(phone or "")
 
 
 def _build_profile_response(doc: dict, request: Request) -> dict:
@@ -90,7 +145,7 @@ def _build_profile_response(doc: dict, request: Request) -> dict:
         "id": str(doc.get("_id")),
         "role": doc.get("role"),
         "name": doc.get("name"),
-        "email": doc.get("email"),
+        "email": _wire_email(doc.get("email"), doc.get("phone")),
         "phone": doc.get("phone"),
         "cnic": doc.get("cnic"),
         "cnic_expiry": doc.get("cnic_expiry"),
@@ -160,6 +215,19 @@ class RegisterRequest(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def _blank_email_is_omitted(cls, value):
+        """Treat "" / "   " as "no email given" instead of failing EmailStr.
+
+        Clients that always send the field (web form, mobile app) submit an empty
+        string rather than omitting the key; without this they get a 422 and
+        phone-only signup is impossible for them.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
 
 # ── Login ────────────────────────────────────────────────────────────────────
 
@@ -191,13 +259,12 @@ async def _resolve_user_for_login_otp(mongo: MongoService, identifier: str):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No account found with this identifier.",
         )
-    email = str(user.email).strip().lower()
-    if is_synthetic_phone_email(email):
+    if not has_real_email(user.email):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OTP login requires an email address. Log in with your email or use password.",
         )
-    return email, user
+    return str(user.email).strip().lower(), user
 
 
 async def _verify_login_otp(
@@ -500,8 +567,8 @@ async def register(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already registered")
     logger.info("register started phone=%s email=%s", phone, email)
 
-    # Only conflict-check real emails (skip synthetic placeholder emails).
-    if not is_synthetic_phone_email(email):
+    # Phone-only signups store no email, so there is nothing to conflict-check.
+    if email:
         existing_account = await mongo.get_account_by_email(email)
         logger.info("register check email=%s found=%s", email, existing_account is not None)
         if existing_account:
@@ -526,7 +593,7 @@ async def register(
         "access_token": access_token,
         "user": {
             "id": str(user.id),
-            "email": email,
+            "email": _wire_email(email, phone),
             "name": name,
             "phone": phone,
             "role": "user",
@@ -602,6 +669,10 @@ async def update_my_profile(
     updates: dict[str, Any] = {}
     if "name" in payload:
         updates["name"] = _normalize_optional_text(payload.get("name")) or ""
+    if "email" in payload:
+        updates["email"] = await _normalize_profile_email(
+            payload.get("email"), account_id=account_id, mongo=mongo
+        )
     if "cnic" in payload:
         updates["cnic"] = _normalize_optional_text(payload.get("cnic"))
     if "cnic_expiry" in payload:

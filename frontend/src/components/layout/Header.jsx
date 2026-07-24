@@ -7,10 +7,15 @@ import { useAlerts } from '../../context/AlertsContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../App.jsx'
 import { useDashboardChrome } from '../../context/DashboardChromeContext.jsx'
+import { useProfileCache } from '../../context/ProfileCacheContext.jsx'
 import Switch from '../Switch.jsx'
 import ModalPortal from '../common/ModalPortal.jsx'
 import { useCityTag } from '../../hooks/useCityTag.js'
 import { buildCrumbs } from '../../utils/breadcrumbs.js'
+import AddEmailBanner from '../AddEmailBanner.jsx'
+import Skeleton from '../ui/Skeleton.jsx'
+import { isValidEmail } from '../../utils/email.js'
+import { isSyntheticEmail } from '../../utils/userContact.js'
 
 const inp = {
   width: '100%', background: '#18181b',
@@ -50,9 +55,16 @@ export default function Header({ pageTheme, setPageTheme }) {
   const markRead    = alertsCtx?.markRead
   const markAllRead = alertsCtx?.markAllRead
 
+  // `user` here is App.jsx's derived appUser — only {name, role, company, email}.
+  // Fine for display, but never feed it back into auth state: it has no id/devices.
   const { user } = useApp()
-  const { updateProfile, logout, loginSuccess, accessToken, role } = useAuth()
-  const { getMyProfile, updateMyProfile } = useCityTag()
+  const { updateProfile, logout, updateUser, accessToken, role } = useAuth()
+  const { updateMyProfile } = useCityTag()
+  const {
+    profile: cachedProfile,
+    refresh: refreshProfile,
+    applyProfile: applyProfileToCache,
+  } = useProfileCache()
 
   // Page-registered topbar action (Export PDF on dashboard, Export CSV on devices, …).
   // Only the mounted page registers, so showing it whenever present is correct.
@@ -120,46 +132,69 @@ export default function Header({ pageTheme, setPageTheme }) {
   const [profileSuccess,   setProfileSuccess]   = useState('')
   const [profileLoading,   setProfileLoading]   = useState(false)
 
+  // Seed the form from the profile prefetched at login (ProfileCacheContext), so
+  // opening the dialog paints populated instead of fetching every time. If the
+  // prefetch hasn't landed yet — dialog opened immediately after login, or it
+  // failed — fall back to fetching here so the form is never left empty.
+  // Read the cache inside the open-effect without making it a dependency.
+  const cachedProfileRef = useRef(cachedProfile)
+  useEffect(() => { cachedProfileRef.current = cachedProfile }, [cachedProfile])
+
+  const applyProfileToForm = useCallback((p) => {
+    setProfileName(p?.name || '')
+    // /me/profile still returns the legacy p<digits>@accounts.tpllocator.com
+    // placeholder for accounts with no email. Never surface it in an editable
+    // field — show it as empty so the user fills in a real address.
+    setProfileEmail(isSyntheticEmail(p?.email) ? '' : (p?.email || ''))
+    setProfilePhone(p?.phone || '')
+    setProfileCnic(p?.cnic || '')
+    setProfileCnicExpiry(p?.cnic_expiry || '')
+    setProfileLicenseNo(p?.driving_license_no || '')
+    setProfileLicenseExp(p?.license_expiry || '')
+    setProfileEmergency(p?.emergency_contact || '')
+    setProfileAddress(p?.address || '')
+    setProfileImageApiUrl(p?.profile_image_url || '')
+  }, [])
+
+  // On open: clear transient state, and fetch only if the login-time prefetch
+  // hasn't landed. Keyed on showProfile alone — this must NOT re-run when the
+  // cache updates, or saving would immediately wipe its own success message.
   useEffect(() => {
+    if (!showProfile) return
     let cancelled = false
-    const loadProfile = async () => {
-      if (!showProfile) return
-      setProfileReady(false)
-      setProfileErr('')
-      setProfileSuccess('')
-      setProfileCurrentPw('')
-      setProfileNewPw('')
-      setProfileConfirmPw('')
-      setProfileImageFile(null)
-      setProfileImageApiUrl('')
-      // Clear object URL (if any); the effect below will repopulate.
-      if (profileImageObjectUrlRef.current) {
-        URL.revokeObjectURL(profileImageObjectUrlRef.current)
-        profileImageObjectUrlRef.current = null
-      }
-      setProfileImageUrl('')
-      try {
-        const p = await getMyProfile()
-        if (cancelled) return
-        setProfileName(p?.name || '')
-        setProfileEmail(p?.email || '')
-        setProfilePhone(p?.phone || '')
-        setProfileCnic(p?.cnic || '')
-        setProfileCnicExpiry(p?.cnic_expiry || '')
-        setProfileLicenseNo(p?.driving_license_no || '')
-        setProfileLicenseExp(p?.license_expiry || '')
-        setProfileEmergency(p?.emergency_contact || '')
-        setProfileAddress(p?.address || '')
-        setProfileImageApiUrl(p?.profile_image_url || '')
-      } catch (e) {
-        if (!cancelled) setProfileErr(e.message || 'Unable to load profile')
-      } finally {
-        if (!cancelled) setProfileReady(true)
-      }
+    setProfileErr('')
+    setProfileSuccess('')
+    setProfileCurrentPw('')
+    setProfileNewPw('')
+    setProfileConfirmPw('')
+    setProfileImageFile(null)
+    setProfileImageApiUrl('')
+    // Clear object URL (if any); the effect below will repopulate.
+    if (profileImageObjectUrlRef.current) {
+      URL.revokeObjectURL(profileImageObjectUrlRef.current)
+      profileImageObjectUrlRef.current = null
     }
-    loadProfile()
+    setProfileImageUrl('')
+
+    if (cachedProfileRef.current) {
+      setProfileReady(true)
+      return
+    }
+    setProfileReady(false)
+    refreshProfile()
+      .then((p) => { if (!cancelled && !p) setProfileErr('Unable to load profile') })
+      .catch((e) => { if (!cancelled) setProfileErr(e.message || 'Unable to load profile') })
+      .finally(() => { if (!cancelled) setProfileReady(true) })
     return () => { cancelled = true }
-  }, [showProfile, getMyProfile])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProfile])
+
+  // Seed the fields whenever the cached profile is available or changes (login
+  // prefetch resolving, or a save pushing the server's response back in).
+  useEffect(() => {
+    if (!showProfile || !cachedProfile) return
+    applyProfileToForm(cachedProfile)
+  }, [showProfile, cachedProfile, applyProfileToForm])
 
   useEffect(() => {
     let cancelled = false
@@ -193,8 +228,12 @@ export default function Header({ pageTheme, setPageTheme }) {
     return () => { cancelled = true }
   }, [showProfile, profileImageApiUrl, accessToken, profileImageReloadKey])
 
+  // Blank is allowed (clears the email); anything else must be a valid address.
+  const emailFieldError = Boolean(profileEmail.trim()) && !isValidEmail(profileEmail)
+
   const handleProfileSave = async () => {
     setProfileErr(''); setProfileSuccess('')
+    if (emailFieldError) { setProfileErr('Enter a valid email address.'); return }
     const changingPw = profileNewPw || profileConfirmPw || profileCurrentPw
     if (changingPw) {
       if (!profileCurrentPw) { setProfileErr('Current password is required to set a new password.'); return }
@@ -205,6 +244,7 @@ export default function Header({ pageTheme, setPageTheme }) {
     try {
       const profilePayload = {
         name: profileName,
+        email: profileEmail.trim(),
         cnic: profileCnic,
         cnic_expiry: profileCnicExpiry,
         driving_license_no: profileLicenseNo,
@@ -213,29 +253,34 @@ export default function Header({ pageTheme, setPageTheme }) {
         address: profileAddress,
         ...(profileImageFile ? { profile_image: profileImageFile } : {}),
       }
-      await updateMyProfile(profilePayload)
+      // PUT /me/profile returns the updated profile — push it straight into the
+      // cache so reopening the dialog shows the new values, not the ones
+      // prefetched at login.
+      const saved = await updateMyProfile(profilePayload)
+      applyProfileToCache(saved)
 
       if (changingPw) {
         await updateProfile({ currentPassword: profileCurrentPw, newPassword: profileNewPw })
       }
 
-      const updatedUser = {
-        ...(user || {}),
-        name: profileName?.trim() || user?.name || '',
-        email: profileEmail || user?.email || '',
-        phone: profilePhone || user?.phone || '',
-      }
-      loginSuccess({
-        user: updatedUser,
-        accessToken,
-        role: role || (user?.role ?? 'user'),
+      // Merge only what this form owns. Previously this spread appUser into
+      // loginSuccess(), which replaced the auth user wholesale — dropping id,
+      // devices and admin_id (disabling the non-admin device filter in
+      // Devices.jsx), writing the phone number into `name` whenever the name was
+      // blank, and clearing every cache on each save.
+      // Phone is read-only here and already on the auth user, so it is left alone —
+      // the merge preserves it, which is what displayContact() falls back to when
+      // the account has no email.
+      updateUser({
+        name: profileName.trim(),
+        email: profileEmail.trim(),
       })
 
       setProfileSuccess('Profile updated successfully.')
       setProfileCurrentPw(''); setProfileNewPw(''); setProfileConfirmPw('')
       setProfileImageFile(null)
       try {
-        const refreshed = await getMyProfile()
+        const refreshed = await refreshProfile()
         setProfileImageApiUrl(refreshed?.profile_image_url || '')
         setProfileImageUrl('')
         setProfileImageReloadKey(Date.now())
@@ -261,8 +306,16 @@ export default function Header({ pageTheme, setPageTheme }) {
   const parts    = buildCrumbs(pathname, search, state)
   const initials = (user?.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 
+  // AuthContext normalizes user.email to displayContact() — a real address (which
+  // always contains '@') or the phone number. So no '@' means this account has no
+  // email yet, covering both new NULL rows and legacy placeholder ones.
+  const needsEmail = role === 'user' && !String(user?.email || '').includes('@')
+
   return (
     <>
+      {needsEmail && !showProfile && (
+        <AddEmailBanner onOpenProfile={() => setShowProfile(true)} />
+      )}
       <header className="h-[60px] flex items-center px-5 gap-5 bg-black flex-shrink-0">
 
         {/* Breadcrumb */}
@@ -603,10 +656,27 @@ export default function Header({ pageTheme, setPageTheme }) {
                 </div>
               </div>
 
+              {/* The inputs are mounted only after /me/profile resolves. Rendering
+                  them empty during the fetch gave the browser a window to autofill
+                  them (saved address into Address, saved credential into the password
+                  boxes) — and because these are controlled inputs, that value can sit
+                  in the DOM while React state stays '', so a later Save would post the
+                  empty string and wipe the stored field. Load from the DB first, then
+                  render. */}
               {!profileReady ? (
-                <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginBottom: 14 }}>Loading profile...</div>
-              ) : null}
-
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginBottom: 14 }}>Loading profile...</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px 16px' }}>
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i}>
+                        <Skeleton height="11px" width="90px" style={{ marginBottom: 6 }} />
+                        <Skeleton height="38px" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+              <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px 16px', marginBottom: 14 }}>
                 {/* Name & Email */}
                 <div>
@@ -614,15 +684,33 @@ export default function Header({ pageTheme, setPageTheme }) {
                     Name
                   </label>
                   <input value={profileName} onChange={e => setProfileName(e.target.value)}
-                    placeholder="Your name" style={{ ...inp }}
+                    placeholder="Your name" style={{ ...inp }} autoComplete="off"
                     onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
                     onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                    Email (read only)
+                    Email
                   </label>
-                  <input value={profileEmail} readOnly style={{ ...inp, opacity: 0.75 }} />
+                  <input
+                    value={profileEmail}
+                    onChange={e => setProfileEmail(e.target.value)}
+                    type="email"
+                    placeholder="you@example.com"
+                    autoComplete="off"
+                    style={{ ...inp, borderColor: emailFieldError ? '#ef4444' : '#3f3f46' }}
+                    onFocus={e => { if (!emailFieldError) e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = emailFieldError ? '#ef4444' : '#3f3f46' }} />
+                  {emailFieldError && (
+                    <p style={{ fontSize: 11, color: '#fca5a5', marginTop: 4 }}>
+                      Enter a valid email address
+                    </p>
+                  )}
+                  {!profileEmail.trim() && (
+                    <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', marginTop: 4 }}>
+                      Add one to enable password reset and code sign-in.
+                    </p>
+                  )}
                 </div>
 
                 {/* Phone & Emergency */}
@@ -636,7 +724,7 @@ export default function Header({ pageTheme, setPageTheme }) {
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                     Emergency Contact
                   </label>
-                  <input value={profileEmergency} onChange={e => setProfileEmergency(e.target.value)} placeholder="03001234567" style={{ ...inp }} />
+                  <input value={profileEmergency} onChange={e => setProfileEmergency(e.target.value)} placeholder="03001234567" style={{ ...inp }} autoComplete="off" />
                 </div>
 
                 {/* CNIC & CNIC Expiry */}
@@ -644,7 +732,7 @@ export default function Header({ pageTheme, setPageTheme }) {
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                     CNIC / ID Number
                   </label>
-                  <input value={profileCnic} onChange={e => setProfileCnic(e.target.value)} placeholder="12345-1234567-1" style={{ ...inp }} />
+                  <input value={profileCnic} onChange={e => setProfileCnic(e.target.value)} placeholder="12345-1234567-1" style={{ ...inp }} autoComplete="off" />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -658,7 +746,7 @@ export default function Header({ pageTheme, setPageTheme }) {
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                     Driving License No.
                   </label>
-                  <input value={profileLicenseNo} onChange={e => setProfileLicenseNo(e.target.value)} placeholder="ABC12345" style={{ ...inp }} />
+                  <input value={profileLicenseNo} onChange={e => setProfileLicenseNo(e.target.value)} placeholder="ABC12345" style={{ ...inp }} autoComplete="off" />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -672,7 +760,7 @@ export default function Header({ pageTheme, setPageTheme }) {
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                     Address
                   </label>
-                  <input value={profileAddress} onChange={e => setProfileAddress(e.target.value)} placeholder="Lahore" style={{ ...inp }} autoComplete="street-address" type="text" />
+                  <input value={profileAddress} onChange={e => setProfileAddress(e.target.value)} placeholder="Lahore" style={{ ...inp }} autoComplete="off" type="text" />
                 </div>
               </div>
 
@@ -684,6 +772,7 @@ export default function Header({ pageTheme, setPageTheme }) {
               <div style={{ marginBottom: 10 }}>
                 <input type="password" value={profileCurrentPw} onChange={e => setProfileCurrentPw(e.target.value)}
                   placeholder="Current password" style={{ ...inp }}
+                  autoComplete="new-password"
                   onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
                   onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
               </div>
@@ -691,16 +780,20 @@ export default function Header({ pageTheme, setPageTheme }) {
                 <div>
                   <input type="password" value={profileNewPw} onChange={e => setProfileNewPw(e.target.value)}
                     placeholder="New password" style={{ ...inp }}
+                    autoComplete="new-password"
                     onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
                     onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
                 </div>
                 <div>
                   <input type="password" value={profileConfirmPw} onChange={e => setProfileConfirmPw(e.target.value)}
                     placeholder="Confirm new password" style={{ ...inp }}
+                    autoComplete="new-password"
                     onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
                     onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
                 </div>
               </div>
+              </>
+              )}
 
               {profileErr && (
                 <div style={{ marginBottom: 14, padding: '9px 12px', borderRadius: 8,
@@ -721,10 +814,14 @@ export default function Header({ pageTheme, setPageTheme }) {
                     background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
                   Cancel
                 </button>
-                <button onClick={handleProfileSave} disabled={profileLoading}
-                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: profileLoading ? 'not-allowed' : 'pointer',
+                {/* Also gated on profileReady — saving before the fetch resolves would
+                    post empty strings and clear stored fields. */}
+                <button onClick={handleProfileSave} disabled={profileLoading || !profileReady}
+                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    cursor: (profileLoading || !profileReady) ? 'not-allowed' : 'pointer',
                     background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
-                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: profileLoading ? 0.7 : 1 }}>
+                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff',
+                    opacity: (profileLoading || !profileReady) ? 0.7 : 1 }}>
                   {profileLoading ? 'Saving…' : 'Save Changes'}
                 </button>
               </div>

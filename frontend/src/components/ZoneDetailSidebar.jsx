@@ -1,16 +1,27 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { deviceColor } from '../utils/zonePolygonManager.js';
 
-function StatusBadge({ status }) {
-  const map = {
-    INSIDE:  'badge-teal-500',
-    OUTSIDE: 'badge-red-500',
-    OFFLINE: 'badge-secondary',
-  };
-  const cls = map[status] || 'badge-secondary';
+/* Presence badge — mirrors the backend's online/offline rule (a device is
+   online when its newest location report is under 12h old). */
+function PresenceBadge({ presence }) {
+  const online = presence === 'online';
   return (
-    <span className={`badge ${cls}`}>{status}</span>
+    <span className={`zds-badge ${online ? 'zds-badge-online' : 'zds-badge-offline'}`}>
+      <span className="zds-badge-dot" />
+      {online ? 'ONLINE' : 'OFFLINE'}
+    </span>
   );
+}
+
+/* Zone badge — where the device's *latest* report puts it relative to this zone. */
+function ZoneBadge({ zoneStatus }) {
+  if (zoneStatus === 'IN_ZONE') {
+    return <span className="zds-badge zds-badge-inzone">IN ZONE</span>;
+  }
+  if (zoneStatus === 'OUT_OF_ZONE') {
+    return <span className="zds-badge zds-badge-outzone">OUT OF ZONE</span>;
+  }
+  return <span className="zds-badge zds-badge-nodata" title="No location reports in the selected range">NO DATA</span>;
 }
 
 function AssigningSkeleton() {
@@ -75,17 +86,64 @@ function fmtTs(ts) {
   } catch { return null; }
 }
 
-function DeviceRow({ entry, onUnassign, statusLoading, trackInfo, index }) {
+/* Collapsible entry/exit log — collapsed by default, one arrow toggles it. */
+function ZoneActivity({ events }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{ marginTop: 7 }}>
+      <button
+        type="button"
+        className="zds-activity-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        title={open ? 'Hide entry/exit history' : 'Show entry/exit history'}
+      >
+        <span className="zds-activity-label">Zone Activity</span>
+        <span className="zds-activity-count">{events.length}</span>
+        <svg
+          className={`zds-activity-caret${open ? ' open' : ''}`}
+          width="9" height="9" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"
+        >
+          <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{ maxHeight: 130, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+          {events.map((ev, i) => (
+            <div key={i} className="pb-tl-row" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0,
+                color: ev.type === 'ENTER' ? '#4ade80' : '#f87171',
+                width: 38,
+              }}>
+                {ev.type === 'ENTER' ? '→ IN' : '← OUT'}
+              </span>
+              <span className="pb-vl-item-ts" style={{ marginTop: 0 }}>
+                {fmtTs(ev.timestamp) || ev.timestamp}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeviceRow({ entry, onDelete, statusLoading, trackInfo, index }) {
   const firstSeenRaw  = entry.first_seen  || trackInfo?.firstSeen  || null;
   const lastSeenRaw   = entry.last_seen   || trackInfo?.lastSeen   || null;
   const firstSeen     = fmtTs(firstSeenRaw);
   const lastSeen      = fmtTs(lastSeenRaw);
   const duration      = fmtDuration(firstSeenRaw, lastSeenRaw);
-  const color         = deviceColor(entry.sn);
+  const color         = entry.color || deviceColor(entry.sn);
   const insideCount   = trackInfo?.insidePoints?.length  ?? null;
   const outsideCount  = trackInfo?.outsidePoints?.length ?? null;
   const events        = trackInfo?.events ?? [];
-  const neverEntered  = entry.status === 'OFFLINE' && !firstSeenRaw && (insideCount === null || insideCount === 0);
+  const zoneStatus    = entry.zoneStatus || 'NO_DATA';
+  const neverEntered  = zoneStatus === 'NO_DATA' && !firstSeenRaw && (insideCount === null || insideCount === 0);
+  const lastReport    = fmtTs(entry.lastReportAt);
 
   return (
     <div className="pb-vl-item">
@@ -103,28 +161,41 @@ function DeviceRow({ entry, onUnassign, statusLoading, trackInfo, index }) {
             </span>
           </div>
 
-          {statusLoading
-            ? <span style={{ fontSize: 10, color: '#6b7280' }}>…</span>
-            : <StatusBadge status={entry.status || 'OFFLINE'} />
-          }
-
-          {onUnassign && (
+          {onDelete && (
             <button
-              title="Unassign"
-              onClick={(e) => { e.stopPropagation(); onUnassign(entry.sn); }}
-              style={{
-                padding: '2px 6px', fontSize: 11, lineHeight: 1,
-                background: 'transparent', border: '1px solid rgba(239,68,68,0.3)',
-                borderRadius: 3, color: '#f87171', cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >×</button>
+              className="zds-delete-btn"
+              title="Delete device from this zone"
+              onClick={(e) => { e.stopPropagation(); onDelete(entry); }}
+            >
+              <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              Delete
+            </button>
           )}
         </div>
 
         <div className="pb-vl-item-area" style={{ marginTop: '0.25em' }}>
           <span style={{ fontFamily: 'var(--font-mono)' }}>{entry.sn}</span>
         </div>
+
+        {/* Presence + zone-membership badges, inline */}
+        <div className="zds-badge-row">
+          {statusLoading
+            ? <span style={{ fontSize: 10, color: '#6b7280' }}>…</span>
+            : (
+              <>
+                <PresenceBadge presence={entry.presence} />
+                <ZoneBadge zoneStatus={zoneStatus} />
+              </>
+            )}
+        </div>
+
+        {lastReport && (
+          <div className="pb-vl-item-ts" style={{ marginTop: 4 }}>
+            Last report: {lastReport}
+          </div>
+        )}
 
         {(insideCount !== null || outsideCount !== null) && (
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -157,32 +228,7 @@ function DeviceRow({ entry, onUnassign, statusLoading, trackInfo, index }) {
           </div>
         )}
 
-        {events.length > 0 && (
-          <div style={{ marginTop: 7 }}>
-            <p style={{
-              fontSize: 9, color: '#6b7280', margin: '0 0 4px',
-              textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
-            }}>
-              Zone Activity
-            </p>
-            <div style={{ maxHeight: 130, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {events.map((ev, i) => (
-                <div key={i} className="pb-tl-row" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0,
-                    color: ev.type === 'ENTER' ? '#4ade80' : '#f87171',
-                    width: 38,
-                  }}>
-                    {ev.type === 'ENTER' ? '→ IN' : '← OUT'}
-                  </span>
-                  <span className="pb-vl-item-ts" style={{ marginTop: 0 }}>
-                    {fmtTs(ev.timestamp) || ev.timestamp}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {events.length > 0 && <ZoneActivity events={events} />}
       </div>
     </div>
   );
@@ -222,6 +268,7 @@ export default function ZoneDetailSidebar({
   isAssigning = false,
   deviceTracks = [],
   tracksLoading = false,
+  onDeleteDevice = null,
   onClose
 }) {
   if (!zone) {
@@ -250,7 +297,7 @@ export default function ZoneDetailSidebar({
             {zone.uc_name} {zone.uc_name && zone.tehsil ? '·' : ''} {zone.tehsil}
           </div>
         </div>
-        
+
         {/* Collapse Button */}
         <button className="btn-uiverse" onClick={onClose} title="Collapse sidebar">
           <div className="btn-uiverse-box">
@@ -282,7 +329,7 @@ export default function ZoneDetailSidebar({
                 key={entry.sn}
                 index={index}
                 entry={entry}
-                onUnassign={null} 
+                onDelete={onDeleteDevice}
                 statusLoading={statusLoading}
                 trackInfo={trackBySn[entry.sn] ?? null}
               />
@@ -302,24 +349,27 @@ export default function ZoneDetailSidebar({
                 <p style={{ fontSize: 9, color: '#6b7280', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Map legend
                 </p>
-                {deviceTracks.map((t) => (
-                  <div key={t.sn} style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    marginBottom: 4,
-                  }}>
-                    <span style={{
-                      width: 8, height: 8, borderRadius: '50%',
-                      background: deviceColor(t.sn), flexShrink: 0,
-                      boxShadow: `0 0 4px ${deviceColor(t.sn)}88`,
-                    }} />
-                    <span style={{ fontSize: 10, color: '#cbd5e1' }}>
-                      {t.user_name || t.sn}
-                    </span>
-                    <span style={{ fontSize: 9, color: '#4b5563', marginLeft: 'auto' }}>
-                      {t.insidePoints?.length ?? 0} in / {t.outsidePoints?.length ?? 0} out
-                    </span>
-                  </div>
-                ))}
+                {deviceTracks.map((t) => {
+                  const c = t.color || deviceColor(t.sn);
+                  return (
+                    <div key={t.sn} style={{
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      marginBottom: 4,
+                    }}>
+                      <span style={{
+                        width: 8, height: 8, borderRadius: '50%',
+                        background: c, flexShrink: 0,
+                        boxShadow: `0 0 4px ${c}88`,
+                      }} />
+                      <span style={{ fontSize: 10, color: '#cbd5e1' }}>
+                        {t.user_name || t.sn}
+                      </span>
+                      <span style={{ fontSize: 9, color: '#4b5563', marginLeft: 'auto' }}>
+                        {t.insidePoints?.length ?? 0} in / {t.outsidePoints?.length ?? 0} out
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

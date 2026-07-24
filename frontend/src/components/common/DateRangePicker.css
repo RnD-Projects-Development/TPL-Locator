@@ -1,0 +1,282 @@
+/* Two-month range calendar — dark surface, matches the app's control chrome. */
+
+/* No `position: relative` here on purpose — the popover is portalled to <body>
+   and positioned against this field's viewport rect, not against it. */
+.drp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125em;
+}
+
+.drp-label {
+  font-size: 0.6875em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.40);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  white-space: nowrap;
+}
+
+/* ── Trigger ─────────────────────────────────────────────────────────────── */
+.drp-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  height: 2.75em;
+  padding: 0 0.875em;
+  border-radius: 0.5em;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-size: 0.875em;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+.drp-trigger:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.28); }
+.drp-trigger.open { border-color: rgba(167, 44, 50, 0.55); }
+.drp-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.drp-trigger-icon {
+  width: 0.9375em;
+  height: 0.9375em;
+  color: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+}
+
+.drp-trigger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #C86068;
+}
+
+.drp-trigger-badge {
+  flex-shrink: 0;
+  padding: 0.0625em 0.4375em;
+  border-radius: 999px;
+  background: rgba(167, 44, 50, 0.18);
+  border: 1px solid rgba(167, 44, 50, 0.32);
+  color: #e79ba0;
+  font-size: 0.6875em;
+  font-weight: 700;
+}
+
+/* ── Popover ─────────────────────────────────────────────────────────────── */
+/* Positioning is owned by PopoverPortal (fixed, anchored, portalled to <body>)
+   so the panel can't be clipped by a toolbar's overflow or painted over by the
+   Leaflet map. Everything here is presentation only — no position/top/left. */
+.drp-pop {
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.75em;
+  box-shadow: 0 1.25em 3em rgba(0, 0, 0, 0.75);
+  padding: 0.875em;
+  width: max-content;
+  max-width: calc(100vw - 1rem);
+  /* Portalled out of the page shell, so em resolves against <body>. Pin the
+     base size to keep the panel identical on pages that scale themselves. */
+  font-size: 16px;
+}
+
+.drp-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em;
+  margin-bottom: 0.625em;
+}
+
+.drp-hint {
+  font-size: 0.6875em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.42);
+  letter-spacing: 0.02em;
+  text-align: center;
+  flex: 1;
+}
+
+.drp-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75em;
+  height: 1.75em;
+  flex-shrink: 0;
+  border-radius: 0.4375em;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.drp-nav:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+/* ── Months ──────────────────────────────────────────────────────────────── */
+.drp-months {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25em;
+  min-width: 32em;
+}
+
+.drp-month-label {
+  text-align: center;
+  font-size: 0.8125em;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 0.625em;
+}
+
+.drp-weekdays,
+.drp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.125em;
+}
+
+.drp-weekdays span {
+  text-align: center;
+  font-size: 0.6875em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35);
+  padding-bottom: 0.375em;
+}
+
+.drp-day {
+  aspect-ratio: 1;
+  min-height: 2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 0.4375em;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.8125em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.drp-day:hover:not(:disabled):not(.endpoint) {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+.drp-day.outside { color: rgba(255, 255, 255, 0.22); }
+.drp-day.disabled,
+.drp-day:disabled {
+  color: rgba(255, 255, 255, 0.14);
+  cursor: not-allowed;
+}
+.drp-day.in-range {
+  background: rgba(167, 44, 50, 0.20);
+  color: #fff;
+  border-radius: 0;
+}
+.drp-day.endpoint {
+  background: #ffffff;
+  color: #111111;
+  font-weight: 700;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.drp-pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em;
+  margin-top: 0.875em;
+  padding-top: 0.75em;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  flex-wrap: wrap;
+}
+
+.drp-foot-note {
+  font-size: 0.6875em;
+  color: rgba(255, 255, 255, 0.32);
+  font-weight: 600;
+}
+
+.drp-foot-actions {
+  display: flex;
+  gap: 0.3125em;
+}
+
+.drp-preset {
+  padding: 0.25em 0.625em;
+  border-radius: 0.375em;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.70);
+  font-size: 0.6875em;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.drp-preset:hover {
+  background: rgba(167, 44, 50, 0.18);
+  border-color: rgba(167, 44, 50, 0.40);
+  color: #fff;
+}
+
+/* ── Time picker ─────────────────────────────────────────────────────────── */
+.tp-trigger { min-width: 6.5em; }
+.tp-pop { padding: 0.75em; }
+
+.tp-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+  min-width: 11em;
+}
+
+.tp-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125em;
+  max-height: 13.5em;
+  overflow-y: auto;
+  padding-right: 0.125em;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.tp-col::-webkit-scrollbar { width: 0.25em; }
+.tp-col::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 0.25em;
+}
+
+.tp-cell {
+  flex-shrink: 0;
+  padding: 0.375em 0;
+  border: none;
+  border-radius: 0.4375em;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.8125em;
+  font-weight: 500;
+  font-family: var(--font-mono, monospace);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.tp-cell:hover:not(.selected) {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+.tp-cell.selected {
+  background: #ffffff;
+  color: #111111;
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .drp-months { grid-template-columns: 1fr; gap: 0.875em; min-width: 16em; }
+}

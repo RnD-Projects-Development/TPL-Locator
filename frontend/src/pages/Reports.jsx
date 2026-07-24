@@ -6,6 +6,8 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { clientReverseGeocode } from "../utils/landmark.js";
 import "./ReportPage.css";
 import * as XLSX from "xlsx";
+import DateRangePicker from "../components/common/DateRangePicker.jsx";
+import TimePicker from "../components/common/TimePicker.jsx";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 function todayStr() {
@@ -100,16 +102,6 @@ const TIME_SHORTCUTS = [
   { label: "30D", hours: 720 },
 ];
 
-const CalendarIcon = () => (
-  <svg viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd"/>
-  </svg>
-);
-const ClockIcon = () => (
-  <svg viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd"/>
-  </svg>
-);
 
 export default function Reports() {
   const [searchParams] = useSearchParams();
@@ -320,28 +312,30 @@ export default function Reports() {
             ))}
           </div>
 
-          <div className="rp-date-group">
-            <label>Start</label>
-            <div className="rp-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <CalendarIcon /><span>{startDate}</span>
-              <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setActiveShortcut(null); }} />
-            </div>
-            <div className="rp-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <ClockIcon /><span>{startTime}</span>
-              <input type="time" value={startTime} onChange={(e) => { setStartTime(e.target.value); setActiveShortcut(null); }} />
-            </div>
-          </div>
+          {/* Reports are deliberately uncapped — an export may legitimately span
+              months, so no maxRangeDays here (unlike playback / field staff). */}
+          <DateRangePicker
+            value={{ from: startDate, to: endDate }}
+            onChange={({ from, to }) => {
+              setStartDate(from);
+              setEndDate(to);
+              setActiveShortcut(null);
+            }}
+            maxRangeDays={null}
+            maxDate={todayStr()}
+          />
 
           <div className="rp-date-group">
-            <label>End</label>
-            <div className="rp-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <CalendarIcon /><span>{endDate}</span>
-              <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setActiveShortcut(null); }} />
-            </div>
-            <div className="rp-date-btn" onClick={(e) => e.currentTarget.querySelector("input").showPicker()}>
-              <ClockIcon /><span>{endTime}</span>
-              <input type="time" value={endTime} onChange={(e) => { setEndTime(e.target.value); setActiveShortcut(null); }} />
-            </div>
+            <label>From</label>
+            <TimePicker
+              value={startTime}
+              onChange={(v) => { setStartTime(v); setActiveShortcut(null); }}
+            />
+            <label>To</label>
+            <TimePicker
+              value={endTime}
+              onChange={(v) => { setEndTime(v); setActiveShortcut(null); }}
+            />
           </div>
 
           <button className="rp-btn-load" onClick={() => loadReport()} disabled={!sn || loading}>

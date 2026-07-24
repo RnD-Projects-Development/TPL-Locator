@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { isValidEmail, normalizeEmail } from "../utils/email.js";
 import { isValidIdentifier, isValidPakistaniPhone } from "../utils/userContact.js";
 import ForgotPasswordForm from "./ForgotPasswordForm.jsx";
+import BackButton from "./common/BackButton.jsx";
 
 const MODE = { LOGIN: "login", SIGNUP: "signup", FORGOT: "forgot" };
 const LOGIN_METHOD = { PASSWORD: "password", OTP: "otp" };
@@ -173,24 +174,11 @@ export default function LoginForm() {
   return (
     <div key={mode} className="auth-fade-in" style={{ width: isSignup ? "42em" : "26em", maxWidth: "100%", transition: "width 0.3s ease" }}>
       {isSignup && (
-        <button
-          type="button"
+        <BackButton
+          label="Back to login"
           onClick={() => switchMode(MODE.LOGIN)}
-          className="auth-link auth-link-subtle"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.4em",
-            marginBottom: "1em",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          Back to Login
-        </button>
+          style={{ marginBottom: "0.5em" }}
+        />
       )}
 
       <form onSubmit={onSubmit}>

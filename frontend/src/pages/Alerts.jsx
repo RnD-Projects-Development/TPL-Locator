@@ -10,6 +10,8 @@ const TYPE_CONFIG_DARK = {
   GEOFENCE:       { label: 'Geofence Alert',  Icon: Shield,       color: '#FBBF24', bg: 'rgba(251,191,36,0.08)',   border: 'rgba(251,191,36,0.22)' },
   BATTERY_LOW:    { label: 'Low Battery',     Icon: Battery,      color: '#FB923C', bg: 'rgba(251,146,60,0.08)',   border: 'rgba(251,146,60,0.22)' },
   DEVICE_OFFLINE: { label: 'Device Offline',  Icon: AlertOctagon, color: '#F87171', bg: 'rgba(248,113,113,0.08)',  border: 'rgba(248,113,113,0.22)' },
+  ZONE_MISSING:   { label: 'Missing in Zone', Icon: AlertOctagon, color: '#F87171', bg: 'rgba(248,113,113,0.08)',  border: 'rgba(248,113,113,0.22)' },
+  ZONE_NO_SHOW:   { label: 'No Show',        Icon: AlertTriangle, color: '#FBBF24', bg: 'rgba(251,191,36,0.08)',   border: 'rgba(251,191,36,0.22)' },
 }
 
 const SEV_CONFIG_DARK = {
@@ -25,6 +27,8 @@ const TYPE_CONFIG_LIGHT = {
   GEOFENCE:       { label: 'Geofence Alert',  Icon: Shield,       color: '#D97706', bg: '#FEF3C7', border: '#FDE68A' },
   BATTERY_LOW:    { label: 'Low Battery',     Icon: Battery,      color: '#EA580C', bg: '#FFEDD5', border: '#FED7AA' },
   DEVICE_OFFLINE: { label: 'Device Offline',  Icon: AlertOctagon, color: '#A72C32', bg: 'rgba(167,44,50,0.08)', border: 'rgba(167,44,50,0.2)' },
+  ZONE_MISSING:   { label: 'Missing in Zone', Icon: AlertOctagon, color: '#A72C32', bg: 'rgba(167,44,50,0.08)', border: 'rgba(167,44,50,0.2)' },
+  ZONE_NO_SHOW:   { label: 'No Show',        Icon: AlertTriangle, color: '#D97706', bg: '#FEF3C7', border: '#FDE68A' },
 }
 
 const SEV_CONFIG_LIGHT = {
@@ -35,7 +39,7 @@ const SEV_CONFIG_LIGHT = {
 }
 
 const FILTER_TABS  = ['All', 'Unread', 'Read']
-const TYPE_FILTERS = ['All', 'GEOFENCE', 'BATTERY_LOW', 'DEVICE_OFFLINE']
+const TYPE_FILTERS = ['All', 'GEOFENCE', 'ZONE_MISSING', 'ZONE_NO_SHOW', 'BATTERY_LOW', 'DEVICE_OFFLINE']
 
 function fmtTime(ts) {
   if (!ts) return '—'
