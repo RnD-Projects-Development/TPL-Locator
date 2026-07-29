@@ -6,13 +6,13 @@ from app.services.citytag import CityTagClient
 from app.services.mongodb import MongoService
 from app.services.vendor_sync import run_vendor_sync_all
 
-SYNC_INTERVAL_SECONDS = 300
+SYNC_INTERVAL_SECONDS = 120
 
 logger = logging.getLogger(__name__)
 
 # ── Module-level singletons ────────────────────────────────────────────────────
 # MongoService and CityTagClient are created ONCE at startup and reused across
-# every sync cycle.  Creating a new AsyncIOMotorClient every 5 minutes exhausts
+# every sync cycle.  Creating a new AsyncIOMotorClient every 2 minutes exhausts
 # Windows socket buffers (WinError 10055) because each client opens its own
 # connection pool and the old ones are never properly closed.
 _mongo: MongoService | None = None

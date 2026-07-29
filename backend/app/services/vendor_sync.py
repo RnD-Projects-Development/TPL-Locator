@@ -404,7 +404,7 @@ async def _sync_zoqin(
                     logger.info("zoqin device registered sn=%s admin_id=%s", sn, tpl_admin_id)
 
                 # Cache key includes the minute-truncated start so rotating the
-                # window every 5 min still benefits from caching within a run.
+                # window every 2 min still benefits from caching within a run.
                 cache_key = f"{sn}:{start_time.strftime('%Y%m%d%H%M')}"
                 if (
                     cache_key in ZOQIN_CACHE
