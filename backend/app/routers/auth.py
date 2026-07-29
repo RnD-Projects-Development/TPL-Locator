@@ -2,10 +2,15 @@ from datetime import datetime, timezone, timedelta
 import asyncio
 import logging
 import secrets
+import os
+import re
+from pathlib import Path
 from typing import Annotated, Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter, field_validator
+from pydantic import ValidationError as PydanticValidationError
 from bson import ObjectId
 
 from app.auth_utils import verify_password, hash_password
@@ -19,16 +24,19 @@ from app.dependencies import (
 )
 from app.models.admin import AdminCreate, AdminPublic
 from app.models.user import UserCreate, UserPublic
-from app.services.email_service import send_signup_verification_email
+from app.services.email_service import send_login_otp_email
 from app.services.mongodb import MongoService
-from app.user_display import public_contact
-from app.account_identifier import normalize_phone, resolve_identifier, resolve_register_identity
+from app.account_identifier import normalize_phone, phone_placeholder_email, validate_signup_contact
+from app.user_display import has_real_email, is_synthetic_phone_email
 
 
 router = APIRouter(prefix="/api", tags=["auth"])
 logger = logging.getLogger(__name__)
 
-SIGNUP_OTP_COLLECTION = "signup_verification_otps"
+LOGIN_OTP_COLLECTION = "login_otps"
+PROFILE_IMAGE_DIR = Path(__file__).resolve().parent.parent / "data" / "images"
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_PROFILE_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def _generate_otp() -> str:
@@ -52,12 +60,115 @@ def _as_utc_aware(dt: datetime | None) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
+def _normalize_login_identifier(raw: str) -> str:
+    value = raw.strip()
+    if "@" in value:
+        return value.lower()
+    return normalize_phone(value)
+
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+async def _normalize_profile_email(
+    value: Any,
+    *,
+    account_id: str,
+    mongo: MongoService,
+) -> Optional[str]:
+    """Validate an email a user is setting on their own profile.
+
+    Returns the lowercased address, or None to clear it. Raises 400 for a malformed
+    address, a legacy placeholder, or one already held by a different account.
+    """
+    cleaned = _normalize_optional_text(value if isinstance(value, str) else None)
+    if cleaned is None:
+        return None
+
+    email = cleaned.lower()
+    try:
+        TypeAdapter(EmailStr).validate_python(email)
+    except PydanticValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid email address",
+        ) from exc
+
+    # Placeholder addresses are derivable from any phone number — never let one be
+    # typed in by hand, or a user could claim another account's legacy identity.
+    if is_synthetic_phone_email(email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid email address",
+        )
+
+    owner = await mongo.get_account_by_email(email)
+    if owner and str(owner.id) != account_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+    return email
+
+
+def _normalize_optional_date(value: Optional[str], field_name: str) -> Optional[str]:
+    cleaned = _normalize_optional_text(value)
+    if cleaned is None:
+        return None
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cleaned):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} must be in YYYY-MM-DD format")
+    return cleaned
+
+
+def _wire_email(email: Optional[str], phone: Optional[str]) -> str:
+    """Value for the `email` field on the wire.
+
+    Phone-only accounts store NULL, but these endpoints have always returned the
+    synthetic placeholder address. Regenerate it here so responses stay
+    byte-identical for clients built before email became nullable. Storage is
+    unaffected — nothing fake is ever written to the database.
+    """
+    if email:
+        return email
+    return phone_placeholder_email(phone or "")
+
+
+def _build_profile_response(doc: dict, request: Request) -> dict:
+    image_url = None
+    if doc.get("profile_image_filename"):
+        image_url = str(request.url_for("get_my_profile_image"))
+    return {
+        "id": str(doc.get("_id")),
+        "role": doc.get("role"),
+        "name": doc.get("name"),
+        "email": _wire_email(doc.get("email"), doc.get("phone")),
+        "phone": doc.get("phone"),
+        "cnic": doc.get("cnic"),
+        "cnic_expiry": doc.get("cnic_expiry"),
+        "driving_license_no": doc.get("driving_license_no"),
+        "license_expiry": doc.get("license_expiry"),
+        "emergency_contact": doc.get("emergency_contact"),
+        "address": doc.get("address"),
+        "profile_image_url": image_url,
+    }
+
+
 # ── Request / Response models ────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
     identifier: str          # email address OR phone number
-    password: str
+    password: Optional[str] = None
+    otp: Optional[str] = Field(None, min_length=4, max_length=8)
+    login_token: Optional[str] = Field(None, min_length=16)
     uid: Optional[str] = None  # only needed for admin login
+
+
+class SendLoginOtpRequest(BaseModel):
+    identifier: str
 
 
 class LoginResponse(BaseModel):
@@ -99,23 +210,214 @@ def _user_account_payload(user: UserPublic) -> dict:
 
 
 class RegisterRequest(BaseModel):
-    identifier: str          # email address OR phone number
-    email: EmailStr
-    password: str
+    phone: str
+    password: str = Field(..., min_length=6)
     name: Optional[str] = None
-    verification_token: str = Field(..., min_length=16)
-    otp: str = Field(..., min_length=4, max_length=8)
+    email: Optional[EmailStr] = None
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def _blank_email_is_omitted(cls, value):
+        """Treat "" / "   " as "no email given" instead of failing EmailStr.
 
-class SendSignupVerificationRequest(BaseModel):
-    email: EmailStr
-    identifier: Optional[str] = None
+        Clients that always send the field (web form, mobile app) submit an empty
+        string rather than omitting the key; without this they get a 422 and
+        phone-only signup is impossible for them.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 # ── Login ────────────────────────────────────────────────────────────────────
 
+async def _resolve_user_for_login_otp(mongo: MongoService, identifier: str):
+    """Return (delivery_email, user) for OTP login. Users only — not admins."""
+    raw = identifier.strip()
+    is_email = "@" in raw
+
+    if is_email:
+        email = raw.lower()
+        admin = await mongo.get_admin_by_email(email)
+        if admin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OTP login is not available for admin accounts. Use your password.",
+            )
+        user = await mongo.get_user_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No account found with this identifier.",
+            )
+        return email, user
+
+    phone = normalize_phone(raw)
+    user = await mongo.get_user_by_phone(phone)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No account found with this identifier.",
+        )
+    if not has_real_email(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP login requires an email address. Log in with your email or use password.",
+        )
+    return str(user.email).strip().lower(), user
+
+
+async def _verify_login_otp(
+    mongo: MongoService,
+    *,
+    login_token: str,
+    identifier: str,
+    otp: str,
+):
+    token = login_token.strip()
+    code = otp.strip()
+    record = await mongo.db[LOGIN_OTP_COLLECTION].find_one({"login_token": token})
+    if not record:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    record_identifier = record.get("identifier", "").strip().lower()
+    if record_identifier != _normalize_login_identifier(identifier):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    expires_at = _as_utc_aware(record.get("expires_at"))
+    if not expires_at or expires_at < datetime.now(timezone.utc):
+        await mongo.db[LOGIN_OTP_COLLECTION].delete_one({"login_token": token})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    if not verify_password(code, record.get("otp_hash", "")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+
+    await mongo.db[LOGIN_OTP_COLLECTION].delete_one({"login_token": token})
+
+
+@router.post("/login/send-verification")
+async def send_login_otp(
+    payload: SendLoginOtpRequest,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """Send a one-time code to the user's email for passwordless login."""
+    delivery_email, _user = await _resolve_user_for_login_otp(mongo, payload.identifier)
+
+    login_token = _generate_verification_token()
+    otp = _generate_otp()
+    normalized_identifier = _normalize_login_identifier(payload.identifier)
+    now = datetime.now(timezone.utc)
+    await mongo.db[LOGIN_OTP_COLLECTION].update_one(
+        {"identifier": normalized_identifier},
+        {
+            "$set": {
+                "identifier": normalized_identifier,
+                "email": delivery_email,
+                "login_token": login_token,
+                "otp_hash": hash_password(otp),
+                "expires_at": _otp_expiry(),
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
+
+    try:
+        await asyncio.to_thread(send_login_otp_email, to_email=delivery_email, otp=otp)
+    except RuntimeError as exc:
+        logger.error("login OTP delivery failed email=%s error=%s", delivery_email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to send verification email. Please try again later.",
+        ) from exc
+
+    logger.info("login OTP sent identifier=%s email=%s", payload.identifier.strip(), delivery_email)
+    return {
+        "message": "A login code has been sent to your email.",
+        "login_token": login_token,
+        "delivery_email": delivery_email,
+    }
+
+
+async def _resolve_user_for_passwordless_login(mongo: MongoService, identifier: str):
+    """Resolve a user account by email or phone for password-less login.
+
+    Users only — admin accounts are rejected (admins must use /login/portal with
+    a password). Unlike the OTP flow this does NOT require a real email address,
+    since no verification code is delivered.
+    """
+    raw = identifier.strip()
+    is_email = "@" in raw
+
+    if is_email:
+        email = raw.lower()
+        admin = await mongo.get_admin_by_email(email)
+        if admin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password-less login is not available for admin accounts. Use your password.",
+            )
+        user = await mongo.get_user_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No account found with this identifier.",
+            )
+        return user
+
+    phone = normalize_phone(raw)
+    user = await mongo.get_user_by_phone(phone)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No account found with this identifier.",
+        )
+    return user
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
+    payload: LoginRequest,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """
+    Password-less login for users (identifier = email address OR phone number).
+
+    Provide only an `identifier`. Any `password`, `otp`, or `login_token` field is
+    accepted for request-shape compatibility with the previous /login but is
+    ignored — no credential is required or checked.
+
+    Users only: admin accounts are rejected. Admin login, password login, and OTP
+    login for this web app all live at /login/portal instead.
+    """
+    raw = payload.identifier.strip()
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identifier is required")
+
+    try:
+        user = await _resolve_user_for_passwordless_login(mongo, raw)
+        await mongo.accounts.update_one(
+            {"_id": ObjectId(str(user.id))},
+            {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
+        )
+        access_token = create_access_token(str(user.id))
+        logger.info("user password-less login completed identifier=%s user_id=%s", raw, user.id)
+        return LoginResponse(account=_user_account_payload(user_to_public(user)), access_token=access_token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("password-less login failed for identifier=%s — MongoDB error: %s", raw, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database connection error: {type(exc).__name__}: {exc}",
+        ) from exc
+
+
+# ── Portal login (exact duplicate of /login) ───────────────────────────────────
+
+@router.post("/login/portal", response_model=LoginResponse)
+async def login_portal(
     payload: LoginRequest,
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
@@ -131,6 +433,38 @@ async def login(
     CityTag interactions (token refresh + device/location sync) are handled by /sync endpoints.
     """
     raw = payload.identifier.strip()
+
+    # OTP login path (users only)
+    if payload.otp and payload.login_token:
+        if payload.password:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide either password or OTP, not both")
+        await _verify_login_otp(
+            mongo,
+            login_token=payload.login_token,
+            identifier=raw,
+            otp=payload.otp,
+        )
+        try:
+            _delivery_email, user = await _resolve_user_for_login_otp(mongo, raw)
+            await mongo.accounts.update_one(
+                {"_id": ObjectId(str(user.id))},
+                {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
+            )
+            access_token = create_access_token(str(user.id))
+            logger.info("user OTP login completed identifier=%s user_id=%s", raw, user.id)
+            return LoginResponse(account=_user_account_payload(user_to_public(user)), access_token=access_token)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("OTP login failed for identifier=%s — MongoDB error: %s", raw, exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Database connection error: {type(exc).__name__}: {exc}",
+            ) from exc
+
+    if not payload.password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password or OTP is required")
+
     is_email = "@" in raw
 
     try:
@@ -189,163 +523,203 @@ async def login(
         )
 
 
-# ── Register ─────────────────────────────────────────────────────────────────
+# ── Logout ───────────────────────────────────────────────────────────────────
 
-@router.post("/register/send-verification")
-async def send_signup_verification(
-    payload: SendSignupVerificationRequest,
+@router.post("/logout")
+async def logout(
+    current_account: Annotated[Any, Depends(require_role("any"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    """Send a one-time code to verify the user's email before signup."""
-    email = payload.email.strip().lower()
-    identifier = (payload.identifier or "").strip()
-
-    if identifier:
-        try:
-            resolve_register_identity(identifier, email)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    existing_account = await mongo.get_account_by_email(email)
-    if existing_account:
-        role = existing_account.role if hasattr(existing_account, "role") else existing_account.get("role")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Email already registered as {role}",
-        )
-
-    if identifier and "@" not in identifier:
-        phone = normalize_phone(identifier)
-        existing_phone = await mongo.get_user_by_phone(phone)
-        if existing_phone:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already registered")
-
-    verification_token = _generate_verification_token()
-    otp = _generate_otp()
-    now = datetime.now(timezone.utc)
-    await mongo.db[SIGNUP_OTP_COLLECTION].update_one(
-        {"email": email},
-        {
-            "$set": {
-                "email": email,
-                "verification_token": verification_token,
-                "otp_hash": hash_password(otp),
-                "expires_at": _otp_expiry(),
-                "updated_at": now,
-            },
-            "$setOnInsert": {"created_at": now},
-        },
-        upsert=True,
+    """
+    Stamp last_logged_out on the account. Presence semantics: an account is
+    "online" from login until it logs out (last_logged_in > last_logged_out),
+    and its "last active" time is the logout timestamp.
+    """
+    await mongo.accounts.update_one(
+        {"_id": ObjectId(str(current_account.id))},
+        {"$set": {"last_logged_out": datetime.now(timezone.utc)}},
     )
-
-    try:
-        await asyncio.to_thread(send_signup_verification_email, to_email=email, otp=otp)
-    except RuntimeError as exc:
-        logger.error("signup OTP delivery failed email=%s error=%s", email, exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Unable to send verification email. Please try again later.",
-        ) from exc
-
-    logger.info("signup verification OTP sent email=%s", email)
-    return {
-        "message": "A verification code has been sent to your email.",
-        "verification_token": verification_token,
-    }
+    logger.info("logout completed account_id=%s", current_account.id)
+    return {"message": "Logged out"}
 
 
-async def _verify_signup_otp(mongo: MongoService, *, verification_token: str, email: str, otp: str) -> None:
-    token = verification_token.strip()
-    code = otp.strip()
-    record = await mongo.db[SIGNUP_OTP_COLLECTION].find_one({"verification_token": token})
-    if not record:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
+# ── Register ─────────────────────────────────────────────────────────────────
 
-    record_email = record.get("email", "").strip().lower()
-    if record_email != email.strip().lower():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
-
-    expires_at = _as_utc_aware(record.get("expires_at"))
-    if not expires_at or expires_at < datetime.now(timezone.utc):
-        await mongo.db[SIGNUP_OTP_COLLECTION].delete_one({"verification_token": token})
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
-
-    if not verify_password(code, record.get("otp_hash", "")):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification code")
-
-    await mongo.db[SIGNUP_OTP_COLLECTION].delete_one({"verification_token": token})
-
-
-# FIX 1: removed `response_model=UserPublic` — we now return a custom dict
-#         with access_token + user so SignupForm can call loginSuccess() and
-#         redirect immediately. Previously returned UserPublic which has neither.
 @router.post("/register")
 async def register(
     payload: RegisterRequest,
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    """Create a new user account and auto-login on success."""
-    raw = payload.identifier.strip()
-    name = (payload.name or "").strip()
-    email = payload.email.strip().lower()
+    """Create a new user account and auto-login on success.
 
-    await _verify_signup_otp(
-        mongo,
-        verification_token=payload.verification_token,
-        email=email,
-        otp=payload.otp,
-    )
+    Required: phone, password
+    Optional: name, email
+    """
+    name = (payload.name or "").strip()
 
     try:
-        email, phone = resolve_register_identity(raw, email)
+        email, phone = validate_signup_contact(payload.email, payload.phone)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    if phone:
-        existing_phone = await mongo.get_user_by_phone(phone)
-        if existing_phone:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already registered")
-        logger.info("register started phone=%s email=%s", phone, email)
-    else:
-        logger.info("register started email=%s", email)
+    existing_phone = await mongo.get_user_by_phone(phone)
+    if existing_phone:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone already registered")
+    logger.info("register started phone=%s email=%s", phone, email)
 
-    existing_account = await mongo.get_account_by_email(email)
-    logger.info("register check email=%s found=%s", email, existing_account is not None)
-    if existing_account:
-        role = existing_account.role if hasattr(existing_account, "role") else existing_account.get("role")
-        logger.warning("register blocked: email already registered as %s: %s", role, email)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Email already registered as {role}")
+    # Phone-only signups store no email, so there is nothing to conflict-check.
+    if email:
+        existing_account = await mongo.get_account_by_email(email)
+        logger.info("register check email=%s found=%s", email, existing_account is not None)
+        if existing_account:
+            role = existing_account.role if hasattr(existing_account, "role") else existing_account.get("role")
+            logger.warning("register blocked: email already registered as %s: %s", role, email)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Email already registered as {role}")
 
     user = await mongo.create_user(email, payload.password, name, phone)
 
-    # Ensure name/phone/created_at are present on the stored account document
     await mongo.accounts.update_one(
         {"_id": ObjectId(str(user.id)), "role": "user"},
         {"$set": {
-            "name":       name,
-            "phone":      phone,
+            "name": name,
+            "phone": phone,
             "created_at": datetime.now(timezone.utc),
         }},
     )
 
-    refreshed = await mongo.get_user_by_id(str(user.id))
-    display_email = public_contact(
-        str(refreshed.email) if refreshed else email,
-        phone or (refreshed.phone if refreshed else None),
-    )
-
     access_token = create_access_token(str(user.id))
-    logger.info("register completed identifier=%s user_id=%s", raw, user.id)
+    logger.info("register completed email=%s phone=%s user_id=%s", email, phone, user.id)
     return {
         "access_token": access_token,
         "user": {
-            "id":    str(user.id),
-            "email": display_email,
-            "name":  name,
+            "id": str(user.id),
+            "email": _wire_email(email, phone),
+            "name": name,
             "phone": phone,
-            "role":  "user",
+            "role": "user",
         },
     }
+
+
+# ── Generic profile API ───────────────────────────────────────────────────────
+
+@router.get("/me/profile")
+async def get_my_profile(
+    request: Request,
+    current_account: Annotated[Any, Depends(require_role("any"))],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    doc = await mongo.accounts.find_one({"_id": ObjectId(str(current_account.id))})
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    return _build_profile_response(doc, request)
+
+
+@router.get("/me/profile/image", name="get_my_profile_image")
+async def get_my_profile_image(
+    current_account: Annotated[Any, Depends(require_role("any"))],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    doc = await mongo.accounts.find_one(
+        {"_id": ObjectId(str(current_account.id))},
+        {"profile_image_filename": 1},
+    )
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    filename = doc.get("profile_image_filename")
+    if not filename:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile image not found")
+
+    path = PROFILE_IMAGE_DIR / filename
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile image not found")
+
+    return FileResponse(path=str(path))
+
+
+@router.put("/me/profile")
+async def update_my_profile(
+    request: Request,
+    current_account: Annotated[Any, Depends(require_role("any"))],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    account_id = str(current_account.id)
+    existing = await mongo.accounts.find_one({"_id": ObjectId(account_id)})
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    content_type = (request.headers.get("content-type") or "").lower()
+    payload: dict[str, Any] = {}
+    profile_image: UploadFile | None = None
+
+    if "application/json" in content_type:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body")
+    else:
+        form = await request.form()
+        payload = dict(form)
+        maybe_file = form.get("profile_image")
+        # request.form() can yield Starlette UploadFile instances; use duck-typing
+        # instead of strict FastAPI UploadFile isinstance checks.
+        if getattr(maybe_file, "filename", None) is not None and callable(getattr(maybe_file, "read", None)):
+            profile_image = maybe_file
+
+    updates: dict[str, Any] = {}
+    if "name" in payload:
+        updates["name"] = _normalize_optional_text(payload.get("name")) or ""
+    if "email" in payload:
+        updates["email"] = await _normalize_profile_email(
+            payload.get("email"), account_id=account_id, mongo=mongo
+        )
+    if "cnic" in payload:
+        updates["cnic"] = _normalize_optional_text(payload.get("cnic"))
+    if "cnic_expiry" in payload:
+        updates["cnic_expiry"] = _normalize_optional_date(payload.get("cnic_expiry"), "cnic_expiry")
+    if "driving_license_no" in payload:
+        updates["driving_license_no"] = _normalize_optional_text(payload.get("driving_license_no"))
+    if "license_expiry" in payload:
+        updates["license_expiry"] = _normalize_optional_date(payload.get("license_expiry"), "license_expiry")
+    if "emergency_contact" in payload:
+        updates["emergency_contact"] = _normalize_optional_text(payload.get("emergency_contact"))
+    if "address" in payload:
+        updates["address"] = _normalize_optional_text(payload.get("address"))
+
+    old_filename = existing.get("profile_image_filename")
+    if profile_image is not None:
+        ext = Path(profile_image.filename or "").suffix.lower()
+        if ext not in ALLOWED_IMAGE_EXTENSIONS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image format")
+
+        content = await profile_image.read()
+        if not content:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Profile image is empty")
+        if len(content) > MAX_PROFILE_IMAGE_BYTES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Profile image must be <= 5MB")
+
+        os.makedirs(PROFILE_IMAGE_DIR, exist_ok=True)
+        filename = f"{account_id}_{int(datetime.now(timezone.utc).timestamp())}{ext}"
+        output_path = PROFILE_IMAGE_DIR / filename
+        with open(output_path, "wb") as f:
+            f.write(content)
+        logger.info("profile image saved account_id=%s filename=%s bytes=%s", account_id, filename, len(content))
+        updates["profile_image_filename"] = filename
+
+    if not updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No changes provided")
+
+    await mongo.accounts.update_one({"_id": ObjectId(account_id)}, {"$set": updates})
+    updated = await mongo.accounts.find_one({"_id": ObjectId(account_id)})
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    if profile_image is not None and old_filename and old_filename != updates.get("profile_image_filename"):
+        old_path = PROFILE_IMAGE_DIR / old_filename
+        if old_path.exists() and old_path.is_file():
+            old_path.unlink()
+
+    return _build_profile_response(updated, request)
 
 
 # ── Update own profile ────────────────────────────────────────────────────────

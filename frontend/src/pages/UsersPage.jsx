@@ -6,16 +6,31 @@ import {
   Users, Search, X, RefreshCw, Shield, UserCog,
   Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown, Pencil, Link2,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import AddDeviceToUserModal from '../components/AddDeviceToUserModal.jsx'
 import { displayContact, isValidIdentifier } from '../utils/userContact.js'
+import { isUserOnline, lastActiveTs, lastActiveStamp } from '../utils/userPresence.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
+import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
+import { useSearchHistory } from '../hooks/useSearchHistory.js'
+import { APP_CACHE_STORAGE_KEYS } from '../utils/clearAppCaches.js'
+import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
+
+// Remembers the Users list view (search + page + which rows are expanded) so
+// returning via the breadcrumb restores it instantly. Data itself lives in the
+// always-mounted UserCache context, so there is no re-fetch.
+const USERS_VIEW_KEY = 'bc:usersview'
+function loadUsersView() {
+  try { return JSON.parse(sessionStorage.getItem(USERS_VIEW_KEY)) || null } catch { return null }
+}
+function saveUsersView(v) {
+  try { sessionStorage.setItem(USERS_VIEW_KEY, JSON.stringify(v)) } catch { /* ignore */ }
+}
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 function fmtRelTime(ts) {
@@ -34,14 +49,14 @@ function fmtRelTime(ts) {
 
 /* ── Active avatar stack ──────────────────────────────────────────────────── */
 const AVATAR_COLORS = [
-  { bg: 'rgba(167,44,50,0.28)',  color: '#E87178' },
-  { bg: 'rgba(59,130,246,0.24)', color: '#60A5FA' },
-  { bg: 'rgba(16,185,129,0.24)', color: '#34D399' },
-  { bg: 'rgba(245,158,11,0.24)', color: '#FBBF24' },
-  { bg: 'rgba(139,92,246,0.24)', color: '#A78BFA' },
-  { bg: 'rgba(236,72,153,0.24)', color: '#F472B6' },
-  { bg: 'rgba(14,165,233,0.24)', color: '#38BDF8' },
-  { bg: 'rgba(234,179,8,0.24)',  color: '#EAB308' },
+  { bg: '#E87178', color: '#FFFFFF' },
+  { bg: '#60A5FA', color: '#FFFFFF' },
+  { bg: '#34D399', color: '#FFFFFF' },
+  { bg: '#FBBF24', color: '#FFFFFF' },
+  { bg: '#A78BFA', color: '#FFFFFF' },
+  { bg: '#F472B6', color: '#FFFFFF' },
+  { bg: '#38BDF8', color: '#FFFFFF' },
+  { bg: '#EAB308', color: '#FFFFFF' },
 ]
 
 function ActiveAvatarStack({ users, isLight }) {
@@ -89,11 +104,11 @@ function ActiveAvatarStack({ users, isLight }) {
         {extra > 0 && (
           <div style={{
             width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-            background: isLight ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)',
+            background: isLight ? '#E5E7EB' : '#3F3F46',
             border: `2.5px solid ${ringColor}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 10, fontWeight: 700,
-            color: isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.38)',
+            color: isLight ? '#4B5563' : '#D4D4D8',
             marginLeft: -10, position: 'relative', zIndex: 0,
           }}>
             +{extra}
@@ -105,19 +120,23 @@ function ActiveAvatarStack({ users, isLight }) {
 }
 
 /* ── Role badge ───────────────────────────────────────────────────────────── */
-function RoleBadge({ role }) {
+function RoleBadge({ role, isLight }) {
   const r = (role || 'user').toLowerCase()
-  const cfg = {
-    admin:      { bg: 'rgba(167,44,50,0.12)',  color: '#C44E54', border: 'rgba(167,44,50,0.25)',  label: 'Admin' },
-    superadmin: { bg: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: 'rgba(139,92,246,0.25)', label: 'Super Admin' },
-    user:       { bg: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: 'rgba(59,130,246,0.25)', label: 'User' },
-    operator:   { bg: 'rgba(16,185,129,0.12)', color: '#34d399', border: 'rgba(16,185,129,0.25)', label: 'Operator' },
+  const map = {
+    admin:      'badge-red-500',
+    superadmin: 'badge-primary',
+    user:       'badge-secondary',
+    operator:   'badge-teal-500',
   }
-  const c = cfg[r] || cfg.user
+  const cls = map[r] || 'badge-secondary'
+  const label = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User'
+  
+  const customStyle = (isLight && cls === 'badge-secondary')
+    ? { background: '#F3F4F6', color: '#4B5563', border: '1px solid #E5E7EB' }
+    : {}
+
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 10px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
-      {c.label}
-    </span>
+    <span className={`badge ${cls}`} style={customStyle}>{label}</span>
   )
 }
 
@@ -135,7 +154,7 @@ function BattBar({ v }) {
 }
 
 /* ── Device card ──────────────────────────────────────────────────────────── */
-function DeviceCard({ device, navigate, isAdmin, onUnbind, isLight }) {
+function DeviceCard({ device, pushTrail, isAdmin, onUnbind, isLight }) {
   const [hov, setHov] = useState(false)
   const isSticker = /^\d+$/.test(String(device.sn ?? ''))
   const DevIcon = isSticker ? Tag : Radio
@@ -149,7 +168,7 @@ function DeviceCard({ device, navigate, isAdmin, onUnbind, isLight }) {
 
   return (
     <div
-      onClick={() => navigate(path)}
+      onClick={() => pushTrail(path)}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -203,7 +222,7 @@ function DeviceCard({ device, navigate, isAdmin, onUnbind, isLight }) {
 }
 
 /* ── User row ─────────────────────────────────────────────────────────────── */
-function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onToggle, boundDevices, navigate, onUnbindDevice, isLight }) {
+function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onToggle, boundDevices, pushTrail, onUnbindDevice, isLight }) {
   const [hov, setHov] = useState(false)
   const contact = displayContact(u)
   const initials = (u.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
@@ -230,19 +249,19 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
         onClick={onToggle}
       >
         {/* Name + avatar */}
-        <td style={{ padding: '13px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7em' }}>
             <div style={{
-              width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+              width: '2.4em', height: '2.4em', borderRadius: '50%', flexShrink: 0,
               background: '#A72C32', border: '1px solid #8B2328',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 11, fontWeight: 700, color: '#FFFFFF',
+              fontSize: '0.8em', fontWeight: 700, color: '#FFFFFF',
             }}>
               {initials}
             </div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: txt1 }}>{u.name || '—'}</div>
-              <div style={{ fontSize: 10, color: txt4, fontFamily: 'var(--font-mono)' }}>
+              <div style={{ fontSize: '0.92em', fontWeight: 600, color: txt1 }}>{u.name || '—'}</div>
+              <div style={{ fontSize: '0.7em', color: txt4, fontFamily: 'var(--font-mono)' }}>
                 {String(u._id || u.id || '').slice(-10)}
               </div>
             </div>
@@ -250,89 +269,95 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
         </td>
 
         {/* Email */}
-        <td style={{ padding: '13px 16px' }}>
-          <span style={{ fontSize: 12, color: txt2, fontFamily: 'var(--font-mono)' }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
             {contact || '—'}
           </span>
         </td>
 
         {/* Role */}
-        <td style={{ padding: '13px 16px' }}>
-          <RoleBadge role={u.role} />
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <RoleBadge role={u.role} isLight={isLight} />
         </td>
 
-        {/* Last active */}
-        <td style={{ padding: '13px 16px' }}>
-          <span style={{ fontSize: 11, color: txt3, fontFamily: 'var(--font-mono)' }}>
-            {(u.last_logged_in || u.last_login || u.lastLogin)
-              ? fmtRelTime(u.last_logged_in || u.last_login || u.lastLogin)
-              : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
-          </span>
+        {/* Last active — Online badge while logged in; elapsed-since-logout after */}
+        <td style={{ padding: '0.92em 1.15em' }}>
+          {isUserOnline(u) ? (
+            <span className="badge badge-teal-500 text-uppercase tracking-wider">
+              Online
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.8em', color: txt3, fontFamily: 'var(--font-mono)' }}>
+              {lastActiveStamp(u)
+                ? fmtRelTime(lastActiveStamp(u))
+                : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
+            </span>
+          )}
         </td>
 
         {/* Devices */}
-        <td style={{ padding: '13px 16px' }}>
-          <span style={{ fontSize: 12, color: boundDevices.length > 0 ? '#60a5fa' : txt4, fontWeight: boundDevices.length > 0 ? 600 : 400 }}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <span style={{ fontSize: '0.85em', color: boundDevices.length > 0 ? '#60a5fa' : txt4, fontWeight: boundDevices.length > 0 ? 600 : 400 }}>
             {boundDevices.length} device{boundDevices.length !== 1 ? 's' : ''}
           </span>
         </td>
 
         {/* Actions */}
-        <td style={{ padding: '13px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
+        <td style={{ padding: '0.92em 1.15em' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.57em' }} onClick={e => e.stopPropagation()}>
             <button
               onClick={onToggle}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: txt3, padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: txt3, padding: '0.28em', display: 'flex', alignItems: 'center', gap: '0.28em', fontSize: '0.8em' }}
             >
               {expanded
-                ? <ChevronDown style={{ width: 13, height: 13 }} />
-                : <ChevronRight style={{ width: 13, height: 13 }} />}
+                ? <ChevronDown style={{ width: '0.92em', height: '0.92em' }} />
+                : <ChevronRight style={{ width: '0.92em', height: '0.92em' }} />}
             </button>
             {isAdmin && (
               <button
                 onClick={() => onEdit(u)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.28em',
+                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
                   background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)',
-                  color: '#C44E54', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                  color: '#C44E54', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.18)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.40)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.25)' }}
               >
-                <Pencil style={{ width: 11, height: 11 }} /> Edit
+                <Pencil style={{ width: '0.8em', height: '0.8em' }} /> Edit
               </button>
             )}
             {isAdmin && (
               <button
                 onClick={() => onAddDevice(u)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.28em',
+                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
                   background: isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)',
                   border: `1px solid ${isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)'}`,
-                  color: isLight ? '#1D4ED8' : '#60A5FA', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                  color: isLight ? '#1D4ED8' : '#60A5FA', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.13)' : 'rgba(59,130,246,0.18)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.35)' : 'rgba(59,130,246,0.40)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)' }}
               >
-                <Link2 style={{ width: 11, height: 11 }} /> Add Device
+                <Link2 style={{ width: '0.8em', height: '0.8em' }} /> Add Device
               </button>
             )}
             {isAdmin && (
               <button
                 onClick={() => onDelete(u)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  padding: '4px 10px', borderRadius: 7, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.28em',
+                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
                   background: isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)',
                   border: `1px solid ${isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)'}`,
-                  color: isLight ? '#B91C1C' : '#f87171', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                  color: isLight ? '#B91C1C' : '#f87171', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
                 }}
                 onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.12)' : 'rgba(220,38,38,0.16)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.30)' : 'rgba(220,38,38,0.35)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)' }}
               >
-                <Trash2 style={{ width: 11, height: 11 }} /> Delete
+                <Trash2 style={{ width: '0.8em', height: '0.8em' }} /> Delete
               </button>
             )}
           </div>
@@ -350,7 +375,7 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10, paddingTop: 10 }}>
                 {boundDevices.map(d => (
-                  <DeviceCard key={d.sn} device={d} navigate={navigate} isAdmin={isAdmin} onUnbind={onUnbindDevice} isLight={isLight} />
+                  <DeviceCard key={d.sn} device={d} pushTrail={pushTrail} isAdmin={isAdmin} onUnbind={onUnbindDevice} isLight={isLight} />
                 ))}
               </div>
             )}
@@ -365,13 +390,17 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
    MAIN PAGE
    ════════════════════════════════════════════════════════════════════════════ */
 export default function UsersPage() {
-  const navigate = useNavigate()
+  const pushTrail = useTrailNav()
   const { users, loading, error, refresh, silentRefresh, lastFetched } = useUserCache()
   const { isAdmin } = useAuth()
   const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache()
 
   useEffect(() => {
-    const id = setInterval(() => { silentRefresh(); silentRefreshDevices() }, 60_000)
+    const id = setInterval(async () => {
+      // Sequential (users → devices) to avoid a double request spike / lag.
+      await silentRefresh()
+      await silentRefreshDevices()
+    }, 15 * 60 * 1000)
     return () => clearInterval(id)
   }, [silentRefresh, silentRefreshDevices])
   const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser } = useCityTag()
@@ -388,8 +417,8 @@ export default function UsersPage() {
     borderRadius: 16,
     boxShadow: '0 4px 30px rgba(167,44,50,0.07)',
   } : {
-    background: '#242323',
-    border: '1px solid rgba(255,255,255,0.07)',
+    background: 'linear-gradient(157deg, rgba(32,31,31,0.55) 0%, rgba(26,25,25,0.50) 58%, rgba(21,20,20,0.45) 100%)',
+    border: '1px solid rgba(255,255,255,0.04)',
     borderRadius: 16,
     boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
   }
@@ -457,12 +486,35 @@ export default function UsersPage() {
     },
   }), [isLight])
 
-  const [query,      setQuery]    = useState('')
-  const [debouncedQ, setDQ]       = useState('')
-  const [page,       setPage]     = useState(1)
-  const [expanded,   setExpanded] = useState(new Set())
-  const PAGE_SIZE   = 15
+  const savedUsersView = useRef(loadUsersView()).current
+  const [query,      setQuery]    = useState(savedUsersView?.q || '')
+  const [debouncedQ, setDQ]       = useState((savedUsersView?.q || '').trim().toLowerCase())
+  const [page,       setPage]     = useState(savedUsersView?.page || 1)
+  const [expanded,   setExpanded] = useState(() => new Set(savedUsersView?.expanded || []))
+  const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
+
+  // Search-history dropdown (recent user searches, separate from the Devices
+  // page). Recorded on Enter / on pick; the store is wiped on logout.
+  const { history, record: recordSearch, remove: removeSearch, clearAll: clearSearchHistory } =
+    useSearchHistory(APP_CACHE_STORAGE_KEYS.SEARCH_HISTORY_USERS)
+  const [histOpen, setHistOpen] = useState(false)
+  const searchWrapRef = useRef(null)
+
+  // Close the history dropdown on any click outside the search box.
+  useEffect(() => {
+    if (!histOpen) return
+    const onDocMouseDown = e => {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target)) setHistOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [histOpen])
+
+  // Persist the list view so returning via the breadcrumb restores it.
+  useEffect(() => {
+    saveUsersView({ q: query, page, expanded: [...expanded] })
+  }, [query, page, expanded])
 
   /* Create User state */
   const [showCreate,    setShowCreate]    = useState(false)
@@ -501,10 +553,11 @@ export default function UsersPage() {
       if (!q) return true
       return u.name?.toLowerCase().includes(q) || displayContact(u).toLowerCase().includes(q)
     })
+    // Online users first, then by most recent session activity (logout/login)
     return list.sort((a, b) => {
-      const ta = new Date(a.last_logged_in || a.last_login || a.lastLogin || 0).getTime()
-      const tb = new Date(b.last_logged_in || b.last_login || b.lastLogin || 0).getTime()
-      return tb - ta
+      const onlineDiff = (isUserOnline(b) ? 1 : 0) - (isUserOnline(a) ? 1 : 0)
+      if (onlineDiff !== 0) return onlineDiff
+      return lastActiveTs(b) - lastActiveTs(a)
     })
   }, [users, debouncedQ])
 
@@ -614,7 +667,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -624,9 +677,6 @@ export default function UsersPage() {
             <UserCog style={{ width: 22, height: 22, color: '#C44E54', flexShrink: 0 }} />
             Users
           </h1>
-          <p style={{ fontSize: 15, color: T.txt3, marginTop: 5, marginBottom: 0 }}>
-            {users.length} registered account{users.length !== 1 ? 's' : ''}
-          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <ActiveAvatarStack users={users} isLight={isLight} />
@@ -637,21 +687,7 @@ export default function UsersPage() {
                 Updated {fmtRelTime(lastFetched)}
               </span>
             )}
-            <button
-              onClick={refresh}
-              disabled={loading}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-                background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)',
-                borderRadius: 10, color: '#C44E54', fontSize: 12, fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { if (!loading) e.currentTarget.style.background = 'rgba(167,44,50,0.18)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)' }}
-            >
-              <RefreshCw style={{ width: 12, height: 12, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
+
             <button
               onClick={openCreate}
               style={{
@@ -673,14 +709,18 @@ export default function UsersPage() {
 
       {/* ── Search ──────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '0 0 260px' }}>
+        <div ref={searchWrapRef} style={{ position: 'relative', flex: '0 0 260px' }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
           <input
-            type="search"
+            type="text"
             name="users-table-search"
             autoComplete="off"
             value={query}
             onChange={e => handleSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { setHistOpen(false) }
+              else if (e.key === 'Escape') setHistOpen(false)
+            }}
             placeholder="Search by name or email…"
             style={{
               width: '100%', boxSizing: 'border-box',
@@ -688,13 +728,23 @@ export default function UsersPage() {
               background: T.searchBg, border: `1px solid ${T.searchBdr}`,
               borderRadius: 10, color: T.txt1, fontSize: 12, outline: 'none',
             }}
-            onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.50)' }}
+            onFocus={e => { setHistOpen(true); e.target.style.borderColor = 'rgba(167,44,50,0.50)' }}
             onBlur={e  => { e.target.style.borderColor = T.searchBdr }}
           />
           {query && (
             <button onClick={() => handleSearch('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: T.txt3, padding: 2, display: 'flex', alignItems: 'center' }}>
               <X style={{ width: 12, height: 12 }} />
             </button>
+          )}
+          {histOpen && (
+            <SearchHistoryDropdown
+              items={history}
+              query={query}
+              onPick={term => { handleSearch(term); recordSearch(term); setHistOpen(false) }}
+              onRemove={removeSearch}
+              onClearAll={() => { clearSearchHistory(); setHistOpen(false) }}
+              isLight={isLight}
+            />
           )}
         </div>
         <span style={{ fontSize: 11, color: T.txt4, marginLeft: 'auto' }}>
@@ -712,11 +762,11 @@ export default function UsersPage() {
       ) : (
         <div style={{ ...panelStyle, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="scalable-container" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.theadBdr}`, background: T.theadBg }}>
                   {['User', 'Email', 'Role', 'Last Active', 'Devices', 'Actions'].map(col => (
-                    <th key={col} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 9, fontWeight: 700, color: T.theadTxt, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
+                    <th key={col} style={{ padding: '0.85em 1.15em', textAlign: 'left', fontSize: '0.65em', fontWeight: 700, color: T.theadTxt, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
                   ))}
@@ -739,8 +789,8 @@ export default function UsersPage() {
                         u={u} idx={i} isAdmin={isAdmin}
                         onDelete={setDeleteTarget} onEdit={openEdit}
                         onAddDevice={setAddDeviceTarget}
-                        expanded={expanded.has(uid)} onToggle={() => toggleExpand(uid)}
-                        boundDevices={bound} navigate={navigate}
+                        expanded={expanded.has(uid)} onToggle={() => { recordSearch(query); toggleExpand(uid) }}
+                        boundDevices={bound} pushTrail={pushTrail}
                         onUnbindDevice={setUnbindTarget} isLight={isLight}
                       />
                     )

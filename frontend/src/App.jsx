@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext.jsx'
 import { DeviceCacheProvider } from './context/DeviceCacheContext.jsx'
 import { ZoneCacheProvider } from './context/ZoneCacheContext.jsx'
 import { UserCacheProvider } from './context/Usercachecontext.jsx'
+import { ProfileCacheProvider } from './context/ProfileCacheContext.jsx'
 import { AlertsProvider, useAlerts } from './context/AlertsContext.jsx'
 import { FieldStaffCacheProvider } from './context/FieldStaffCacheContext.jsx'
 import { SidebarDevicesProvider } from './context/SidebarDevicesContext.jsx'
@@ -19,7 +20,6 @@ import StickerDetail    from './pages/StickerDetail.jsx'
 import MapViewPage      from './pages/MapViewPage.jsx'
 import Alerts           from './pages/Alerts.jsx'
 import Reports          from './pages/Reports.jsx'
-import TrajectoryPage   from './pages/TrajectoryPage.jsx'
 import PlaybackPage     from './pages/PlaybackPage.jsx'
 import FencePage        from './pages/Fencepage.jsx'
 import FieldStaffDashboard from './pages/FieldStaffDashboard.jsx'
@@ -60,6 +60,7 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
     }}>
       <DeviceCacheProvider>
       <UserCacheProvider>
+      <ProfileCacheProvider>
       <ZoneCacheProvider>
       <FieldStaffCacheProvider>
       <SidebarDevicesProvider>
@@ -92,6 +93,7 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
       </SidebarDevicesProvider>
       </FieldStaffCacheProvider>
       </ZoneCacheProvider>
+      </ProfileCacheProvider>
       </UserCacheProvider>
       </DeviceCacheProvider>
     </AppCtx.Provider>

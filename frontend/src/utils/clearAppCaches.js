@@ -10,6 +10,11 @@ export const APP_CACHE_STORAGE_KEYS = {
   ALERTS_READ: 'tpl_alert_read_ids',
   SIDEBAR_RECENT: 'tpl_sidebar_recent_devices',
   RECENT_SEARCHES: 'tpl_recent_searches',
+  // Per-page search-history dropdowns. Kept separate (device serials vs user
+  // names/emails) and wiped here on logout so a shared browser can't leak the
+  // previous admin's searches.
+  SEARCH_HISTORY_DEVICES: 'tpl_search_history_devices',
+  SEARCH_HISTORY_USERS: 'tpl_search_history_users',
   LAST_LOGIN: 'citytag_last_login',
 };
 

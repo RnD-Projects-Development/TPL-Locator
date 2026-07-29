@@ -10,6 +10,8 @@ const TYPE_CONFIG_DARK = {
   GEOFENCE:       { label: 'Geofence Alert',  Icon: Shield,       color: '#FBBF24', bg: 'rgba(251,191,36,0.08)',   border: 'rgba(251,191,36,0.22)' },
   BATTERY_LOW:    { label: 'Low Battery',     Icon: Battery,      color: '#FB923C', bg: 'rgba(251,146,60,0.08)',   border: 'rgba(251,146,60,0.22)' },
   DEVICE_OFFLINE: { label: 'Device Offline',  Icon: AlertOctagon, color: '#F87171', bg: 'rgba(248,113,113,0.08)',  border: 'rgba(248,113,113,0.22)' },
+  ZONE_MISSING:   { label: 'Missing in Zone', Icon: AlertOctagon, color: '#F87171', bg: 'rgba(248,113,113,0.08)',  border: 'rgba(248,113,113,0.22)' },
+  ZONE_NO_SHOW:   { label: 'No Show',        Icon: AlertTriangle, color: '#FBBF24', bg: 'rgba(251,191,36,0.08)',   border: 'rgba(251,191,36,0.22)' },
 }
 
 const SEV_CONFIG_DARK = {
@@ -22,20 +24,22 @@ const SEV_CONFIG_DARK = {
 // ─── Light theme configs (enterprise) ─────────────────────────────────────────
 
 const TYPE_CONFIG_LIGHT = {
-  GEOFENCE:       { label: 'Geofence Alert',  Icon: Shield,       color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
-  BATTERY_LOW:    { label: 'Low Battery',     Icon: Battery,      color: '#EA580C', bg: '#FFF7ED', border: '#FED7AA' },
-  DEVICE_OFFLINE: { label: 'Device Offline',  Icon: AlertOctagon, color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
+  GEOFENCE:       { label: 'Geofence Alert',  Icon: Shield,       color: '#D97706', bg: '#FEF3C7', border: '#FDE68A' },
+  BATTERY_LOW:    { label: 'Low Battery',     Icon: Battery,      color: '#EA580C', bg: '#FFEDD5', border: '#FED7AA' },
+  DEVICE_OFFLINE: { label: 'Device Offline',  Icon: AlertOctagon, color: '#A72C32', bg: 'rgba(167,44,50,0.08)', border: 'rgba(167,44,50,0.2)' },
+  ZONE_MISSING:   { label: 'Missing in Zone', Icon: AlertOctagon, color: '#A72C32', bg: 'rgba(167,44,50,0.08)', border: 'rgba(167,44,50,0.2)' },
+  ZONE_NO_SHOW:   { label: 'No Show',        Icon: AlertTriangle, color: '#D97706', bg: '#FEF3C7', border: '#FDE68A' },
 }
 
 const SEV_CONFIG_LIGHT = {
-  critical: { color: '#DC2626', bg: '#FEF2F2', border: '1px solid #FECACA' },
-  high:     { color: '#EA580C', bg: '#FFF7ED', border: '1px solid #FED7AA' },
-  medium:   { color: '#D97706', bg: '#FFFBEB', border: '1px solid #FDE68A' },
-  low:      { color: '#2563EB', bg: '#EFF6FF', border: '1px solid #BFDBFE' },
+  critical: { color: '#A72C32', bg: 'rgba(167,44,50,0.08)', border: '1px solid rgba(167,44,50,0.2)' },
+  high:     { color: '#EA580C', bg: '#FFEDD5', border: '1px solid #FED7AA' },
+  medium:   { color: '#D97706', bg: '#FEF3C7', border: '1px solid #FDE68A' },
+  low:      { color: '#2563EB', bg: '#DBEAFE', border: '1px solid #BFDBFE' },
 }
 
 const FILTER_TABS  = ['All', 'Unread', 'Read']
-const TYPE_FILTERS = ['All', 'GEOFENCE', 'BATTERY_LOW', 'DEVICE_OFFLINE']
+const TYPE_FILTERS = ['All', 'GEOFENCE', 'ZONE_MISSING', 'ZONE_NO_SHOW', 'BATTERY_LOW', 'DEVICE_OFFLINE']
 
 function fmtTime(ts) {
   if (!ts) return '—'
@@ -72,35 +76,35 @@ export default function Alerts() {
 
   // ── Theme tokens ──────────────────────────────────────────────────────────
   const panel = isLight
-    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 18, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
+    ? { background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 18, boxShadow: '0 4px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.03)' }
     : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 18, boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
 
   const T = {
-    txt1:      isLight ? '#000000' : '#FFFFFF',
-    txt2:      isLight ? '#333333' : 'rgba(255,255,255,0.35)',
-    txt3:      isLight ? '#333333' : 'rgba(255,255,255,0.25)',
-    accent:    isLight ? '#DC2626' : '#A72C32',
-    divider:   isLight ? '#CFCFCF' : 'rgba(255,255,255,0.05)',
-    tabBg:     isLight ? '#DCDCDC' : 'rgba(255,255,255,0.04)',
-    tabBdr:    isLight ? '#C9C9C9' : 'rgba(255,255,255,0.08)',
-    tabTxt:    isLight ? '#333333' : 'rgba(255,255,255,0.40)',
+    txt1:      isLight ? '#111827' : '#FFFFFF',
+    txt2:      isLight ? '#4B5563' : 'rgba(255,255,255,0.35)',
+    txt3:      isLight ? '#6B7280' : 'rgba(255,255,255,0.25)',
+    accent:    isLight ? '#A72C32' : '#A72C32',
+    divider:   isLight ? '#E5E7EB' : 'rgba(255,255,255,0.05)',
+    tabBg:     isLight ? '#F3F4F6' : 'rgba(255,255,255,0.04)',
+    tabBdr:    isLight ? '#E5E7EB' : 'rgba(255,255,255,0.08)',
+    tabTxt:    isLight ? '#4B5563' : 'rgba(255,255,255,0.40)',
     btnGhostBg: isLight ? '#A72C32' : 'rgba(255,255,255,0.04)',
     btnGhostBdr: isLight ? '#8B2328' : 'rgba(255,255,255,0.10)',
     btnGhostTxt: isLight ? '#FFFFFF' : 'rgba(255,255,255,0.55)',
-    criticalBg:  isLight ? '#FEF2F2' : 'rgba(248,113,113,0.10)',
-    criticalBdr: isLight ? '#FECACA' : 'rgba(248,113,113,0.30)',
-    criticalTxt: isLight ? '#DC2626' : '#F87171',
-    readCardBg:  isLight ? '#DCDCDC' : '#1e1e1e',
-    readCardBdr: isLight ? '#CFCFCF' : 'rgba(255,255,255,0.05)',
-    skeletonBg:  isLight ? '#D2D2D2' : 'rgba(255,255,255,0.06)',
-    monoAccent:  isLight ? '#DC2626' : '#A72C32',
-    monoViolet:  isLight ? '#7C3AED' : '#A78BFA',
-    unreadDot:   isLight ? '#DC2626' : '#A72C32',
+    criticalBg:  isLight ? 'rgba(167,44,50,0.08)' : 'rgba(248,113,113,0.10)',
+    criticalBdr: isLight ? 'rgba(167,44,50,0.2)' : 'rgba(248,113,113,0.30)',
+    criticalTxt: isLight ? '#A72C32' : '#F87171',
+    readCardBg:  isLight ? '#F9FAFB' : '#1e1e1e',
+    readCardBdr: isLight ? '#E5E7EB' : 'rgba(255,255,255,0.05)',
+    skeletonBg:  isLight ? '#E5E7EB' : 'rgba(255,255,255,0.06)',
+    monoAccent:  isLight ? '#A72C32' : '#A72C32',
+    monoViolet:  isLight ? '#6D28D9' : '#A78BFA',
+    unreadDot:   isLight ? '#A72C32' : '#A72C32',
     btnMarkBg:   isLight ? '#A72C32' : 'transparent',
     btnMarkBdr:  isLight ? '#8B2328' : 'rgba(255,255,255,0.12)',
     btnMarkTxt:  isLight ? '#FFFFFF' : 'rgba(255,255,255,0.40)',
-    countChipBg: isLight ? '#FEF2F2' : 'rgba(248,113,113,0.10)',
-    countChipBdr: isLight ? '#FECACA' : 'rgba(248,113,113,0.30)',
+    countChipBg: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(248,113,113,0.10)',
+    countChipBdr: isLight ? 'rgba(167,44,50,0.2)' : 'rgba(248,113,113,0.30)',
   }
 
   const filtered = useMemo(() => alerts.filter(a => {
@@ -114,7 +118,7 @@ export default function Alerts() {
   const readCount     = alerts.filter(a => a.isRead).length
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, height: '100%', flex: 1, overflow: 'hidden' }}>
 
       {/* ── Page header ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -157,15 +161,6 @@ export default function Alerts() {
             </div>
           )}
 
-          <button onClick={refresh} disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 36, height: 36, borderRadius: 10,
-              background: T.btnGhostBg, border: `1px solid ${T.btnGhostBdr}`,
-              cursor: loading ? 'not-allowed' : 'pointer', color: loading ? T.txt3 : T.btnGhostTxt }}
-            onMouseEnter={e => { if (!loading) { if (isLight) e.currentTarget.style.background = '#8B2328'; else e.currentTarget.style.color = T.txt1 } }}
-            onMouseLeave={e => { if (isLight) e.currentTarget.style.background = T.btnGhostBg; else e.currentTarget.style.color = loading ? T.txt3 : T.btnGhostTxt }}>
-            <RefreshCw style={{ width: 14, height: 14, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-          </button>
         </div>
       </div>
 
@@ -247,7 +242,7 @@ export default function Alerts() {
       )}
 
       {/* ── Alert list ──────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1, paddingRight: 8, paddingBottom: 16 }}>
 
         {/* Loading skeleton */}
         {loading && alerts.length === 0 && (

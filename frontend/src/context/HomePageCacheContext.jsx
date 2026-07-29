@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useCityTag } from '../hooks/useCityTag.js';
 import { useBindCache } from './BindCacheContext.jsx';
-import { parseKMLText } from '../utils/geofenceUtils.js';
 import { registerCacheResetListener } from '../utils/clearAppCaches.js';
 
 const SUMMARY_CACHE_MS = 5 * 60 * 1000; // 5 minutes — matches device list cache
@@ -28,21 +27,20 @@ function deviceSignature(devices) {
     .join('|');
 }
 
-// Pakistan Time (PKT) offset: UTC+5, so subtract 5 hours to align queries with stored data
-const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
+// Stored timestamps are PKT wall-clock and the backend matches query bounds
+// directly, so emit the day's naive PKT wall-clock with no offset.
+const pad2 = (n) => String(n).padStart(2, "0");
+function naiveLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` +
+         `T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
 
 function dayRange(dateStr, isLive) {
-  // Subtract 5 hours to convert from UTC to Pakistan time for database alignment
-  const startUtc = new Date(`${dateStr}T00:00:00.000Z`);
-  const start = new Date(startUtc.getTime() - PKT_OFFSET_MS);
-
-  let end;
-  if (isLive) {
-    end = new Date(Date.now() + 2 * 3600 * 1000);
-  } else {
-    const endUtc = new Date(`${dateStr}T23:59:59.999Z`);
-    end = new Date(endUtc.getTime() - PKT_OFFSET_MS);
-  }
+  const start = `${dateStr}T00:00:00`;
+  // Live: extend ~2h past now (PKT wall-clock) so the newest fixes are included.
+  const end = isLive
+    ? naiveLocal(new Date(Date.now() + 2 * 3600 * 1000))
+    : `${dateStr}T23:59:59`;
   return { start, end };
 }
 
@@ -62,7 +60,6 @@ export function HomePageCacheProvider({ children }) {
   const [locSync, setLocSync] = useState(null);
   const [activityData, setActivityData] = useState({});
   const [chartLoading, setChartLoading] = useState(false);
-  const [kmlAreas, setKmlAreas] = useState([]);
 
   // Stable refs so callbacks don't need devices/filters in their dep arrays
   const devicesRef = useRef([]);
@@ -98,7 +95,7 @@ export function HomePageCacheProvider({ children }) {
 
   useEffect(() => registerCacheResetListener(resetInMemoryCache), [resetInMemoryCache]);
 
-  const fetchDevices = useCallback(async ({ force = false } = {}) => {
+  const fetchDevices = useCallback(async ({ force = false, silent = false } = {}) => {
     const cacheKey = 'devices';
     const cacheAgeMs = Date.now() - deviceCacheRef.current.fetchedAt;
     if (!force && deviceCacheRef.current.key === cacheKey && cacheAgeMs < 5 * 60 * 1000 && deviceCacheRef.current.data.length) {
@@ -107,7 +104,7 @@ export function HomePageCacheProvider({ children }) {
       return deviceCacheRef.current.data;
     }
 
-    setDevLoading(true);
+    if (!silent) setDevLoading(true);
     try {
       // Backend hard-caps `limit` at 500 per request, so page through the rest
       // to load the whole fleet — dashboard counts (unassigned, per-user, top
@@ -137,11 +134,11 @@ export function HomePageCacheProvider({ children }) {
     } catch {
       return deviceCacheRef.current.data;
     } finally {
-      setDevLoading(false);
+      if (!silent) setDevLoading(false);
     }
   }, [getDevices, updateFromDevices]);
 
-  const fetchSummary = useCallback(async ({ force = false } = {}) => {
+  const fetchSummary = useCallback(async ({ force = false, silent = false } = {}) => {
     const cacheAgeMs = Date.now() - summaryCacheRef.current.fetchedAt;
     if (
       !force &&
@@ -152,7 +149,7 @@ export function HomePageCacheProvider({ children }) {
       return summaryCacheRef.current.data;
     }
 
-    setSummaryLoading(true);
+    if (!silent) setSummaryLoading(true);
     try {
       const res = await getDevicesSummary();
       const data =
@@ -165,18 +162,13 @@ export function HomePageCacheProvider({ children }) {
     } catch {
       return summaryCacheRef.current.data;
     } finally {
-      setSummaryLoading(false);
+      if (!silent) setSummaryLoading(false);
     }
   }, [getDevicesSummary]);
 
-  // ── Fetch devices + KML once on mount ─────────────────────────────────────
+  // ── Fetch devices once on mount ───────────────────────────────────────────
   useEffect(() => {
     void refreshAll({ force: true });
-
-    fetch('/areas.kml')
-      .then(r => r.text())
-      .then(text => setKmlAreas(parseKMLText(text)))
-      .catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -209,7 +201,7 @@ export function HomePageCacheProvider({ children }) {
   }, [getLatestLocationsBatch]);
 
   // ── Internal: fetch activity only ─────────────────────────────────────────
-  const fetchActivity = useCallback(async (dateStr, live, { force = false, deviceList = null } = {}) => {
+  const fetchActivity = useCallback(async (dateStr, live, { force = false, deviceList = null, silent = false } = {}) => {
     const devs = (deviceList || devicesRef.current).slice();
     const sns = devs.map(d => d.sn ?? d.serialNumber ?? '').filter(Boolean);
     if (!sns.length) {
@@ -228,7 +220,7 @@ export function HomePageCacheProvider({ children }) {
 
     const requestId = ++activityRequestRef.current;
     const { start, end } = dayRange(dateStr, live);
-    setChartLoading(true);
+    if (!silent) setChartLoading(true);
     try {
       const res = await getPlaybackBatch(sns, start, end);
       if (requestId !== activityRequestRef.current) return cache?.data ?? {};
@@ -237,15 +229,24 @@ export function HomePageCacheProvider({ children }) {
       activityCacheRef.current.set(sig, { fetchedAt: Date.now(), data: map });
       return map;
     } finally {
-      if (requestId === activityRequestRef.current) {
+      if (requestId === activityRequestRef.current && !silent) {
         setChartLoading(false);
       }
     }
   }, [getPlaybackBatch]);
 
   // ── refreshAll — single entry point for both manual button and auto-refresh
-  const refreshAll = useCallback(async ({ force = true } = {}) => {
+  const refreshAll = useCallback(async ({ force = true, silent = false } = {}) => {
     const f = filtersRef.current;
+    if (silent) {
+      // Background auto-refresh: run calls sequentially (not Promise.all) to
+      // avoid a request / CPU spike, and keep loaders off so old data stays.
+      const deviceList = await fetchDevices({ force, silent });
+      await fetchSummary({ force, silent });
+      await fetchLocations({ force, deviceList });
+      await fetchActivity(f.date, f.date === todayStr(), { force, silent, deviceList });
+      return;
+    }
     const [deviceList] = await Promise.all([
       fetchDevices({ force }),
       fetchSummary({ force }),
@@ -276,7 +277,6 @@ export function HomePageCacheProvider({ children }) {
       summary, summaryLoading, fetchSummary,
       locations, locSync,
       activityData, chartLoading,
-      kmlAreas,
       refreshAll,
     }}>
       {children}

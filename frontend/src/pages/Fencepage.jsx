@@ -4,11 +4,21 @@ import loadTPLMaps from '../components/loadTPLMaps.js';
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useZoneCache } from '../context/ZoneCacheContext.jsx';
-import { createPolygonManager, pointInPolygon, pointInMultiPolygon } from '../utils/zonePolygonManager.js';
+import {
+  createPolygonManager,
+  pointInPolygon,
+  pointInMultiPolygon,
+  buildDeviceColorMap,
+  deviceColor,
+} from '../utils/zonePolygonManager.js';
+import { useResizablePanel } from '../hooks/useResizablePanel.js';
 import ZoneSidebar from '../components/ZoneSidebar.jsx';
 import ZoneToolbox from '../components/ZoneToolbox.jsx';
 import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
+import ConfirmDeleteDeviceModal from '../components/ConfirmDeleteDeviceModal.jsx';
+import ZoneDetailSidebar from '../components/ZoneDetailSidebar.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
+import { frameBounds } from '../utils/frameBounds.js';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -20,6 +30,28 @@ const TRACK_RANGES = [
   { label: '14D', days: 14 },
   { label: '30D', days: 30 },
 ];
+
+// Same rule the backend uses (_get_device_status): a device counts as online
+// while its newest location report is under 12 hours old.
+const ONLINE_THRESHOLD_MS = 720 * 60 * 1000;
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// Location timestamps are stored as naive Pakistan wall-clock, so range queries
+// must be sent as naive strings too — toISOString() would shift the window by
+// the browser's UTC offset and silently drop the most recent hours of points.
+// Mirrors naiveLocal() in PlaybackPage.jsx / playbackCache.js.
+function naiveLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T` +
+         `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function isRecentReport(ts) {
+  if (!ts) return false;
+  const t = new Date(ts).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t < ONLINE_THRESHOLD_MS;
+}
 
 // ─── Entry/exit detection ─────────────────────────────────────────────────────
 function computeEntryExits(allPoints, isInZone) {
@@ -62,7 +94,7 @@ class ErrorBoundary extends Component {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 function FencePageInner() {
-  const { devices, refresh } = useDeviceCache();
+  const { devices, refresh, silentRefresh } = useDeviceCache();
   const { accessToken, isAdmin } = useAuth();
   const { zones, refreshZones, zonesLoading } = useZoneCache();
 
@@ -82,11 +114,17 @@ function FencePageInner() {
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [assignments,     setAssignments]     = useState({});
   const [assignModal,     setAssignModal]     = useState(null);
+  const [deleteTarget,    setDeleteTarget]    = useState(null);  // { entry, zone_id, zoneName }
   const [assigningZoneId, setAssigningZoneId] = useState(null);
   const [deviceTracks,    setDeviceTracks]    = useState([]);
   const [tracksLoading,   setTracksLoading]   = useState(false);
   const [tracksFetchKey,  setTracksFetchKey]  = useState(0);
   const [tracksRangeDays, setTracksRangeDays] = useState(7);
+
+  // User-adjustable zone sidebar width (drag the divider, double-click resets).
+  const zonePanel = useResizablePanel('fp_sidebar_w', { defaultWidth: 260, min: 220, max: 480, edge: 'right' });
+  const rightPanel = useResizablePanel('fp_sidebar_right_w', { defaultWidth: 260, min: 220, max: 480, edge: 'left' });
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
 
   // Keep refs in sync
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
@@ -130,7 +168,7 @@ function FencePageInner() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Render KML polygons — re-renders when zones update (e.g. after geocoding) ──
+  // ── Render zone polygons — re-renders when zones update (e.g. after geocoding) ──
   useEffect(() => {
     if (!mapReady || !polygonManager.current || !zones.length) return;
     polygonManager.current.renderZones(zones, {
@@ -167,6 +205,56 @@ function FencePageInner() {
     return result;
   }, [assignments]);
 
+  // One distinct colour per device in the selected zone. Assigned over the whole
+  // set (not hashed per-sn) so two devices can never come out the same colour.
+  const zoneColorMap = useMemo(
+    () => buildDeviceColorMap((assignments[selectedZoneId] || []).map((d) => d.sn)),
+    [assignments, selectedZoneId],
+  );
+
+  // Tracks + their assigned colour. Kept separate from the fetch so a colour
+  // change never re-triggers a network round-trip.
+  const coloredTracks = useMemo(
+    () => deviceTracks.map((t) => ({ ...t, color: zoneColorMap[t.sn] || deviceColor(t.sn) })),
+    [deviceTracks, zoneColorMap],
+  );
+
+  // Rows for the right sidebar: presence (online/offline) comes from the newest
+  // location report; zone membership comes from where that same newest report
+  // falls relative to this zone's polygon.
+  const zoneDeviceRows = useMemo(() => {
+    const list = assignments[selectedZoneId] || [];
+    const trackBySn = Object.fromEntries(coloredTracks.map((t) => [t.sn, t]));
+
+    return list.map((d) => {
+      const dev   = devices.find((x) => x.sn === d.sn);
+      const track = trackBySn[d.sn];
+      const lastReportAt = dev?.dataRetrievalTime || track?.lastPoint?.timestamp || null;
+
+      const presence =
+        String(dev?.status || '').toLowerCase() === 'online' || isRecentReport(track?.lastPoint?.timestamp)
+          ? 'online'
+          : 'offline';
+
+      let zoneStatus = 'NO_DATA';
+      if (track?.lastPoint) zoneStatus = track.lastPointInside ? 'IN_ZONE' : 'OUT_OF_ZONE';
+
+      return {
+        ...d,
+        presence,
+        zoneStatus,
+        lastReportAt,
+        color: zoneColorMap[d.sn] || deviceColor(d.sn),
+      };
+    });
+  }, [assignments, selectedZoneId, coloredTracks, devices, zoneColorMap]);
+
+  // Draw device dots whenever the tracks or their colours change.
+  useEffect(() => {
+    if (!mapReady || !polygonManager.current) return;
+    polygonManager.current.renderDeviceDots(coloredTracks);
+  }, [coloredTracks, mapReady]);
+
   // ── Zone selection → map highlight + zoom to zone bounds ─────────────────────
   useEffect(() => {
     if (!mapReady || !polygonManager.current) return;
@@ -183,7 +271,7 @@ function FencePageInner() {
     if (pts.length < 2) return;
     try {
       const bounds = window.L.latLngBounds(pts);
-      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+      frameBounds(mapRef.current, bounds, { padding: [50, 50], maxZoom: 17 });
     } catch {}
   }, [selectedZoneId, mapReady, zones]);
 
@@ -202,7 +290,7 @@ function FencePageInner() {
     const end   = new Date();
     const start = new Date(end.getTime() - tracksRangeDays * 24 * 60 * 60 * 1000);
     const url   = `${API_BASE_URL}/api/geofence/tracks/${encodeURIComponent(selectedZoneId)}` +
-                  `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
+                  `?start=${encodeURIComponent(naiveLocal(start))}&end=${encodeURIComponent(naiveLocal(end))}`;
 
     const fetchTag = selectedZoneId;
     tracksFetchZoneRef.current = fetchTag;
@@ -222,19 +310,36 @@ function FencePageInner() {
         const tracks = (data.devices || []).map((dev) => {
           const deviceDoc = devicesRef.current.find((d) => d.sn === dev.sn);
           const user_name = deviceDoc?.assigned_user_name || deviceDoc?.assignedUser || dev.sn;
-          const allPoints     = (dev.points || []).map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp ?? null }));
+          // Keep only points the map can actually plot, then re-sort by time —
+          // the in/out-of-zone badge depends on the true newest report, so it
+          // must not rely on the server's ordering holding after filtering.
+          const allPoints = (dev.points || [])
+            .filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
+            .map(p => ({ lat: p.lat, lng: p.lng, timestamp: p.timestamp ?? null }))
+            .sort((a, b) => new Date(a.timestamp ?? 0) - new Date(b.timestamp ?? 0));
+
+          const dropped = (dev.points || []).length - allPoints.length;
+          if (dropped > 0) {
+            console.warn('[fence] sn=%s dropped %d point(s) with invalid lat/lng', dev.sn, dropped);
+          }
+
           const insidePoints  = allPoints.filter(p => isInZone(p.lat, p.lng));
           const outsidePoints = allPoints.filter(p => !isInZone(p.lat, p.lng));
           const events        = computeEntryExits(allPoints, isInZone);
+          const lastPoint     = allPoints.at(-1) ?? null;
+
           return {
             sn: dev.sn, user_name, insidePoints, outsidePoints, events,
             firstSeen: insidePoints[0]?.timestamp ?? null,
             lastSeen:  insidePoints.at(-1)?.timestamp ?? null,
+            // Latest report overall — drives the IN ZONE / OUT OF ZONE badge.
+            lastPoint,
+            lastPointInside: lastPoint ? isInZone(lastPoint.lat, lastPoint.lng) : false,
+            totalPoints: allPoints.length,
           };
         });
 
         setDeviceTracks(tracks);
-        polygonManager.current?.renderDeviceDots(tracks);
         setTracksLoading(false);
 
         // Fire browser notifications for detected entry/exit events
@@ -274,46 +379,66 @@ function FencePageInner() {
     return () => { if (tracksFetchZoneRef.current === fetchTag) tracksFetchZoneRef.current = null; };
   }, [selectedZoneId, mapReady, accessToken, authHeaders, tracksFetchKey, tracksRangeDays]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Assign device ─────────────────────────────────────────────────────────────
-  async function handleAssign(zone_id, sn) {
-    if (!sn || String(sn).trim() === '' || String(sn) === 'undefined') {
-      setAssigningZoneId(null);
-      throw new Error('Cannot assign device: serial number is missing or invalid.');
-    }
+  // ── Assign devices ────────────────────────────────────────────────────────────
+  // Takes a list so several devices can go into a zone in one pass. The API is
+  // one-SN-per-call, so this walks the list and reports per-device failures
+  // instead of aborting the whole batch on the first error.
+  async function handleAssign(zone_id, sns, onProgress) {
+    const list = Array.isArray(sns) ? sns : [sns];
     setAssigningZoneId(zone_id);
+    const failures = [];
+    let done = 0;
+
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}/assign`,
-        { method: 'POST', headers: authHeaders(), body: JSON.stringify({ sn: String(sn).trim() }) },
-      );
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody?.detail || `Assignment failed (HTTP ${res.status})`);
+      for (const raw of list) {
+        const sn = String(raw ?? '').trim();
+        if (!sn || sn === 'undefined') {
+          failures.push({ sn: String(raw), message: 'serial number is missing or invalid' });
+        } else {
+          try {
+            const res = await fetch(
+              `${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}/assign`,
+              { method: 'POST', headers: authHeaders(), body: JSON.stringify({ sn }) },
+            );
+            if (!res.ok) {
+              const errBody = await res.json().catch(() => ({}));
+              failures.push({ sn, message: errBody?.detail || `HTTP ${res.status}` });
+            }
+          } catch (err) {
+            failures.push({ sn, message: err?.message || 'network error' });
+          }
+        }
+        done += 1;
+        onProgress?.(done);
       }
-      setAssignModal(null);
-      await refresh();
+
+      // Force-refresh: the fleet cache has a 5-minute TTL, so a plain refresh()
+      // would hand back the pre-assignment list and the zone would look empty.
+      await silentRefresh();
       setTracksFetchKey((k) => k + 1);
-    } catch (err) {
-      throw err;
+      return { failures };
     } finally {
       setAssigningZoneId(null);
     }
   }
 
-  // ── Unassign device ───────────────────────────────────────────────────────────
-  async function handleUnassign(sn, zone_id) {
-    // Optimistic UI update
-    setZoneStatuses((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
-    setAssignments((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
-    setDeviceTracks((prev) => {
-      const next = prev.filter((t) => t.sn !== sn);
-      polygonManager.current?.renderDeviceDots(next);
-      return next;
-    });
-    fetch(
+  // ── Delete device from zone ───────────────────────────────────────────────────
+  // Only ever called after the user confirms in ConfirmDeleteDeviceModal. Local
+  // state is updated after the API call succeeds, so a failed delete leaves the
+  // UI matching what is actually in the database.
+  async function handleDeleteDevice(sn, zone_id) {
+    const res = await fetch(
       `${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}/assign/${encodeURIComponent(sn)}`,
       { method: 'DELETE', headers: authHeaders() },
-    ).catch(() => refresh());
+    );
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Delete failed (HTTP ${res.status})`);
+    }
+
+    setAssignments((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
+    setDeviceTracks((prev) => prev.filter((t) => t.sn !== sn));
+    await silentRefresh();
   }
 
   // ── Zone toolbox handlers ─────────────────────────────────────────────────────
@@ -389,16 +514,16 @@ function FencePageInner() {
 
       {/* Body */}
       <div className="fp-body">
+        <div className="pb-panel-resizable" style={{ width: zonePanel.width }}>
         <ZoneSidebar
           zones={zones}
           selectedZoneId={selectedZoneId}
-          onSelect={setSelectedZoneId}
+          onSelect={(id) => { setSelectedZoneId(id); if (id) setIsRightSidebarOpen(true); }}
           zoneStatuses={displayStatuses}
           assignments={assignments}
           onOpenAssign={isAdmin ? (zone) => setAssignModal({ zone }) : null}
-          onUnassign={isAdmin ? handleUnassign : null}
           assigningZoneId={assigningZoneId}
-          deviceTracks={deviceTracks}
+          deviceTracks={coloredTracks}
           tracksLoading={tracksLoading}
           zonesLoading={zonesLoading}
           onCreateZone={isAdmin ? () => {
@@ -408,10 +533,57 @@ function FencePageInner() {
           onEditZone={isAdmin ? handleEditZone : null}
           onDeleteZone={isAdmin ? handleDeleteZone : null}
         />
+        </div>
+        <div className="pb-resizer" {...zonePanel.handleProps} />
         <div className="fp-map-wrap" ref={mapWrapRef}>
           <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />
           {tracksLoading && <TPLLoader overlay label="Fetching GPS tracks…" />}
+          
+          {/* Floating Expand Button (only when closed) */}
+          {!isRightSidebarOpen && selectedZoneId && (
+            <div className="fp-expand-hover-zone">
+              <div className="fp-expand-btn-wrapper">
+                <button className="btn-uiverse" onClick={() => setIsRightSidebarOpen(true)} title="Expand sidebar">
+                  <div className="btn-uiverse-box" style={{ transform: 'scaleX(-1)', left: 'auto', right: 0 }}>
+                    <span className="btn-uiverse-elem">
+                      <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path>
+                      </svg>
+                    </span>
+                    <span className="btn-uiverse-elem">
+                      <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path>
+                      </svg>
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+
+        {isRightSidebarOpen && (
+          <>
+            <div className="pb-resizer" {...rightPanel.handleProps} />
+            <div className="pb-panel-resizable" style={{ width: rightPanel.width, background: 'var(--surface-1)', borderLeft: '1px solid var(--border-default)', height: '100%' }}>
+              <ZoneDetailSidebar
+                zone={zones.find(z => z.zone_id === selectedZoneId)}
+                zoneDevices={zoneDeviceRows}
+                statusLoading={false}
+                isAssigning={assigningZoneId === selectedZoneId}
+                deviceTracks={coloredTracks}
+                tracksLoading={tracksLoading}
+                onDeleteDevice={isAdmin ? (entry) => setDeleteTarget({
+                  entry,
+                  zone_id: selectedZoneId,
+                  zoneName: zones.find(z => z.zone_id === selectedZoneId)?.name || 'this zone',
+                }) : null}
+                onClose={() => setIsRightSidebarOpen(false)}
+              />
+            </div>
+          </>
+        )}
+
 
         {toolboxMode && (
           <ZoneToolbox
@@ -431,8 +603,19 @@ function FencePageInner() {
           zone={assignModal.zone}
           devices={devices}
           assignments={assignments}
-          onAssign={(sn) => handleAssign(assignModal.zone.zone_id, sn)}
+          onAssign={(sns, onProgress) => handleAssign(assignModal.zone.zone_id, sns, onProgress)}
           onClose={() => setAssignModal(null)}
+        />
+      )}
+
+      {/* Delete-device disclaimer — nothing is written until this is confirmed */}
+      {deleteTarget && (
+        <ConfirmDeleteDeviceModal
+          deviceLabel={deleteTarget.entry.user_name || deleteTarget.entry.sn}
+          sn={deleteTarget.entry.sn}
+          zoneName={deleteTarget.zoneName}
+          onConfirm={() => handleDeleteDevice(deleteTarget.entry.sn, deleteTarget.zone_id)}
+          onClose={() => setDeleteTarget(null)}
         />
       )}
 

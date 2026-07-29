@@ -8,11 +8,11 @@
 .area-sel-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.25em;
 }
 
 .area-sel-label {
-  font-size: 10px;
+  font-size: 0.625em;
   font-weight: 700;
   color: var(--text-secondary);
   letter-spacing: 0.08em;
@@ -25,16 +25,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 0.5em;
   background: var(--surface-3);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  padding: 4px 9px;
+  padding: 0.25em 0.5625em;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 0.6875em;
   font-family: var(--font-mono);
-  height: 30px;
-  min-width: 160px;
+  height: 1.875em;
+  min-width: 10em;
   cursor: pointer;
   transition: var(--transition-fast);
   text-align: left;
@@ -44,7 +44,7 @@
 
 .area-sel-trigger.open {
   border-color: var(--brand);
-  box-shadow: 0 0 0 2px var(--brand-dim);
+  box-shadow: 0 0 0 0.125em var(--brand-dim);
 }
 
 .area-sel-trigger:disabled {
@@ -60,8 +60,8 @@
 }
 
 .area-sel-chevron {
-  width: 11px;
-  height: 11px;
+  width: 0.6875em;
+  height: 0.6875em;
   flex-shrink: 0;
   color: var(--text-tertiary);
   transition: transform 0.15s;
@@ -74,10 +74,10 @@
 /* ─── Dropdown panel ─────────────────────────────── */
 .area-sel-dropdown {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 0.375em);
   right: 0;
   z-index: 99999 !important;
-  width: 260px;
+  width: 16.25em;
   background: #18181b;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
@@ -91,15 +91,15 @@
 .area-sel-search-wrap {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 0.375em;
+  padding: 0.5em 0.625em;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-inset);
 }
 
 .area-sel-search-icon {
-  width: 12px;
-  height: 12px;
+  width: 0.75em;
+  height: 0.75em;
   flex-shrink: 0;
   color: var(--text-tertiary);
 }
@@ -110,7 +110,7 @@
   border: none;
   outline: none;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 0.75em;
   font-family: var(--font-mono);
   padding: 0;
 }
@@ -122,9 +122,9 @@
   border: none;
   color: var(--text-tertiary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.875em;
   line-height: 1;
-  padding: 0 2px;
+  padding: 0 0.125em;
   display: flex;
   align-items: center;
   transition: color 0.1s;
@@ -134,22 +134,22 @@
 /* ─── List ───────────────────────────────────────── */
 .area-sel-list {
   overflow-y: auto;
-  max-height: 240px;
+  max-height: 15em;
 }
 
-.area-sel-list::-webkit-scrollbar       { width: 3px; }
-.area-sel-list::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 2px; }
+.area-sel-list::-webkit-scrollbar       { width: 0.1875em; }
+.area-sel-list::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 0.125em; }
 
 .area-sel-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: 0.5em 0.75em;
+  font-size: 0.75em;
   color: var(--text-secondary);
   cursor: pointer;
   transition: background 0.1s, color 0.1s;
-  gap: 8px;
+  gap: 0.5em;
 }
 
 .area-sel-item:hover {
@@ -165,7 +165,7 @@
 .area-sel-item.selected .area-sel-item-name::before {
   content: '✓ ';
   color: var(--text-brand);
-  font-size: 10px;
+  font-size: 0.625em;
 }
 
 .area-sel-item-all {
@@ -182,23 +182,23 @@
 }
 
 .area-sel-item-meta {
-  font-size: 10px;
+  font-size: 0.625em;
   color: var(--text-tertiary);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .area-sel-empty {
-  padding: 16px 12px;
-  font-size: 12px;
+  padding: 1em 0.75em;
+  font-size: 0.75em;
   color: var(--text-tertiary);
   text-align: center;
 }
 
 /* ─── Footer ─────────────────────────────────────── */
 .area-sel-footer {
-  padding: 6px 12px;
-  font-size: 10px;
+  padding: 0.375em 0.75em;
+  font-size: 0.625em;
   color: var(--text-tertiary);
   border-top: 1px solid var(--border-subtle);
   text-align: right;

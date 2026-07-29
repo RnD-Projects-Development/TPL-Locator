@@ -1,28 +1,32 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isValidEmail, normalizeEmail } from "../utils/email.js";
-import { isValidIdentifier } from "../utils/userContact.js";
+import { isValidIdentifier, isValidPakistaniPhone } from "../utils/userContact.js";
 import ForgotPasswordForm from "./ForgotPasswordForm.jsx";
+import BackButton from "./common/BackButton.jsx";
 
 const MODE = { LOGIN: "login", SIGNUP: "signup", FORGOT: "forgot" };
+const LOGIN_METHOD = { PASSWORD: "password", OTP: "otp" };
 
 export default function LoginForm() {
   const navigate = useNavigate();
-  const { login, signup, requestSignupVerification } = useCityTag();
+  const { login, signup, requestLoginOtp } = useCityTag();
   const { loginSuccess } = useAuth();
 
   const [mode, setMode] = useState(MODE.LOGIN);
+  const [loginMethod, setLoginMethod] = useState(LOGIN_METHOD.PASSWORD);
   const [name, setName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
-  const [emailTouched, setEmailTouched] = useState(false);
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [otp, setOtp] = useState("");
-  const [verificationToken, setVerificationToken] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
+  const [loginToken, setLoginToken] = useState("");
+  const [loginOtpSent, setLoginOtpSent] = useState(false);
+  const [deliveryEmail, setDeliveryEmail] = useState("");
   const [sendingOtp, setSendingOtp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -31,43 +35,43 @@ export default function LoginForm() {
   const isSignup = mode === MODE.SIGNUP;
   const isLogin = mode === MODE.LOGIN;
   const isForgot = mode === MODE.FORGOT;
+  const isPasswordLogin = isLogin && loginMethod === LOGIN_METHOD.PASSWORD;
+  const isOtpLogin = isLogin && loginMethod === LOGIN_METHOD.OTP;
 
-  const identifierIsEmail = identifier.trim().includes("@");
-  const emailAutoFilled = identifierIsEmail && isValidEmail(identifier);
   const identifierError = identifier && !isValidIdentifier(identifier);
   const emailError = email && !isValidEmail(email);
-
-  useEffect(() => {
-    if (isSignup && emailAutoFilled && !emailTouched) {
-      setEmail(normalizeEmail(identifier));
-    }
-  }, [isSignup, identifier, emailAutoFilled, emailTouched]);
+  const phoneError = phone && !isValidPakistaniPhone(phone);
 
   const signupFormReady =
-    name.trim() &&
-    identifier.trim() &&
-    isValidIdentifier(identifier) &&
-    email.trim() &&
-    isValidEmail(email) &&
+    phone.trim() &&
+    isValidPakistaniPhone(phone) &&
+    (!email.trim() || isValidEmail(email)) &&
     password.length >= 6 &&
     confirmPassword &&
     password === confirmPassword;
 
-  const canSendOtp = isSignup && signupFormReady && !sendingOtp && !loading;
+  const canSendLoginOtp =
+    isOtpLogin &&
+    identifier.trim() &&
+    isValidIdentifier(identifier) &&
+    !sendingOtp &&
+    !loading;
 
   const canSubmit = (() => {
     if (loading || sendingOtp) return false;
-    if (!identifier.trim() || !password) return false;
-    if (!isValidIdentifier(identifier)) return false;
-    if (isLogin) return true;
-    if (!signupFormReady) return false;
-    return otpSent && verificationToken && otp.trim().length >= 4;
+    if (isLogin) {
+      if (!identifier.trim() || !isValidIdentifier(identifier)) return false;
+      if (isPasswordLogin) return Boolean(password);
+      return loginOtpSent && loginToken && otp.trim().length >= 4;
+    }
+    return signupFormReady;
   })();
 
-  function resetVerification() {
+  function resetLoginOtp() {
     setOtp("");
-    setVerificationToken("");
-    setOtpSent(false);
+    setLoginToken("");
+    setLoginOtpSent(false);
+    setDeliveryEmail("");
     setInfo("");
   }
 
@@ -77,45 +81,37 @@ export default function LoginForm() {
     setInfo("");
     setConfirmPassword("");
     setEmail("");
-    setEmailTouched(false);
-    resetVerification();
+    setPhone("");
+    setLoginMethod(LOGIN_METHOD.PASSWORD);
+    resetLoginOtp();
   }
 
-  function onIdentifierChange(value) {
-    setIdentifier(value);
-    resetVerification();
-    if (!value.trim().includes("@")) {
-      setEmailTouched(false);
-    }
-  }
-
-  function onEmailChange(value) {
-    setEmail(value);
-    setEmailTouched(true);
-    resetVerification();
-  }
-
-  async function onSendOtp() {
+  function switchLoginMethod(method) {
+    setLoginMethod(method);
     setError("");
     setInfo("");
-    const normalizedEmail = normalizeEmail(email);
-    if (!canSendOtp || !isValidEmail(normalizedEmail)) return;
+    setPassword("");
+    resetLoginOtp();
+  }
+
+  async function onSendLoginOtp() {
+    setError("");
+    setInfo("");
+    if (!canSendLoginOtp) return;
 
     setSendingOtp(true);
     try {
-      const res = await requestSignupVerification({
-        email: normalizedEmail,
-        identifier: identifier.trim(),
-      });
-      if (!res.verification_token) {
-        setError("Unable to send verification code. Please try again.");
+      const res = await requestLoginOtp({ identifier: identifier.trim() });
+      if (!res.login_token) {
+        setError("Unable to send login code. Please try again.");
         return;
       }
-      setVerificationToken(res.verification_token);
-      setOtpSent(true);
-      setInfo(res.message || "Verification code sent. Check your email.");
+      setLoginToken(res.login_token);
+      setLoginOtpSent(true);
+      setDeliveryEmail(res.delivery_email || "");
+      setInfo(res.message || "Login code sent. Check your email.");
     } catch (err) {
-      setError(err.message || "Unable to send verification code");
+      setError(err.message || "Unable to send login code");
     } finally {
       setSendingOtp(false);
     }
@@ -127,30 +123,28 @@ export default function LoginForm() {
     setLoading(true);
     try {
       if (isSignup) {
-        const normalizedEmail = normalizeEmail(email);
-        await signup({
-          identifier: identifier.trim(),
-          email: normalizedEmail,
+        const normalizedEmail = email.trim() ? normalizeEmail(email) : "";
+        const res = await signup({
+          phone: phone.trim(),
           password,
-          name: name.trim(),
-          verification_token: verificationToken,
-          otp: otp.trim(),
-        });
-        const res = await login({
-          identifier: identifier.trim(),
-          password,
+          ...(name.trim() ? { name: name.trim() } : {}),
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
         });
         loginSuccess({
-          user: res.account ?? null,
+          user: res.user ?? res.account ?? null,
           accessToken: res.access_token,
-          role: res.account?.role ?? "user",
+          role: res.user?.role ?? res.account?.role ?? "user",
         });
         navigate("/devices");
       } else {
-        const res = await login({
-          identifier: identifier.trim(),
-          password,
-        });
+        const loginPayload = { identifier: identifier.trim() };
+        if (isPasswordLogin) {
+          loginPayload.password = password;
+        } else {
+          loginPayload.otp = otp.trim();
+          loginPayload.login_token = loginToken;
+        }
+        const res = await login(loginPayload);
         loginSuccess({
           user: res.account ?? null,
           accessToken: res.access_token,
@@ -170,141 +164,192 @@ export default function LoginForm() {
     : loading ? "Logging in..." : "Login";
 
   if (isForgot) {
-    return <ForgotPasswordForm onBack={() => switchMode(MODE.LOGIN)} />;
+    return (
+      <div key={mode} className="auth-fade-in" style={{ width: "100%" }}>
+        <ForgotPasswordForm onBack={() => switchMode(MODE.LOGIN)} />
+      </div>
+    );
   }
 
   return (
-    <div>
+    <div key={mode} className="auth-fade-in" style={{ width: isSignup ? "42em" : "26em", maxWidth: "100%", transition: "width 0.3s ease" }}>
       {isSignup && (
-        <button
-          type="button"
+        <BackButton
+          label="Back to login"
           onClick={() => switchMode(MODE.LOGIN)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            background: "none",
-            border: "none",
-            color: "rgba(255,255,255,0.5)",
-            cursor: "pointer",
-            fontSize: 12,
-            fontWeight: 600,
-            marginBottom: 16,
-            padding: 0,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-          }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          Back to Login
-        </button>
+          style={{ marginBottom: "0.5em" }}
+        />
       )}
 
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form onSubmit={onSubmit}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: isSignup ? "1fr 1fr" : "1fr",
+          gap: "1em",
+          alignItems: "start"
+        }}>
         {isSignup && (
-          <div>
-            <label className="block text-sm font-medium text-white">Full Name</label>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label className="auth-label">Full Name</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
               type="text"
               placeholder="e.g. John Doe"
               autoComplete="name"
-              required
             />
           </div>
         )}
 
-        <div>
-          <label className="block text-sm font-medium text-white">Email or Phone Number</label>
-          <input
-            className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-            style={{ borderColor: identifierError ? "#ef4444" : "#cbd5e1" }}
-            value={identifier}
-            onChange={(e) => onIdentifierChange(e.target.value)}
-            type="text"
-            autoComplete="username"
-            placeholder="Email or phone number"
-            required
-          />
-          {identifierError && (
-            <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
-              Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
-            </p>
-          )}
-        </div>
+        {isLogin && (
+          <div>
+            <label className="auth-label">Email or Phone Number</label>
+            <input
+              className="auth-input"
+              style={identifierError ? { borderColor: "#ef4444" } : {}}
+              value={identifier}
+              onChange={(e) => {
+                setIdentifier(e.target.value);
+                resetLoginOtp();
+              }}
+              type="text"
+              autoComplete="username"
+              placeholder="Email or phone number"
+              required
+            />
+            {identifierError && (
+              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+                Enter a valid email or Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
+              </p>
+            )}
+          </div>
+        )}
+
+        {isLogin && (
+          <div>
+            <label className="block text-sm font-medium text-white mb-2">Sign in with</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => switchLoginMethod(LOGIN_METHOD.PASSWORD)}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: loginMethod === LOGIN_METHOD.PASSWORD ? "2px solid #cc4444" : "1px solid #cbd5e1",
+                  background: loginMethod === LOGIN_METHOD.PASSWORD ? "rgba(204,68,68,0.15)" : "#fff",
+                  color: loginMethod === LOGIN_METHOD.PASSWORD ? "#cc4444" : "#334155",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Password
+              </button>
+              <button
+                type="button"
+                onClick={() => switchLoginMethod(LOGIN_METHOD.OTP)}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: loginMethod === LOGIN_METHOD.OTP ? "2px solid #cc4444" : "1px solid #cbd5e1",
+                  background: loginMethod === LOGIN_METHOD.OTP ? "rgba(204,68,68,0.15)" : "#fff",
+                  color: loginMethod === LOGIN_METHOD.OTP ? "#cc4444" : "#334155",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                OTP
+              </button>
+            </div>
+          </div>
+        )}
 
         {isSignup && (
-          <div>
-            <label className="block text-sm font-medium text-white">Email Address</label>
-            <input
-              className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-              style={{ borderColor: emailError ? "#ef4444" : "#cbd5e1" }}
-              value={email}
-              onChange={(e) => onEmailChange(e.target.value)}
-              type="email"
-              autoComplete="email"
-              placeholder="you@example.com"
-              readOnly={emailAutoFilled}
-              required
-            />
-            {emailAutoFilled ? (
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-                Auto-filled from your email identifier
-              </p>
-            ) : (
-              <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-                Required for phone signups — we&apos;ll send a verification code here
-              </p>
-            )}
-            {emailError && (
-              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>Enter a valid email address</p>
-            )}
-          </div>
+          <>
+            <div style={{ gridColumn: isSignup ? "1 / 2" : undefined }}>
+              <label className="auth-label">Email Address</label>
+              <input
+                className="auth-input"
+                style={emailError ? { borderColor: "#ef4444" } : {}}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com (optional)"
+              />
+              {emailError && (
+                <p className="auth-error">Enter a valid email address</p>
+              )}
+            </div>
+
+            <div style={{ gridColumn: isSignup ? "2 / 3" : undefined }}>
+              <label className="auth-label">Phone Number</label>
+              <input
+                className="auth-input"
+                style={phoneError ? { borderColor: "#ef4444" } : {}}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                type="tel"
+                autoComplete="tel"
+                placeholder="03XXXXXXXXX or +92XXXXXXXXX"
+                required
+              />
+              {phoneError && (
+                <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+                  Enter a valid Pakistani number (03XXXXXXXXX or +92XXXXXXXXX)
+                </p>
+              )}
+            </div>
+          </>
         )}
 
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <label className="block text-sm font-medium text-white">Password</label>
-            {isLogin && (
+        {isPasswordLogin && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label className="auth-label">Password</label>
               <button
                 type="button"
                 onClick={() => switchMode(MODE.FORGOT)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "rgba(255,255,255,0.55)",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  padding: 0,
-                  textDecoration: "underline",
-                  textUnderlineOffset: 2,
-                }}
+                className="auth-link auth-link-subtle"
               >
                 Forgot password?
               </button>
-            )}
+            </div>
+            <input
+              className="auth-input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              autoComplete="current-password"
+              required
+            />
           </div>
-          <input
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            autoComplete={isSignup ? "new-password" : "current-password"}
-            minLength={isSignup ? 6 : undefined}
-            required
-          />
-        </div>
+        )}
 
         {isSignup && (
-          <div>
-            <label className="block text-sm font-medium text-white">Confirm Password</label>
+          <div style={{ gridColumn: isSignup ? "1 / 2" : undefined }}>
+            <label className="auth-label">Password</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              autoComplete="new-password"
+              minLength={6}
+              required
+            />
+          </div>
+        )}
+
+        {isSignup && (
+          <div style={{ gridColumn: isSignup ? "2 / 3" : undefined }}>
+            <label className="auth-label">Confirm Password</label>
+            <input
+              className="auth-input"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               type="password"
@@ -312,29 +357,30 @@ export default function LoginForm() {
               required
             />
             {confirmPassword && password !== confirmPassword && (
-              <p style={{ color: "#ef4444", fontSize: 12, marginTop: 4 }}>
+              <p className="auth-error">
                 Passwords do not match
               </p>
             )}
           </div>
         )}
 
-        {isSignup && !otpSent && (
+        {isOtpLogin && !loginOtpSent && (
           <button
             type="button"
-            disabled={!canSendOtp}
-            onClick={onSendOtp}
+            disabled={!canSendLoginOtp}
+            onClick={onSendLoginOtp}
             className="w-full rounded-lg border border-slate-400 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/10 transition"
           >
-            {sendingOtp ? "Sending code..." : "Send verification code"}
+            {sendingOtp ? "Sending code..." : "Send login code"}
           </button>
         )}
 
-        {isSignup && otpSent && (
+        {isOtpLogin && loginOtpSent && (
           <div>
-            <label className="block text-sm font-medium text-white">Verification Code</label>
+            <label className="auth-label">Login Code</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white text-slate-900"
+              className="auth-input"
+              style={{ letterSpacing: "0.2em" }}
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               type="text"
@@ -344,12 +390,13 @@ export default function LoginForm() {
               required
             />
             <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>
-              Enter the code sent to <strong style={{ color: "#fff" }}>{normalizeEmail(email)}</strong>
+              Enter the code sent to{" "}
+              <strong style={{ color: "#fff" }}>{deliveryEmail || "your email"}</strong>
             </p>
             <button
               type="button"
               disabled={sendingOtp}
-              onClick={onSendOtp}
+              onClick={onSendLoginOtp}
               style={{
                 marginTop: 8,
                 background: "none",
@@ -368,64 +415,49 @@ export default function LoginForm() {
         )}
 
         {info && (
-          <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <div className="auth-helper" style={{ gridColumn: isSignup ? "1 / -1" : undefined, color: "#1d4ed8", background: "#eff6ff", border: "1px solid #bfdbfe", padding: "0.8em 1.2em", borderRadius: "0.5em" }}>
             {info}
           </div>
         )}
 
         {error && (
-          <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <div className="auth-error" style={{ gridColumn: isSignup ? "1 / -1" : undefined, color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", padding: "0.8em 1.2em", borderRadius: "0.5em" }}>
             {error}
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="w-full rounded-lg bg-slate-900 text-white py-2.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition"
-        >
-          {buttonLabel}
-        </button>
+        <div style={{ gridColumn: isSignup ? "1 / -1" : undefined }}>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="auth-btn-primary"
+          >
+            {buttonLabel}
+          </button>
+        </div>
+        </div>
       </form>
 
-      <div style={{ marginTop: 16, textAlign: "center" }}>
+      <div className="auth-footer-text">
         {isLogin && (
-          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+          <p>
             Don&apos;t have an account?{" "}
             <button
               type="button"
               onClick={() => switchMode(MODE.SIGNUP)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#cc4444",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 13,
-                textDecoration: "underline",
-                textUnderlineOffset: 2,
-              }}
+              className="auth-link"
             >
               Sign up
             </button>
           </p>
         )}
         {isSignup && (
-          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+          <p>
             Already have an account?{" "}
             <button
               type="button"
               onClick={() => switchMode(MODE.LOGIN)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#cc4444",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 13,
-                textDecoration: "underline",
-                textUnderlineOffset: 2,
-              }}
+              className="auth-link"
             >
               Log in
             </button>

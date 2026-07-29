@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "animejs": "^4.5.0",
     "crypto-js": "^4.2.0",
     "express": "^5.2.1",
     "html-to-image": "^1.11.13",

@@ -3,7 +3,7 @@ import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { createPortal } from 'react-dom'
-import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil } from 'lucide-react'
 import MissingDevices from './MissingDevices.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
@@ -24,6 +24,14 @@ import {
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
+import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
+import { useSearchHistory } from '../hooks/useSearchHistory.js'
+import { APP_CACHE_STORAGE_KEYS } from '../utils/clearAppCaches.js'
+import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
+import SwirlPin from '../components/common/SwirlPin.jsx'
+
+// Premium NFC-card typeface for the device tiles (Inter, loaded in index.html).
+const CARD_FONT = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
 
 const TYPE_TABS = [
   { key: 'all',     label: 'All',           icon: Layers },
@@ -38,6 +46,46 @@ const STATUS_TO_FILTER = {
   Offline: 'offline',
   Assigned: 'assigned',
   Unassigned: 'unassigned',
+}
+
+const AnimatedStatusTabs = ({ tabs, activeTab, onChange, isLight }) => {
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 3, width: 0 });
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const activeIndex = tabs.indexOf(activeTab);
+    if (activeIndex === -1) return;
+    
+    // The first child is the absolute positioned background indicator
+    const btn = containerRef.current.children[activeIndex + 1];
+    if (btn) {
+      setIndicatorStyle({
+        left: btn.offsetLeft,
+        width: btn.offsetWidth
+      });
+    }
+  }, [activeTab, tabs]);
+
+  const showIndicator = indicatorStyle.width > 0;
+  const inactiveColor = isLight ? '#4b5563' : '#94a3b8';
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', height: 36, padding: 3, borderRadius: 8, background: isLight ? '#ECECEC' : 'rgba(255,255,255,0.04)', border: isLight ? '1px solid #C9C9C9' : '1px solid #2a2a2a', flexShrink: 0 }}>
+      <div style={{ position: 'absolute', top: 3, left: indicatorStyle.left, width: indicatorStyle.width || 63, height: 'calc(100% - 6px)', borderRadius: 6, background: '#A72C32', border: '1px solid rgba(255, 255, 255, 0.10)', transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)', pointerEvents: 'none', opacity: showIndicator ? 1 : 0 }} />
+      {tabs.map(s => {
+        const active = activeTab === s;
+        return (
+          <button key={s} onClick={() => onChange(s)}
+            onMouseEnter={e => { if (!active) e.currentTarget.style.color = isLight ? '#111111' : '#FFFFFF' }}
+            onMouseLeave={e => { if (!active) e.currentTarget.style.color = inactiveColor }}
+            style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 7, padding: '0 13px', height: '100%', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: active ? 'rgb(255, 255, 255)' : inactiveColor, fontSize: 13, fontWeight: active ? 600 : 500, whiteSpace: 'nowrap', letterSpacing: '0.01em', transition: 'color 0.2s' }}>
+            {s}
+          </button>
+        )
+      })}
+    </div>
+  );
 }
 
 const modalPanel = {
@@ -60,6 +108,16 @@ const SELECT_STYLE = {
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', paddingRight: 36,
 }
 const SELECT_OPT = { background: '#27272a', color: '#f4f4f5' }
+
+// Remembers the All-Devices list view (search + page) so returning via the
+// breadcrumb restores it. Tab + status already round-trip through the URL.
+const DEV_VIEW_KEY = 'bc:devview'
+function loadDevView() {
+  try { return JSON.parse(sessionStorage.getItem(DEV_VIEW_KEY)) || null } catch { return null }
+}
+function saveDevView(v) {
+  try { sessionStorage.setItem(DEV_VIEW_KEY, JSON.stringify(v)) } catch { /* ignore */ }
+}
 
 // ── Search + dropdown combo for bind modal ────────────────────────────────────
 function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placeholder, emptyMsg, allowFreeText = false, onFreeTextChange }) {
@@ -208,16 +266,15 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
         onClick={toggle}
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-          fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-          background: open
-            ? (isLight ? '#DCDCDC' : 'rgba(255,255,255,0.12)')
-            : (isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)'),
-          border: isLight ? '1px solid #C9C9C9' : '1px solid rgba(255,255,255,0.12)',
-          color: isLight ? '#333333' : 'rgba(255,255,255,0.70)',
+          padding: '4px 10px', borderRadius: 10, cursor: 'pointer',
+          fontFamily: CARD_FONT, fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+          // Always on-dark (the tile is now the dark NFC-card face in both themes).
+          background: open ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          color: '#ECECEC',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = isLight ? '#DCDCDC' : 'rgba(255,255,255,0.12)' }}
-        onMouseLeave={e => { if (!open) e.currentTarget.style.background = isLight ? '#ECECEC' : 'rgba(255,255,255,0.06)' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+        onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
       >
         Actions
         <ChevronDown style={{ width: 11, height: 11, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
@@ -366,9 +423,9 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
    AllDevices: fixed 4×5 grid for All / Locators / Stickers tabs.
    Fetches the full fleet ONCE; tab + status switches are pure client-side.
 ────────────────────────────────────────────────────────────────────────────── */
-function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel }) {
-  const navigate = useNavigate()
+function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel, statusTabsNode }) {
   const location = useLocation()
+  const pushTrail = useTrailNav()
   const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, getCategories } = useCityTag()
   const { user, isAdmin } = useAuth()
   const { users, loading: usersLoading } = useUserCache()
@@ -383,11 +440,12 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
 
   const cacheValid = () => isFleetCacheValid()
 
+  const savedView = useRef(loadDevView()).current
   const [allDevices,   setAllDevices]   = useState(() => getFleetCache() ?? [])
   const [fetching,     setFetching]     = useState(() => !cacheValid())
-  const [rawQ,         setRawQ]         = useState('')
-  const [debQ,         setDebQ]         = useState('')
-  const [page,         setPage]         = useState(1)
+  const [rawQ,         setRawQ]         = useState(savedView?.q || '')
+  const [debQ,         setDebQ]         = useState(savedView?.q || '')
+  const [page,         setPage]         = useState(savedView?.page || 1)
   const [localRefresh, setLocalRefresh] = useState(0)
 
   const muiTheme = useMemo(() => createTheme({
@@ -424,6 +482,23 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const isSilentRef  = useRef(false)
   const gridScrollRef = useRef(null)
 
+  // Search-history dropdown (recent device searches, separate from the Users
+  // page). Recorded on Enter / on pick; the store is wiped on logout.
+  const { history, record: recordSearch, remove: removeSearch, clearAll: clearSearchHistory } =
+    useSearchHistory(APP_CACHE_STORAGE_KEYS.SEARCH_HISTORY_DEVICES)
+  const [histOpen, setHistOpen] = useState(false)
+  const searchWrapRef = useRef(null)
+
+  // Close the history dropdown on any click outside the search box.
+  useEffect(() => {
+    if (!histOpen) return
+    const onDocMouseDown = e => {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target)) setHistOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [histOpen])
+
   // Debounce search
   useEffect(() => {
     clearTimeout(debRef.current)
@@ -431,8 +506,16 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     return () => clearTimeout(debRef.current)
   }, [rawQ])
 
-  // Reset page on filter/search change
-  useEffect(() => { setPage(1) }, [deviceType, externalStatus, debQ])
+  // Reset page on filter/search change — but NOT on the initial mount, so a
+  // page restored from the saved view survives.
+  const skipPageReset = useRef(true)
+  useEffect(() => {
+    if (skipPageReset.current) { skipPageReset.current = false; return }
+    setPage(1)
+  }, [deviceType, externalStatus, debQ])
+
+  // Persist search + page so returning to this list via the breadcrumb restores it.
+  useEffect(() => { saveDevView({ q: debQ, page }) }, [debQ, page])
 
   // Reset the grid scroll to the top on any tab / filter / search / page change
   useEffect(() => {
@@ -449,6 +532,18 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     }, 60_000)
     return () => clearInterval(id)
   }, [externalStatus])
+
+  // Silent auto-refresh every 15 min — mirrors the Dashboard and detail pages.
+  // Runs on every tab/filter; keeps the current tab, search and page in place
+  // (no loader) while the fleet is refetched in the background.
+  useEffect(() => {
+    const id = setInterval(() => {
+      isSilentRef.current = true
+      invalidateFleetCache()
+      setLocalRefresh(k => k + 1)
+    }, 15 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   // Fetch all devices — one call; re-fetches on refreshSignal or localRefresh change
   useEffect(() => {
@@ -604,20 +699,20 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const hasPrev     = safePage > 1
   const hasNext     = safePage < totalPages
 
-  const panel = isLight
-    ? { background: 'linear-gradient(145deg, #FFFFFF 0%, #F0F0F0 50%, #DCDCDC 100%)', border: '1px solid #C9C9C9', borderRadius: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)' }
-    : { background: '#242323', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '18px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* Search + count */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
-        <div style={{ position: 'relative' }}>
+      {/* Search + count + filters */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0, width: '100%' }}>
+        <div ref={searchWrapRef} style={{ position: 'relative' }}>
           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
           <input
             value={rawQ}
             onChange={e => setRawQ(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { setHistOpen(false) }
+              else if (e.key === 'Escape') setHistOpen(false)
+            }}
             placeholder="Search devices…"
             style={{
               background: T.inputBg, border: `1px solid ${T.inputBorder}`,
@@ -625,7 +720,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220,
               boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
             }}
-            onFocus={e => { e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
+            onFocus={e => { setHistOpen(true); e.target.style.borderColor = '#A72C32'; e.target.style.boxShadow = '0 0 0 3px rgba(167,44,50,0.12)' }}
             onBlur={e  => { e.target.style.borderColor = T.inputBorder; e.target.style.boxShadow = isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none' }}
           />
           {rawQ && (
@@ -634,13 +729,26 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               <X style={{ width: 12, height: 12 }} />
             </button>
           )}
+          {histOpen && (
+            <SearchHistoryDropdown
+              items={history}
+              query={rawQ}
+              onPick={term => { setRawQ(term); recordSearch(term); setHistOpen(false) }}
+              onRemove={removeSearch}
+              onClearAll={() => { clearSearchHistory(); setHistOpen(false) }}
+              isLight={isLight}
+              width={220}
+            />
+          )}
         </div>
         <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400 }}>
           {fetching ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}
         </span>
-        {onBind && (
-          <button onClick={onBind}
-            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, cursor: 'pointer', flexShrink: 0,
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {statusTabsNode}
+          {onBind && (
+            <button onClick={onBind}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, cursor: 'pointer', flexShrink: 0,
               background: isLight ? '#A72C32' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
               border: isLight ? '1px solid #8B2328' : '1px solid rgba(167,44,50,0.45)',
               color: '#fff', fontSize: 13, fontWeight: 700,
@@ -653,6 +761,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           </button>
         )}
       </div>
+    </div>
 
       {/* Device grid — fills remaining height, fixed 4 col × 4 row.
           Always render exactly PAGE_SIZE slots so gridTemplateRows distributes space correctly. */}
@@ -661,12 +770,12 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           <TPLLoader label="Loading devices…" />
         </div>
       ) : (
-        <div ref={gridScrollRef} style={{
+        <div ref={gridScrollRef} className="scalable-container" style={{
           flex: 1, minHeight: 0, overflow: 'auto',
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(200px, 1fr))',
-          gridTemplateRows: 'repeat(4, minmax(88px, 1fr))',
-          gap: 10,
+          gridTemplateColumns: 'repeat(4, minmax(14.3em, 1fr))',
+          gridTemplateRows: 'repeat(4, minmax(6.3em, 1fr))',
+          gap: '0.7em',
         }}>
           {pageDevices.length === 0 ? (
             /* No results — single cell spanning full grid */
@@ -679,53 +788,79 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               const d = pageDevices[idx] ?? null
               if (!d) return <div key={`_ph_${idx}`} aria-hidden="true" />
               const isSticker  = isStickerSN(d.sn)
-              const DeviceIcon = isSticker ? Tag : Radio
               const isActive   = d.status === 'online'
-              const dotColor   = isActive ? '#059669' : '#DC2626'
-              const dotGlow    = isActive ? 'rgba(5,150,105,0.55)' : 'rgba(220,38,38,0.55)'
+              const dotColor   = isActive ? '#23D160' : '#DC2626'
+              const dotGlow    = isActive ? 'rgba(35,209,96,0.55)' : 'rgba(220,38,38,0.50)'
               const name       = deviceDisplayName(d)
               const lastSeen   = fmtLastSeen(d)
               return (
                 <div
                   key={d.sn}
-                  onClick={() => navigate(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + location.search } })}
+                  onClick={() => { recordSearch(rawQ); pushTrail(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + (location.search || '') } }) }}
                   style={{
-                    ...panel, height: '100%', padding: '12px 14px', cursor: 'pointer', boxSizing: 'border-box',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-                    transition: 'box-shadow 0.22s ease, transform 0.22s ease',
-                    ...(isLight ? { borderLeft: '3px solid #A72C32' } : {}),
+                    position: 'relative', overflow: 'hidden', height: '100%',
+                    borderRadius: 16, cursor: 'pointer', boxSizing: 'border-box',
+                    // Charcoal NFC-card face (not pure black) with a soft top-down
+                    // gradient; the red locator swirl is drawn on top (SwirlPin).
+                    background: 'linear-gradient(155deg, #333333 0%, #292929 100%)',
+                    boxShadow: '0 6px 22px rgba(0,0,0,0.45)',
+                    transition: 'box-shadow 0.24s ease',
                   }}
+                  // Matte premium hover — soft shadow + faint inset ring + brighter
+                  // chevron. No glow, no translate, so the grid never clips the tile.
                   onMouseEnter={e => {
-                    e.currentTarget.style.boxShadow = isLight
-                      ? '0 4px 16px rgba(167,44,50,0.14), 0 12px 32px rgba(0,0,0,0.08)'
-                      : '0 0 44px rgba(167,44,50,0.52), 0 12px 40px rgba(0,0,0,0.55)'
-                    e.currentTarget.style.transform = 'translateY(-2px)'
+                    e.currentTarget.style.boxShadow = '0 12px 34px rgba(0,0,0,0.58), inset 0 0 0 1px rgba(255,255,255,0.10)'
+                    const chev = e.currentTarget.querySelector('[data-chev]')
+                    if (chev) chev.style.color = 'rgba(255,255,255,0.80)'
                   }}
                   onMouseLeave={e => {
-                    e.currentTarget.style.boxShadow = panel.boxShadow
-                    e.currentTarget.style.transform = 'translateY(0)'
+                    e.currentTarget.style.boxShadow = '0 6px 22px rgba(0,0,0,0.45)'
+                    const chev = e.currentTarget.querySelector('[data-chev]')
+                    if (chev) chev.style.color = 'rgba(255,255,255,0.35)'
                   }}
                 >
-                  <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-                      <DeviceIcon style={{ width: 11, height: 11, color: T.txt3, flexShrink: 0 }} />
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 4px ${dotGlow}` }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: T.txt1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                  {/* Redrawn TPL locator swirl — vector-traced from the physical card.
+                      Sized to the tile height so the whole pin (eye, body, point) shows,
+                      with a whisper of top bleed. It's tall, so on these wide tiles it
+                      naturally occupies the left ~third. */}
+                  <SwirlPin style={{ position: 'absolute', left: '0%', top: '-3%', height: '100%', width: 'auto', zIndex: 0, pointerEvents: 'none' }} />
+                  {/* Device info. It sits after a spacer that mirrors the swirl's
+                      footprint — the pin is height:100% width:auto, so it occupies
+                      cardHeight × the artwork's 1052:1481 ratio. The old left:44%
+                      was a share of card *width* while the pin scales with card
+                      *height*, so the space between them ballooned on wider tiles
+                      (13px at 240px wide, 55px at 400px). The spacer keeps that gap
+                      at a constant ~13px whatever the tile size. */}
+                  <div style={{
+                    position: 'absolute', inset: 0, zIndex: 1,
+                    display: 'flex', alignItems: 'stretch', minWidth: 0,
+                  }}>
+                  <div aria-hidden="true" style={{ height: '100%', aspectRatio: '1052 / 1481', flexShrink: 0 }} />
+                  <div style={{
+                    flex: 1, minWidth: 0, margin: '0.55em 1em 2.1em 0.85em',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.22em',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
+                      <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
+                      <span style={{ fontFamily: CARD_FONT, fontSize: '0.95em', fontWeight: 700, color: '#F7F7F7', letterSpacing: '0.005em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
                     </div>
-                    <div style={{ fontSize: 10, color: T.txt3, marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 19 }}>
+                    <div style={{ fontFamily: CARD_FONT, fontSize: '0.7em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {d.sn}
                     </div>
                     {lastSeen ? (
-                      <div style={{ fontSize: 9.5, color: T.txt1, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 19 }}>
+                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Last seen: {lastSeen}
                       </div>
                     ) : (
-                      <div style={{ fontSize: 9.5, color: '#6b7280', marginTop: 2, paddingLeft: 19, fontStyle: 'italic' }}>
+                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.40)', fontStyle: 'italic' }}>
                         No last report
                       </div>
                     )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  </div>
+
+                  {/* Actions + chevron, bottom-right */}
+                  <div style={{ position: 'absolute', zIndex: 2, right: '0.9em', bottom: '0.6em', display: 'flex', alignItems: 'center', gap: '0.5em' }}>
                     {externalStatus === 'all' && isAdmin && isBound(d) && (
                       <ActionsDropdown
                         isLight={isLight}
@@ -733,7 +868,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                         onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
                       />
                     )}
-                    <ChevronRight style={{ width: 14, height: 14, color: T.txt3 }} />
+                    <ChevronRight data-chev strokeWidth={1.5} style={{ width: '1.05em', height: '1.05em', color: 'rgba(255,255,255,0.35)', transition: 'color 0.2s ease' }} />
                   </div>
                 </div>
               )
@@ -1126,26 +1261,17 @@ export default function Devices() {
   const canBind   = !isOfflineView && (showTypeTabs ? (activeTab === 'locator' || activeTab === 'sticker') : true)
   const effectiveBindType = showTypeTabs ? bindDeviceType : (isStickerSN(bindSn.trim()) ? 'sticker' : 'locator')
 
+  const statusTabsNode = (
+    <AnimatedStatusTabs 
+      tabs={visibleStatusTabs} 
+      activeTab={statusTab} 
+      onChange={setStatus} 
+      isLight={isLight} 
+    />
+  )
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
-
-      {/* ── Status filters — type tabs (All/Locators/Stickers) now live in the topbar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: 4, background: T.tabBg, border: `1px solid ${T.tabBorder}`, borderRadius: 10, flexWrap: 'wrap', width: 'fit-content' }}>
-          {visibleStatusTabs.map(s => {
-            const active = statusTab === s
-            return (
-              <button key={s} onClick={() => setStatus(s)}
-                style={{ padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-                  background: active ? '#A72C32' : 'transparent',
-                  color:      active ? '#FFFFFF' : T.txt2,
-                }}>
-                {s}
-              </button>
-            )
-          })}
-        </div>
-      </div>
 
       {/* ── Content — fills remaining height ─────────────────────────────────── */}
       <div style={{ flex: 1, overflow: 'hidden', minHeight: 0, position: 'relative' }}>
@@ -1156,7 +1282,7 @@ export default function Devices() {
           flexDirection: 'column',
           gap: 12,
         }}>
-          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
             <div style={{ position: 'relative' }}>
               <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
               <input
@@ -1174,6 +1300,9 @@ export default function Devices() {
                 </button>
               )}
             </div>
+            <div style={{ marginLeft: 'auto' }}>
+              {statusTabsNode}
+            </div>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
             <MissingDevices embedded deviceType={offlineDeviceType} externalSearch={offlineSearch} />
@@ -1189,6 +1318,7 @@ export default function Devices() {
             refreshSignal={refreshKey}
             onBind={canBind ? () => openBindModal(showTypeTabs ? activeTab : 'locator') : undefined}
             bindLabel={bindLabel}
+            statusTabsNode={statusTabsNode}
           />
         </div>
       </div>

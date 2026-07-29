@@ -67,7 +67,8 @@ class AccountInDB(BaseModel):
     Admin-specific fields: uid, reg_devices, citytag_token
     """
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
-    email: EmailStr
+    # None for phone-only user accounts. Admins always have one.
+    email: Optional[EmailStr] = None
     password: str
     role: str  # "user" or "admin"
     
@@ -100,7 +101,7 @@ class AccountCreate(BaseModel):
 
 class AccountPublic(BaseModel):
     id: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     role: str
     name: Optional[str] = None
     uid: Optional[str] = None

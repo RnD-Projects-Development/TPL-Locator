@@ -7,47 +7,15 @@ import { useAlerts } from '../../context/AlertsContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useApp } from '../../App.jsx'
 import { useDashboardChrome } from '../../context/DashboardChromeContext.jsx'
+import { useProfileCache } from '../../context/ProfileCacheContext.jsx'
 import Switch from '../Switch.jsx'
 import ModalPortal from '../common/ModalPortal.jsx'
-
-const crumbs = {
-  '/dashboard':   ['Dashboard'],
-  '/search':      ['Search'],
-  '/locators':    ['Devices', 'Locators'],
-  '/stickers':    ['Devices', 'Smart Stickers'],
-  '/missing':     ['Devices', 'Offline Devices'],
-  '/map':         ['Intelligence', 'Map View'],
-  '/trajectory':  ['Intelligence', 'Trajectory'],
-  '/playback':    ['Intelligence', 'Playback'],
-  '/fence':       ['Intelligence', 'Fence'],
-  '/alerts':      ['Alerts'],
-  '/reports':     ['Reports & Admin', 'Reports'],
-  '/field-staff': ['Dashboard', 'Field Staff'],
-  '/users':       ['Reports & Admin', 'Users'],
-}
-const getCrumbs = path => {
-  if (crumbs[path]) return crumbs[path]
-  if (path.startsWith('/locators/')) return ['Devices', 'Locators', path.split('/')[2]]
-  if (path.startsWith('/stickers/')) return ['Devices', 'Smart Stickers', path.split('/')[2]]
-  return ['Devices']
-}
-
-const crumbRouteMap = {
-  'Dashboard':       '/dashboard',
-  'Devices':         '/locators',
-  'Locators':        '/locators',
-  'Smart Stickers':  '/stickers',
-  'Offline Devices': '/missing',
-  'Map View':        '/map',
-  'Trajectory':      '/trajectory',
-  'Playback':        '/playback',
-  'Fence':           '/fence',
-  'Alerts':          '/alerts',
-  'Reports':         '/reports',
-  'Field Staff':     '/field-staff',
-  'Users':           '/users',
-  'Search':          '/search',
-}
+import { useCityTag } from '../../hooks/useCityTag.js'
+import { buildCrumbs } from '../../utils/breadcrumbs.js'
+import AddEmailBanner from '../AddEmailBanner.jsx'
+import Skeleton from '../ui/Skeleton.jsx'
+import { isValidEmail } from '../../utils/email.js'
+import { isSyntheticEmail } from '../../utils/userContact.js'
 
 const inp = {
   width: '100%', background: '#18181b',
@@ -77,7 +45,7 @@ function AlertIcon({ type, color }) {
 }
 
 export default function Header({ pageTheme, setPageTheme }) {
-  const { pathname } = useLocation()
+  const { pathname, search, state } = useLocation()
   const navigate     = useNavigate()
 
   let alertsCtx = null
@@ -87,8 +55,16 @@ export default function Header({ pageTheme, setPageTheme }) {
   const markRead    = alertsCtx?.markRead
   const markAllRead = alertsCtx?.markAllRead
 
+  // `user` here is App.jsx's derived appUser — only {name, role, company, email}.
+  // Fine for display, but never feed it back into auth state: it has no id/devices.
   const { user } = useApp()
-  const { updateProfile, logout } = useAuth()
+  const { updateProfile, logout, updateUser, accessToken, role } = useAuth()
+  const { updateMyProfile } = useCityTag()
+  const {
+    profile: cachedProfile,
+    refresh: refreshProfile,
+    applyProfile: applyProfileToCache,
+  } = useProfileCache()
 
   // Page-registered topbar action (Export PDF on dashboard, Export CSV on devices, …).
   // Only the mounted page registers, so showing it whenever present is correct.
@@ -134,6 +110,21 @@ export default function Header({ pageTheme, setPageTheme }) {
   // Profile modal state
   const [showProfile,      setShowProfile]      = useState(false)
   const [profileName,      setProfileName]      = useState('')
+  const [profileEmail,     setProfileEmail]     = useState('')
+  const [profilePhone,     setProfilePhone]     = useState('')
+  const [profileCnic,      setProfileCnic]      = useState('')
+  const [profileCnicExpiry,setProfileCnicExpiry]= useState('')
+  const [profileLicenseNo, setProfileLicenseNo] = useState('')
+  const [profileLicenseExp,setProfileLicenseExp]= useState('')
+  const [profileEmergency, setProfileEmergency] = useState('')
+  const [profileAddress,   setProfileAddress]   = useState('')
+  const [profileImageFile, setProfileImageFile] = useState(null)
+  const [profileImageUrl,  setProfileImageUrl]  = useState('')
+  const [profileImageApiUrl, setProfileImageApiUrl] = useState('')
+  const [profileImageReloadKey, setProfileImageReloadKey] = useState(0)
+  const [profileReady,     setProfileReady]     = useState(false)
+  const profileImageInputRef = useRef(null)
+  const profileImageObjectUrlRef = useRef(null)
   const [profileCurrentPw, setProfileCurrentPw] = useState('')
   const [profileNewPw,     setProfileNewPw]     = useState('')
   const [profileConfirmPw, setProfileConfirmPw] = useState('')
@@ -141,16 +132,108 @@ export default function Header({ pageTheme, setPageTheme }) {
   const [profileSuccess,   setProfileSuccess]   = useState('')
   const [profileLoading,   setProfileLoading]   = useState(false)
 
+  // Seed the form from the profile prefetched at login (ProfileCacheContext), so
+  // opening the dialog paints populated instead of fetching every time. If the
+  // prefetch hasn't landed yet — dialog opened immediately after login, or it
+  // failed — fall back to fetching here so the form is never left empty.
+  // Read the cache inside the open-effect without making it a dependency.
+  const cachedProfileRef = useRef(cachedProfile)
+  useEffect(() => { cachedProfileRef.current = cachedProfile }, [cachedProfile])
+
+  const applyProfileToForm = useCallback((p) => {
+    setProfileName(p?.name || '')
+    // /me/profile still returns the legacy p<digits>@accounts.tpllocator.com
+    // placeholder for accounts with no email. Never surface it in an editable
+    // field — show it as empty so the user fills in a real address.
+    setProfileEmail(isSyntheticEmail(p?.email) ? '' : (p?.email || ''))
+    setProfilePhone(p?.phone || '')
+    setProfileCnic(p?.cnic || '')
+    setProfileCnicExpiry(p?.cnic_expiry || '')
+    setProfileLicenseNo(p?.driving_license_no || '')
+    setProfileLicenseExp(p?.license_expiry || '')
+    setProfileEmergency(p?.emergency_contact || '')
+    setProfileAddress(p?.address || '')
+    setProfileImageApiUrl(p?.profile_image_url || '')
+  }, [])
+
+  // On open: clear transient state, and fetch only if the login-time prefetch
+  // hasn't landed. Keyed on showProfile alone — this must NOT re-run when the
+  // cache updates, or saving would immediately wipe its own success message.
   useEffect(() => {
-    if (showProfile) {
-      setProfileName(user?.name || '')
-      setProfileCurrentPw(''); setProfileNewPw(''); setProfileConfirmPw('')
-      setProfileErr(''); setProfileSuccess('')
+    if (!showProfile) return
+    let cancelled = false
+    setProfileErr('')
+    setProfileSuccess('')
+    setProfileCurrentPw('')
+    setProfileNewPw('')
+    setProfileConfirmPw('')
+    setProfileImageFile(null)
+    setProfileImageApiUrl('')
+    // Clear object URL (if any); the effect below will repopulate.
+    if (profileImageObjectUrlRef.current) {
+      URL.revokeObjectURL(profileImageObjectUrlRef.current)
+      profileImageObjectUrlRef.current = null
     }
-  }, [showProfile, user?.name])
+    setProfileImageUrl('')
+
+    if (cachedProfileRef.current) {
+      setProfileReady(true)
+      return
+    }
+    setProfileReady(false)
+    refreshProfile()
+      .then((p) => { if (!cancelled && !p) setProfileErr('Unable to load profile') })
+      .catch((e) => { if (!cancelled) setProfileErr(e.message || 'Unable to load profile') })
+      .finally(() => { if (!cancelled) setProfileReady(true) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProfile])
+
+  // Seed the fields whenever the cached profile is available or changes (login
+  // prefetch resolving, or a save pushing the server's response back in).
+  useEffect(() => {
+    if (!showProfile || !cachedProfile) return
+    applyProfileToForm(cachedProfile)
+  }, [showProfile, cachedProfile, applyProfileToForm])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadImage = async () => {
+      if (!showProfile) return
+      if (!profileImageApiUrl) return
+      try {
+        // Cache-bust to force fetching latest image bytes.
+        const bustUrl = `${profileImageApiUrl}${profileImageApiUrl.includes("?") ? "&" : "?"}v=${profileImageReloadKey}`
+        const res = await fetch(bustUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        })
+        if (!res.ok) throw new Error(`Image fetch failed (${res.status})`)
+        const blob = await res.blob()
+        if (cancelled) return
+        if (profileImageObjectUrlRef.current) {
+          URL.revokeObjectURL(profileImageObjectUrlRef.current)
+        }
+        const objUrl = URL.createObjectURL(blob)
+        profileImageObjectUrlRef.current = objUrl
+        setProfileImageUrl(objUrl)
+      } catch (e) {
+        if (!cancelled) {
+          // Keep initials fallback if image can't be fetched.
+          setProfileImageUrl('')
+        }
+      }
+    }
+    loadImage()
+    return () => { cancelled = true }
+  }, [showProfile, profileImageApiUrl, accessToken, profileImageReloadKey])
+
+  // Blank is allowed (clears the email); anything else must be a valid address.
+  const emailFieldError = Boolean(profileEmail.trim()) && !isValidEmail(profileEmail)
 
   const handleProfileSave = async () => {
     setProfileErr(''); setProfileSuccess('')
+    if (emailFieldError) { setProfileErr('Enter a valid email address.'); return }
     const changingPw = profileNewPw || profileConfirmPw || profileCurrentPw
     if (changingPw) {
       if (!profileCurrentPw) { setProfileErr('Current password is required to set a new password.'); return }
@@ -159,13 +242,49 @@ export default function Header({ pageTheme, setPageTheme }) {
     }
     setProfileLoading(true)
     try {
-      const payload = {}
-      if (profileName.trim() && profileName.trim() !== user?.name) payload.name = profileName.trim()
-      if (changingPw) { payload.currentPassword = profileCurrentPw; payload.newPassword = profileNewPw }
-      if (Object.keys(payload).length === 0) { setProfileErr('No changes to save.'); setProfileLoading(false); return }
-      await updateProfile(payload)
+      const profilePayload = {
+        name: profileName,
+        email: profileEmail.trim(),
+        cnic: profileCnic,
+        cnic_expiry: profileCnicExpiry,
+        driving_license_no: profileLicenseNo,
+        license_expiry: profileLicenseExp,
+        emergency_contact: profileEmergency,
+        address: profileAddress,
+        ...(profileImageFile ? { profile_image: profileImageFile } : {}),
+      }
+      // PUT /me/profile returns the updated profile — push it straight into the
+      // cache so reopening the dialog shows the new values, not the ones
+      // prefetched at login.
+      const saved = await updateMyProfile(profilePayload)
+      applyProfileToCache(saved)
+
+      if (changingPw) {
+        await updateProfile({ currentPassword: profileCurrentPw, newPassword: profileNewPw })
+      }
+
+      // Merge only what this form owns. Previously this spread appUser into
+      // loginSuccess(), which replaced the auth user wholesale — dropping id,
+      // devices and admin_id (disabling the non-admin device filter in
+      // Devices.jsx), writing the phone number into `name` whenever the name was
+      // blank, and clearing every cache on each save.
+      // Phone is read-only here and already on the auth user, so it is left alone —
+      // the merge preserves it, which is what displayContact() falls back to when
+      // the account has no email.
+      updateUser({
+        name: profileName.trim(),
+        email: profileEmail.trim(),
+      })
+
       setProfileSuccess('Profile updated successfully.')
       setProfileCurrentPw(''); setProfileNewPw(''); setProfileConfirmPw('')
+      setProfileImageFile(null)
+      try {
+        const refreshed = await refreshProfile()
+        setProfileImageApiUrl(refreshed?.profile_image_url || '')
+        setProfileImageUrl('')
+        setProfileImageReloadKey(Date.now())
+      } catch {}
     } catch (e) {
       setProfileErr(e.message || 'Update failed.')
     } finally {
@@ -173,11 +292,30 @@ export default function Header({ pageTheme, setPageTheme }) {
     }
   }
 
-  const parts    = getCrumbs(pathname)
+  useEffect(() => {
+    if (showProfile) return
+    // Modal closed: cleanup object URL.
+    if (profileImageObjectUrlRef.current) {
+      URL.revokeObjectURL(profileImageObjectUrlRef.current)
+      profileImageObjectUrlRef.current = null
+    }
+    setProfileImageUrl('')
+    setProfileImageApiUrl('')
+  }, [showProfile])
+
+  const parts    = buildCrumbs(pathname, search, state)
   const initials = (user?.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+
+  // AuthContext normalizes user.email to displayContact() — a real address (which
+  // always contains '@') or the phone number. So no '@' means this account has no
+  // email yet, covering both new NULL rows and legacy placeholder ones.
+  const needsEmail = role === 'user' && !String(user?.email || '').includes('@')
 
   return (
     <>
+      {needsEmail && !showProfile && (
+        <AddEmailBanner onOpenProfile={() => setShowProfile(true)} />
+      )}
       <header className="h-[60px] flex items-center px-5 gap-5 bg-black flex-shrink-0">
 
         {/* Breadcrumb */}
@@ -199,23 +337,19 @@ export default function Header({ pageTheme, setPageTheme }) {
           <div className="flex items-center gap-1.5 text-xs flex-1">
             <span className="text-gray-500 font-medium cursor-pointer hover:text-gray-300 transition-colors"
               onClick={() => navigate('/dashboard')}>TPL LOCATOR</span>
-            {parts.map((p, i) => {
-              const isLast = i === parts.length - 1
-              const route  = !isLast ? crumbRouteMap[p] : null
-              return (
-                <React.Fragment key={i}>
-                  <ChevronRight className="w-3 h-3 text-gray-700" />
-                  {isLast ? (
-                    <span className="text-white font-semibold">{p}</span>
-                  ) : route ? (
-                    <span className="text-gray-400 cursor-pointer hover:text-gray-200 transition-colors"
-                      onClick={() => navigate(route)}>{p}</span>
-                  ) : (
-                    <span className="text-gray-400">{p}</span>
-                  )}
-                </React.Fragment>
-              )
-            })}
+            {parts.map((p, i) => (
+              <React.Fragment key={i}>
+                <ChevronRight className="w-3 h-3 text-gray-700" />
+                {p.isCurrent ? (
+                  <span className="text-white font-semibold">{p.label}</span>
+                ) : p.url ? (
+                  <span className="text-gray-400 cursor-pointer hover:text-gray-200 transition-colors"
+                    onClick={() => navigate(p.url)}>{p.label}</span>
+                ) : (
+                  <span className="text-gray-400">{p.label}</span>
+                )}
+              </React.Fragment>
+            ))}
           </div>
         )}
 
@@ -468,29 +602,166 @@ export default function Header({ pageTheme, setPageTheme }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 24 }}>
             <div onClick={e => e.stopPropagation()}
               style={{ background: '#000', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16,
-                boxShadow: '0 24px 64px rgba(0,0,0,0.80)', width: '100%', maxWidth: 420, padding: 28 }}>
+                boxShadow: '0 24px 64px rgba(0,0,0,0.80)', width: '42em', maxWidth: '100%', padding: 24, transition: 'width 0.3s ease',
+                maxHeight: '90vh', overflowY: 'auto' }}>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
-                <div style={{ width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#fff', fontSize: 16, fontWeight: 700 }}>
-                  {initials}
+                <div style={{ position: 'relative', width: 54, height: 54, flexShrink: 0 }}>
+                  {profileImageUrl ? (
+                    <img
+                      src={profileImageUrl}
+                      alt="Profile"
+                      style={{ width: 54, height: 54, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }}
+                    />
+                  ) : (
+                    <div style={{ width: 54, height: 54, borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', fontSize: 16, fontWeight: 700 }}>
+                      {initials}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => profileImageInputRef.current?.click()}
+                    style={{
+                      position: 'absolute', right: -4, bottom: -4, width: 22, height: 22, borderRadius: '50%',
+                      border: 'none', background: '#A72C32', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                    }}
+                    title="Upload profile image"
+                  >
+                    +
+                  </button>
+                  <input
+                    ref={profileImageInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      setProfileImageFile(file)
+                      // Use locally selected file preview; don't fetch from API again.
+                      if (profileImageObjectUrlRef.current) {
+                        URL.revokeObjectURL(profileImageObjectUrlRef.current)
+                        profileImageObjectUrlRef.current = null
+                      }
+                      setProfileImageUrl(URL.createObjectURL(file))
+                    }}
+                  />
                 </div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Profile Settings</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.42)', marginTop: 2 }}>{user?.email}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.42)', marginTop: 2 }}>{profileEmail || user?.email}</div>
                 </div>
               </div>
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Display Name
-                </label>
-                <input value={profileName} onChange={e => setProfileName(e.target.value)}
-                  placeholder="Your name" style={{ ...inp }}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                  onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+              {/* The inputs are mounted only after /me/profile resolves. Rendering
+                  them empty during the fetch gave the browser a window to autofill
+                  them (saved address into Address, saved credential into the password
+                  boxes) — and because these are controlled inputs, that value can sit
+                  in the DOM while React state stays '', so a later Save would post the
+                  empty string and wipe the stored field. Load from the DB first, then
+                  render. */}
+              {!profileReady ? (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginBottom: 14 }}>Loading profile...</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px 16px' }}>
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i}>
+                        <Skeleton height="11px" width="90px" style={{ marginBottom: 6 }} />
+                        <Skeleton height="38px" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+              <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px 16px', marginBottom: 14 }}>
+                {/* Name & Email */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Name
+                  </label>
+                  <input value={profileName} onChange={e => setProfileName(e.target.value)}
+                    placeholder="Your name" style={{ ...inp }} autoComplete="off"
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Email
+                  </label>
+                  <input
+                    value={profileEmail}
+                    onChange={e => setProfileEmail(e.target.value)}
+                    type="email"
+                    placeholder="you@example.com"
+                    autoComplete="off"
+                    style={{ ...inp, borderColor: emailFieldError ? '#ef4444' : '#3f3f46' }}
+                    onFocus={e => { if (!emailFieldError) e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = emailFieldError ? '#ef4444' : '#3f3f46' }} />
+                  {emailFieldError && (
+                    <p style={{ fontSize: 11, color: '#fca5a5', marginTop: 4 }}>
+                      Enter a valid email address
+                    </p>
+                  )}
+                  {!profileEmail.trim() && (
+                    <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.40)', marginTop: 4 }}>
+                      Add one to enable password reset and code sign-in.
+                    </p>
+                  )}
+                </div>
+
+                {/* Phone & Emergency */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Phone (read only)
+                  </label>
+                  <input value={profilePhone || ''} readOnly style={{ ...inp, opacity: 0.75 }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Emergency Contact
+                  </label>
+                  <input value={profileEmergency} onChange={e => setProfileEmergency(e.target.value)} placeholder="03001234567" style={{ ...inp }} autoComplete="off" />
+                </div>
+
+                {/* CNIC & CNIC Expiry */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    CNIC / ID Number
+                  </label>
+                  <input value={profileCnic} onChange={e => setProfileCnic(e.target.value)} placeholder="12345-1234567-1" style={{ ...inp }} autoComplete="off" />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    CNIC Expiry
+                  </label>
+                  <input type="date" value={profileCnicExpiry} onChange={e => setProfileCnicExpiry(e.target.value)} style={{ ...inp }} />
+                </div>
+
+                {/* License & License Expiry */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Driving License No.
+                  </label>
+                  <input value={profileLicenseNo} onChange={e => setProfileLicenseNo(e.target.value)} placeholder="ABC12345" style={{ ...inp }} autoComplete="off" />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    License Expiry
+                  </label>
+                  <input type="date" value={profileLicenseExp} onChange={e => setProfileLicenseExp(e.target.value)} style={{ ...inp }} />
+                </div>
+
+                {/* Address */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 6, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Address
+                  </label>
+                  <input value={profileAddress} onChange={e => setProfileAddress(e.target.value)} placeholder="Lahore" style={{ ...inp }} autoComplete="off" type="text" />
+                </div>
               </div>
 
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', margin: '18px 0' }} />
@@ -501,21 +772,28 @@ export default function Header({ pageTheme, setPageTheme }) {
               <div style={{ marginBottom: 10 }}>
                 <input type="password" value={profileCurrentPw} onChange={e => setProfileCurrentPw(e.target.value)}
                   placeholder="Current password" style={{ ...inp }}
+                  autoComplete="new-password"
                   onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
                   onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <input type="password" value={profileNewPw} onChange={e => setProfileNewPw(e.target.value)}
-                  placeholder="New password" style={{ ...inp }}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                  onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px 16px', marginBottom: 18 }}>
+                <div>
+                  <input type="password" value={profileNewPw} onChange={e => setProfileNewPw(e.target.value)}
+                    placeholder="New password" style={{ ...inp }}
+                    autoComplete="new-password"
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
+                <div>
+                  <input type="password" value={profileConfirmPw} onChange={e => setProfileConfirmPw(e.target.value)}
+                    placeholder="Confirm new password" style={{ ...inp }}
+                    autoComplete="new-password"
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
               </div>
-              <div style={{ marginBottom: 18 }}>
-                <input type="password" value={profileConfirmPw} onChange={e => setProfileConfirmPw(e.target.value)}
-                  placeholder="Confirm new password" style={{ ...inp }}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                  onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
-              </div>
+              </>
+              )}
 
               {profileErr && (
                 <div style={{ marginBottom: 14, padding: '9px 12px', borderRadius: 8,
@@ -536,10 +814,14 @@ export default function Header({ pageTheme, setPageTheme }) {
                     background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
                   Cancel
                 </button>
-                <button onClick={handleProfileSave} disabled={profileLoading}
-                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: profileLoading ? 'not-allowed' : 'pointer',
+                {/* Also gated on profileReady — saving before the fetch resolves would
+                    post empty strings and clear stored fields. */}
+                <button onClick={handleProfileSave} disabled={profileLoading || !profileReady}
+                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    cursor: (profileLoading || !profileReady) ? 'not-allowed' : 'pointer',
                     background: 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
-                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: profileLoading ? 0.7 : 1 }}>
+                    border: '1px solid rgba(167,44,50,0.40)', color: '#fff',
+                    opacity: (profileLoading || !profileReady) ? 0.7 : 1 }}>
                   {profileLoading ? 'Saving…' : 'Save Changes'}
                 </button>
               </div>

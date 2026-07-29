@@ -5,6 +5,23 @@ import { useAuth } from "../context/AuthContext.jsx";
 
 const API_BASE_URL = import.meta.env.DEV ? "" : (import.meta.env.VITE_API_BASE_URL || "");
 
+// History timestamps are stored as PKT wall-clock (each vendor's raw time is
+// offset on ingest — TrackSolid/Zoqin +5h, CityTag -3h — so all land in PKT),
+// and the backend matches query bounds against those values directly (it only
+// strips tz, it does NOT shift). So every history query (playback, trajectory,
+// activity batch) must send the picker's naive PKT wall-clock, unshifted. An
+// earlier design stored UTC and shifted these bounds −5h; that shift now moves
+// the whole window 5h early, dropping the most recent 5h of points — e.g. a
+// device whose latest fix is 08:38 never appears when the range ends before ~04:00.
+const pad2 = (n) => String(n).padStart(2, "0");
+const toNaivePkt = (val) => {
+  if (val instanceof Date) {
+    return `${val.getFullYear()}-${pad2(val.getMonth() + 1)}-${pad2(val.getDate())}` +
+           `T${pad2(val.getHours())}:${pad2(val.getMinutes())}:${pad2(val.getSeconds())}`;
+  }
+  return val; // already a naive wall-clock string from the page's date pickers
+};
+
 // In-flight GET request cache — if the same URL is already being fetched,
 // return the existing promise instead of firing a second network request.
 // This eliminates redundant concurrent calls from multiple context providers.
@@ -81,33 +98,46 @@ export function useCityTag() {
   const { accessToken, logout } = useAuth();
 
   const login = useCallback(
-    async ({ identifier, password }) =>
-      apiFetch("/api/login", { method: "POST", body: { identifier, password } }, null), []
-  );
-
-  const adminLogin = useCallback(
-    async ({ email, password }) =>
-      apiFetch("/api/login", { method: "POST", body: { identifier: email, password, uid: "" } }, null), []
-  );
-
-  const signup = useCallback(
-    async ({ identifier, email, password, name, verification_token, otp }) =>
+    async ({ identifier, password, otp, login_token }) =>
       apiFetch(
-        "/api/register",
+        "/api/login/portal",
         {
           method: "POST",
-          body: { identifier, email, password, name: name || "", verification_token, otp },
+          body: {
+            identifier,
+            ...(password ? { password } : {}),
+            ...(otp && login_token ? { otp, login_token } : {}),
+          },
         },
         null
       ),
     []
   );
 
-  const requestSignupVerification = useCallback(
-    async ({ email, identifier }) =>
+  const requestLoginOtp = useCallback(
+    async ({ identifier }) =>
+      apiFetch("/api/login/send-verification", { method: "POST", body: { identifier } }, null),
+    []
+  );
+
+  const adminLogin = useCallback(
+    async ({ email, password }) =>
+      apiFetch("/api/login/portal", { method: "POST", body: { identifier: email, password, uid: "" } }, null), []
+  );
+
+  const signup = useCallback(
+    async ({ email, phone, password, name }) =>
       apiFetch(
-        "/api/register/send-verification",
-        { method: "POST", body: { email, identifier: identifier || undefined } },
+        "/api/register",
+        {
+          method: "POST",
+          body: {
+            phone,
+            password,
+            ...(name ? { name } : {}),
+            ...(email ? { email } : {}),
+          },
+        },
         null
       ),
     []
@@ -123,6 +153,62 @@ export function useCityTag() {
     async ({ reset_token, otp, new_password }) =>
       apiFetch("/api/forgot-password/reset", { method: "POST", body: { reset_token, otp, new_password } }, null),
     []
+  );
+
+  const getMyProfile = useCallback(
+    async () => apiFetch("/api/me/profile", {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
+  const updateMyProfile = useCallback(
+    async ({
+      name,
+      email,
+      cnic,
+      cnic_expiry,
+      driving_license_no,
+      license_expiry,
+      emergency_contact,
+      address,
+      profile_image,
+    } = {}) => {
+      if (!accessToken) throw new Error("Not authenticated");
+
+      const form = new FormData();
+      const appendIfDefined = (key, value) => {
+        if (value !== undefined) form.append(key, value ?? "");
+      };
+      appendIfDefined("name", name);
+      appendIfDefined("email", email);
+      appendIfDefined("cnic", cnic);
+      appendIfDefined("cnic_expiry", cnic_expiry);
+      appendIfDefined("driving_license_no", driving_license_no);
+      appendIfDefined("license_expiry", license_expiry);
+      appendIfDefined("emergency_contact", emergency_contact);
+      appendIfDefined("address", address);
+      if (profile_image instanceof File) {
+        form.append("profile_image", profile_image);
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/me/profile`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      });
+
+      let payload = null;
+      try {
+        payload = await res.json();
+      } catch {
+        payload = null;
+      }
+      if (!res.ok) {
+        if (res.status === 401) logout?.();
+        throw new Error(payload?.detail || "Unable to update profile");
+      }
+      return payload;
+    },
+    [accessToken, logout]
   );
 
   const getDevices = useCallback(
@@ -287,8 +373,8 @@ export function useCityTag() {
   const getTrajectory = useCallback(
     async (sn, start, end) => {
       const params = new URLSearchParams({
-        start: start instanceof Date ? start.toISOString() : start,
-        end:   end   instanceof Date ? end.toISOString()   : end,
+        start: toNaivePkt(start),
+        end:   toNaivePkt(end),
       });
       return apiFetch(`/api/devices/${encodeURIComponent(sn)}/trajectory?${params}`, {}, accessToken, logout);
     }, [accessToken, logout]
@@ -297,8 +383,8 @@ export function useCityTag() {
   const getPlayback = useCallback(
     async (sn, start, end) => {
       const params = new URLSearchParams({
-        start: start instanceof Date ? start.toISOString() : start,
-        end:   end   instanceof Date ? end.toISOString()   : end,
+        start: toNaivePkt(start),
+        end:   toNaivePkt(end),
       });
       return apiFetch(`/api/devices/${encodeURIComponent(sn)}/playback?${params}`, {}, accessToken, logout);
     }, [accessToken, logout]
@@ -319,8 +405,8 @@ export function useCityTag() {
         method: "POST",
         body: {
           sns: Array.isArray(sns) ? sns : [],
-          start: start instanceof Date ? start.toISOString() : start,
-          end: end instanceof Date ? end.toISOString() : end,
+          start: toNaivePkt(start),
+          end: toNaivePkt(end),
         },
       },
       accessToken,
@@ -366,7 +452,8 @@ export function useCityTag() {
   );
 
   return {
-    login, adminLogin, signup, requestSignupVerification, requestPasswordReset, resetPasswordWithOtp,
+    login, requestLoginOtp, adminLogin, signup, requestPasswordReset, resetPasswordWithOtp,
+    getMyProfile, updateMyProfile,
     getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, checkDeviceAvailability, getUsers, adminGetUsers, adminCreateUser,
     adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,

@@ -1,15 +1,16 @@
 import React, { useMemo, useState, useEffect } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { Radio, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText, UserCog } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
-import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay, mapboxReverseGeocode, mapboxGeoLabelString } from '../utils/landmark.js'
+import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay, mapboxReverseGeocode, mapboxGeoLabelString, insidePakistan } from '../utils/landmark.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
 import AssignUserModal from '../components/AssignUserModal.jsx'
+import { useTrailNav, useBackTarget } from '../hooks/useBreadcrumbTrail.js'
 
 const statusStyle = (s, isLight) => {
   if (isLight) {
@@ -22,11 +23,34 @@ const statusStyle = (s, isLight) => {
   return                       { color: '#F87171', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)' }
 }
 
+// Maps a raw device record → the `loc` view model. Shared by the initial load
+// and the silent auto-refresh so both stay in sync.
+function mapDeviceToLoc(d) {
+  const lastSeen = d.dataRetrievalTime || null
+  const hoursAgo = lastSeen ? (Date.now() - new Date(lastSeen).getTime()) / 3600000 : 99
+  let status = 'Active'
+  if ((d.status || '') === 'offline' && hoursAgo > 24) status = 'Missing'
+  else if ((d.status || '') === 'offline' && hoursAgo > 12) status = 'At Risk'
+  return {
+    id: d.sn || d.local_id,
+    userName: d.assigned_user_name || d.name || d.sn || '—',
+    category: d.category || '',
+    company:  d.client || '',
+    status, hoursAgo,
+    battery: typeof d.battery === 'number' ? d.battery : null,
+    lastLocation: d.lastLocation || '',
+    dataRetrievalTime: d.dataRetrievalTime || null,
+    bindTime: d.bindTime,
+    fence_zone_ids: d.fence_zone_ids || [],
+    detections: d.detections ?? 0,
+  }
+}
+
 export default function LocatorDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
-  const { state: navState } = useLocation()
-  const backTo = navState?.from || '/locators'
+  const pushTrail = useTrailNav()
+  const backTo = useBackTarget('/devices?tab=all')
   const { zones }            = useZoneCache()
   const { getLatestLocation, getDeviceBySn, getGeocode, adminAssignDeviceToUser } = useCityTag()
   const { isAdmin }          = useAuth()
@@ -82,24 +106,7 @@ export default function LocatorDetail() {
     getDeviceBySn(id)
       .then(d => {
         if (cancelled || !d) return
-        const lastSeen = d.dataRetrievalTime || null
-        const hoursAgo = lastSeen ? (Date.now() - new Date(lastSeen).getTime()) / 3600000 : 99
-        let status = 'Active'
-        if ((d.status || '') === 'offline' && hoursAgo > 24) status = 'Missing'
-        else if ((d.status || '') === 'offline' && hoursAgo > 12) status = 'At Risk'
-        setLoc({
-          id: d.sn || d.local_id,
-          userName: d.assigned_user_name || d.name || d.sn || '—',
-          category: d.category || '',
-          company:  d.client || '',
-          status, hoursAgo,
-          battery: typeof d.battery === 'number' ? d.battery : null,
-          lastLocation: d.lastLocation || '',
-          dataRetrievalTime: d.dataRetrievalTime || null,
-          bindTime: d.bindTime,
-          fence_zone_ids: d.fence_zone_ids || [],
-          detections: d.detections ?? 0,
-        })
+        setLoc(mapDeviceToLoc(d))
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setDevLoading(false) })
@@ -153,6 +160,40 @@ export default function LocatorDetail() {
     return () => { cancelled = true }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Silent auto-refresh every 15 min — no loaders, current view stays put.
+  // Device then location are fetched sequentially to avoid a request spike.
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    const iv = setInterval(async () => {
+      try {
+        const d = await getDeviceBySn(id)
+        if (!cancelled && d) setLoc(mapDeviceToLoc(d))
+      } catch {}
+      if (cancelled) return
+      try {
+        const res = await getLatestLocation(id)
+        if (cancelled) return
+        const point = res?.latest ?? res ?? null
+        setLivePoint(point)
+        const stored = landmarkFromPoint(point)
+        if (stored) { setGeoLabel(stored); return }
+        const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
+        const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
+        if (ptLat == null || ptLng == null) return
+        // Gate by country so the auto-refresh only pays the worldwide (Mapbox)
+        // cost when it's actually needed — inside PK uses TPL Maps / backend.
+        if (insidePakistan(ptLat, ptLng)) {
+          try { const lm = await clientReverseGeocode(ptLat, ptLng); if (cancelled) return; if (lm) { setGeoLabel(lm); return } } catch {}
+          try { const geo = await getGeocode(ptLat, ptLng); if (cancelled) return; if (geo?.landmark) setGeoLabel(geo.landmark) } catch {}
+        } else {
+          try { const mbx = await mapboxReverseGeocode(ptLat, ptLng, import.meta.env.VITE_MAPBOX_TOKEN); if (cancelled) return; if (mbx) setGeoLabel(mapboxGeoLabelString(mbx) ?? '') } catch {}
+        }
+      } catch {}
+    }, 15 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(iv) }
+  }, [id, getDeviceBySn, getLatestLocation, getGeocode]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const fenceZoneNames = useMemo(() => {
     if (!loc?.fence_zone_ids?.length) return '—'
     return loc.fence_zone_ids
@@ -166,9 +207,15 @@ export default function LocatorDetail() {
     <div style={{ ...panel, padding: '80px 24px', textAlign: 'center', margin: '20px auto', maxWidth: 480 }}>
       <Radio style={{ width: 40, height: 40, color: T.notFoundIcon, margin: '0 auto 12px' }} />
       <p style={{ color: T.txt1, fontWeight: 600, marginBottom: 16 }}>Locator not found</p>
-      <button onClick={() => navigate(backTo)}
-        style={{ color: T.accent, fontSize: 15, background: 'none', border: 'none', cursor: 'pointer' }}>
-        ← Back
+      <button className="btn-uiverse" onClick={() => navigate(backTo)} title="Back" style={{ margin: '0 auto', transform: 'scaleX(-1)' }}>
+        <div className="btn-uiverse-box">
+          <span className="btn-uiverse-elem">
+            <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+          </span>
+          <span className="btn-uiverse-elem">
+            <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+          </span>
+        </div>
       </button>
     </div>
   )
@@ -235,9 +282,9 @@ export default function LocatorDetail() {
   ]
 
   const actionBtns = [
-    { label: 'Live Tracking',  sub: 'View current position on map',   icon: MapPin,  onClick: () => navigate(`/map?device=${loc.id}`),        primary: true },
-    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => navigate(`/playback?device=${loc.id}`), primary: false },
-    { label: 'Export Report',  sub: 'Download location history',      icon: FileText,onClick: () => navigate(`/reports?device=${loc.id}`),    primary: false },
+    { label: 'Live Tracking',  sub: 'View current position on map',   icon: MapPin,  onClick: () => pushTrail(`/map?device=${loc.id}`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }),        primary: true },
+    { label: 'Route History',  sub: 'View historical movement path',  icon: Route,   onClick: () => pushTrail(`/playback?device=${loc.id}&range=1D`, { state: { fromDeviceType: 'locator', fromDeviceId: loc.id, fromDeviceName: loc.name } }), primary: false },
+    { label: 'Export Report',  sub: 'Download location history',      icon: FileText,onClick: () => pushTrail(`/reports?device=${loc.id}`),    primary: false },
   ]
 
   return (
@@ -245,17 +292,17 @@ export default function LocatorDetail() {
 
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 10px', padding: '9px 14px',
-        flexShrink: 0, borderBottom: `1px solid ${T.fieldBdr}`, background: T.topBarBg }}>
-        <button onClick={() => navigate(backTo)}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: T.txt2,
-            background: T.fieldBg, border: `1px solid ${T.fieldBdr}`, borderRadius: 7,
-            padding: '4px 9px', cursor: 'pointer', flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.color = T.txt1}
-          onMouseLeave={e => e.currentTarget.style.color = T.txt2}>
-          <ArrowLeft style={{ width: 12, height: 12 }} /> Back
+        flexShrink: 0, background: T.topBarBg }}>
+        <button className="btn-uiverse" onClick={() => navigate(backTo)} title="Back" style={{ transform: 'scaleX(-1)' }}>
+          <div className="btn-uiverse-box">
+            <span className="btn-uiverse-elem">
+              <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+            </span>
+            <span className="btn-uiverse-elem">
+              <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg"><path d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"></path></svg>
+            </span>
+          </div>
         </button>
-
-        <div style={{ width: 1, height: 18, background: T.fieldBdr, flexShrink: 0 }} />
 
         <div style={{ padding: '6px 7px', borderRadius: 9, background: T.headIconBg,
           border: `1px solid ${T.headIconBdr}`, flexShrink: 0 }}>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { landmarkDisplayFromPoint, mapboxReverseGeocode } from "../utils/landmark.js";
 import "./MapInfoPanel.css";
 
@@ -37,35 +37,12 @@ function fmtRelative(ts) {
   return `${days}d ago`;
 }
 
-/* Icons */
-const IconClock = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-  </svg>
-);
-const IconPin = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" />
-  </svg>
-);
-const IconRadio = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" /><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" />
-    <circle cx="12" cy="12" r="2" /><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" /><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19" />
-  </svg>
-);
-
-export default function MapInfoPanel({
-  deviceName,
-  sn,
-  point,
-  detections = 0,
-  online = null,
-  detectionsLabel = "Detections",
-  emptyHint = "Select a device to view its live details",
-}) {
+/* One device's details — plain fields, no icons, no card chrome. */
+function DeviceSection({ device, detectionsLabel, focused, onFocus }) {
+  const { sn, label, latest: point, detections = 0, color } = device;
   const coords = extractCoords(point);
   const [geo, setGeo] = useState(() => landmarkDisplayFromPoint(point));
+  const sectionRef = useRef(null);
 
   useEffect(() => {
     const stored = landmarkDisplayFromPoint(point);
@@ -78,9 +55,94 @@ export default function MapInfoPanel({
     return () => { cancelled = true; };
   }, [point, coords?.lat, coords?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!sn) {
+  // When a marker is clicked on the map, bring this device's section into view.
+  useEffect(() => {
+    if (focused) sectionRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focused]);
+
+  const ts     = getTs(point);
+  const rel    = fmtRelative(ts);
+  const title  = label || sn;
+  const online = point != null;
+
+  return (
+    <div
+      ref={sectionRef}
+      className={`mip-device${focused ? " focused" : ""}${onFocus ? " clickable" : ""}`}
+      style={color ? { "--dev-color": color } : undefined}
+      onClick={onFocus ? () => onFocus(sn) : undefined}
+    >
+      <div className="mip-dev-head">
+        {color && <span className="mip-dev-dot" />}
+        <div className="mip-head-text">
+          <div className="mip-name" title={title}>{title}</div>
+          {title !== sn && <div className="mip-sn">{sn}</div>}
+        </div>
+        <span className={`mip-dev-status ${online ? "on" : "off"}`}>{online ? "Live" : "No fix"}</span>
+      </div>
+
+      <div className="mip-stat">
+        <div className="mip-stat-head">
+          <div className="mip-stat-num">{detections}</div>
+          <div className="mip-stat-label">{detectionsLabel}</div>
+        </div>
+        {coords && (
+          <div className="mip-coords">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>
+        )}
+      </div>
+
+      <div className="mip-field">
+        <div className="mip-row-label">Last seen</div>
+        <div className="mip-row-val">{fmtFull(ts)}</div>
+        {rel && <div className="mip-row-meta">{rel}</div>}
+      </div>
+
+      <div className="mip-field">
+        <div className="mip-row-label">Last location</div>
+        {geo?.primary ? (
+          <>
+            <div className="mip-row-val">{geo.isSpecific ? geo.primary : `Near ${geo.primary}`}</div>
+            {geo.secondary && <div className="mip-row-meta">{geo.secondary}</div>}
+          </>
+        ) : (
+          <div className="mip-row-val mip-muted">
+            {coords ? "No landmark yet" : "No GPS fix yet"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Right-side device info panel for map pages.
+ *
+ * Multi-device mode (Map View): pass `devices` — every selected device gets
+ * its own section, separated by prominent dividers; `focusedSn` highlights
+ * one and `onFocus` is called when a section is clicked.
+ *
+ * Single-device mode (Trajectory): the legacy `sn`/`deviceName`/`point`/
+ * `detections` props still work and render one section.
+ */
+export default function MapInfoPanel({
+  devices = null,
+  focusedSn = null,
+  onFocus = null,
+  // Legacy single-device props (TrajectoryPage)
+  sn,
+  deviceName,
+  point,
+  detections = 0,
+  detectionsLabel = "Detections",
+  emptyHint = "Select a device to view its live details",
+  width,
+}) {
+  const list = devices ?? (sn ? [{ sn, label: deviceName, latest: point, detections }] : []);
+  const style = width ? { width, flex: `0 0 ${width}px` } : undefined;
+
+  if (list.length === 0) {
     return (
-      <aside className="mip-panel">
+      <aside className="mip-panel" style={style}>
         <div className="mip-empty">
           <div className="mip-empty-title">No device focused</div>
           <div className="mip-empty-text">{emptyHint}</div>
@@ -89,64 +151,23 @@ export default function MapInfoPanel({
     );
   }
 
-  const ts        = getTs(point);
-  const rel       = fmtRelative(ts);
-  const primary   = geo?.primary ?? null;
-  const secondary = geo?.secondary ?? null;
-  const isSpecific = geo?.isSpecific ?? false;
-  const title     = deviceName || sn;
-  const showSub   = title !== sn;
-
   return (
-    <aside className="mip-panel">
-      <div className="mip-card">
-        {/* Header */}
-        <div className="mip-header">
-          <div className="mip-avatar"><IconRadio /></div>
-          <div className="mip-head-text">
-            <div className="mip-name" title={title}>{title}</div>
-            {showSub && <div className="mip-sn">{sn}</div>}
-          </div>
-        </div>
-
-        {/* Detections */}
-        <div className="mip-stat">
-          <div className="mip-stat-head">
-            <div className="mip-stat-num">{detections}</div>
-            <div className="mip-stat-label">{detectionsLabel}</div>
-          </div>
-          {coords && (
-            <div className="mip-coords">{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</div>
-          )}
-        </div>
-
-        {/* Last seen */}
-        <div className="mip-row">
-          <div className="mip-row-icon"><IconClock /></div>
-          <div className="mip-row-body">
-            <div className="mip-row-label">Last seen</div>
-            <div className="mip-row-val">{fmtFull(ts)}</div>
-            {rel && <div className="mip-row-meta">{rel}</div>}
-          </div>
-        </div>
-
-        {/* Last location */}
-        <div className="mip-row">
-          <div className="mip-row-icon"><IconPin /></div>
-          <div className="mip-row-body">
-            <div className="mip-row-label">Last location</div>
-            {primary ? (
-              <>
-                <div className="mip-row-val">{isSpecific ? primary : `Near ${primary}`}</div>
-                {secondary && <div className="mip-row-meta">{secondary}</div>}
-              </>
-            ) : (
-              <div className="mip-row-val mip-muted">
-                {coords ? "No landmark yet" : "No GPS fix yet"}
-              </div>
-            )}
-          </div>
-        </div>
+    <aside className="mip-panel" style={style}>
+      {list.length > 1 && (
+        <div className="mip-panel-head">{list.length} devices selected</div>
+      )}
+      <div className="mip-scroll">
+        {list.map((d, i) => (
+          <React.Fragment key={d.sn}>
+            {i > 0 && <div className="mip-divider" />}
+            <DeviceSection
+              device={d}
+              detectionsLabel={detectionsLabel}
+              focused={list.length > 1 && d.sn === focusedSn}
+              onFocus={list.length > 1 ? onFocus : null}
+            />
+          </React.Fragment>
+        ))}
       </div>
     </aside>
   );

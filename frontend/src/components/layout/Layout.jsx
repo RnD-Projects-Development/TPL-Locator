@@ -17,6 +17,13 @@ export default function Layout({ children }) {
   const isMapPage      = MAP_ROUTES.some(r => pathname.startsWith(r))
   const isDarkOnlyPage = DARK_ONLY_ROUTES.some(r => pathname.startsWith(r))
   const isDevicesPage  = pathname.startsWith('/devices')
+  const isUsersPage    = pathname.startsWith('/users')
+
+  // Most pages are fit-to-screen (main clips). The Users table can grow taller
+  // than the viewport, so let main scroll for it instead of clipping.
+  const mainOverflow = isMapPage ? 'overflow-hidden p-0'
+    : isUsersPage    ? 'overflow-y-auto overflow-x-hidden p-5'
+    :                  'overflow-hidden p-5'
 
   // global theme state (persists across all pages)
   const [pageTheme, setPageTheme] = React.useState(() => {
@@ -47,7 +54,7 @@ export default function Layout({ children }) {
               <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
               <main
                 key={pathname}
-                className={`page-anim flex-1 ${isMapPage ? 'overflow-hidden p-0' : isDevicesPage ? 'overflow-hidden p-5' : 'overflow-y-auto p-5'} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
+                className={`page-anim flex-1 ${mainOverflow} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
               style={{ borderTopLeftRadius: 0 }}
               >
                 <ThemeContext.Provider value={pageTheme}>

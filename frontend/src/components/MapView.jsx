@@ -3,8 +3,10 @@ import loadTPLMaps from "./loadTPLMaps.js";
 import { landmarkDisplayFromPoint, mapboxReverseGeocode, insidePakistan } from "../utils/landmark.js";
 import { deviceColor } from "../utils/zonePolygonManager.js";
 import { usePlaybackStore } from "../store/usePlaybackStore.js";
-import { clusterStops, stopDurationMs, formatStopDuration } from "../utils/stopClustering.js";
+import { aggregateByLandmarkAndDay } from "../utils/stopClustering.js";
 import { peekGeocode, resolveGeocode } from "../utils/geocodeCache.js";
+import { frameBounds } from "../utils/frameBounds.js";
+import TPLLoader from "./TPLLoader.jsx";
 
 // ── Mapbox fallback — used for devices outside Pakistan ───────────────────────
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? '';
@@ -15,6 +17,20 @@ const MAPBOX_TILE  = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/
 // zoom), not just on the play transition, so nothing can ever leave the
 // camera more zoomed out than this while playing.
 const PLAYBACK_ZOOM = 16;
+
+// Deepest zoom that still shows street detail — the map reports maxZoom 21
+// but TPL imagery is blank past ~19 (verified against live tiles).
+const FOCUS_MAX_ZOOM = 19;
+
+// Instantly center + max-zoom on a point (pin/sidebar clicks). Non-animated:
+// it re-measures the container first so the target lands dead-centre.
+function zoomToPoint(map, lat, lng) {
+  try {
+    const mapMax = Number.isFinite(map.getMaxZoom()) ? map.getMaxZoom() : FOCUS_MAX_ZOOM;
+    map.invalidateSize({ animate: false, pan: false });
+    map.setView([lat, lng], Math.min(mapMax, FOCUS_MAX_ZOOM), { animate: false });
+  } catch {}
+}
 
 function safe(v) { return v == null || v === '' ? '—' : String(v); }
 
@@ -53,55 +69,60 @@ function buildTrajDotPopup({ ts, geocode, coords }) {
     </div>`;
 }
 
+const buildCustomTooltipHtml = (title, primaryText, secondaryText) => {
+  return `
+    <div class="relative p-4 bg-gradient-to-br from-gray-900/95 to-gray-800/95 backdrop-blur-md rounded-2xl border border-white/10 shadow-[0_0_30px_rgba(167,44,50,0.15)] text-left min-w-[200px]">
+      <div class="flex items-center gap-3 mb-2 relative z-10">
+        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-[#A72C32]/20 shrink-0">
+          <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 text-[#A72C32]">
+            <path clip-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" fill-rule="evenodd"></path>
+          </svg>
+        </div>
+        <h3 class="text-sm font-semibold text-white m-0" style="margin:0">${title}</h3>
+      </div>
+      <div class="space-y-2 relative z-10">
+        <p class="text-sm text-gray-300 m-0" style="margin:0">
+          ${primaryText}
+        </p>
+        <div class="flex items-center gap-2 text-xs text-gray-400">
+          <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 shrink-0">
+            <path clip-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" fill-rule="evenodd"></path>
+          </svg>
+          <span>${secondaryText}</span>
+        </div>
+      </div>
+      <div class="absolute inset-0 rounded-2xl bg-gradient-to-r from-[#A72C32]/10 to-red-500/10 blur-xl opacity-50 pointer-events-none"></div>
+      <div class="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-gradient-to-br from-gray-900/95 to-gray-800/95 rotate-45 border-r border-b border-white/10 z-0"></div>
+    </div>
+  `;
+};
+
 function buildPopupHtml({ displayName, sn, label, coords, point, geocode }) {
   const primary    = geocode?.primary ?? null;
-  const secondary  = geocode?.secondary ?? null;
   const isSpecific = geocode?.isSpecific ?? false;
 
-  let locationLabel, locationContent;
-  if (primary && isSpecific) {
-    locationLabel   = 'Landmark';
-    locationContent = `<span style="color:#fff;font-weight:600;">${safe(primary)}</span>`
-      + (secondary ? `<br/><span style="color:#fca5a5;font-size:11px;">${safe(secondary)}</span>` : '');
-  } else if (primary) {
-    locationLabel   = 'Area';
-    locationContent = `<span style="color:#fff;font-weight:600;">Near ${safe(primary)}</span>`
-      + (secondary ? `<br/><span style="color:#fca5a5;font-size:11px;">${safe(secondary)}</span>` : '');
-  } else {
-    locationLabel   = 'Location';
-    locationContent = `<span style="color:#fca5a5;font-family:'JetBrains Mono',monospace;font-size:11px;">${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}</span>`;
+  const loc = primary
+    ? (isSpecific ? safe(primary) : `Near ${safe(primary)}`)
+    : 'No landmark';
+
+  const ts = point?.timestamp ?? point?.time ?? point?.locTime;
+  let dayLabel = '—';
+  let timeLabel = '—';
+  if (ts) {
+    try {
+      const d = new Date(ts);
+      if (!isNaN(d.getTime())) {
+        dayLabel = d.toLocaleDateString(undefined, { month: 'short', day: '2-digit', year: 'numeric' });
+        timeLabel = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } else {
+        dayLabel = safe(ts);
+      }
+    } catch {
+      dayLabel = safe(ts);
+    }
   }
 
-  return `
-    <div style="font-family:ui-sans-serif;font-size:12px;min-width:200px;color:#fff;">
-      <div style="font-weight:700;font-size:13px;margin-bottom:6px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.2);color:#fff;letter-spacing:.02em;">
-        ${safe(displayName)}
-      </div>
-      ${label && label !== sn ? `<div style="margin-bottom:8px;color:rgba(255,255,255,0.5);font-size:11px;font-family:'JetBrains Mono',monospace;">${safe(sn)}</div>` : ''}
-      <div style="margin-bottom:8px;">
-        <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="#fca5a5">
-            <path d="M14,10a2,2,0,1,1-2-2A2.006,2.006,0,0,1,14,10Zm5.5,0c0,6.08-4.67,9.89-6.67,11.24a1.407,1.407,0,0,1-.83.26,1.459,1.459,0,0,1-.84-.26C9.16,19.89,4.5,16.09,4.5,10A7.33,7.33,0,0,1,12,2.5,7.336,7.336,0,0,1,19.5,10ZM16,10a4,4,0,1,0-4,4A4,4,0,0,0,16,10Z"/>
-          </svg>
-          <span style="color:rgba(255,255,255,0.6);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">${locationLabel}</span>
-        </div>
-        <div style="padding-left:15px;">
-          ${locationContent}
-          <br/><span style="color:rgba(255,255,255,0.4);font-size:10px;font-family:'JetBrains Mono',monospace;">${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}</span>
-        </div>
-      </div>
-      <div>
-        <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 432 432" fill="#fca5a5">
-            <path d="M213.5 3q88.5 0 151 62.5T427 216t-62.5 150.5t-151 62.5t-151-62.5T0 216T62.5 65.5T213.5 3zm0 384q70.5 0 120.5-50t50-121t-50-121t-120.5-50T93 95T43 216t50 121t120.5 50zM224 109v112l96 57l-16 27l-112-68V109h32z"/>
-          </svg>
-          <span style="color:rgba(255,255,255,0.6);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Time</span>
-        </div>
-        <div style="padding-left:15px;">
-          <span style="color:#fff;">${formatTimestamp(point)}</span>
-        </div>
-      </div>
-    </div>`;
+  return buildCustomTooltipHtml(loc, `${dayLabel} at ${timeLabel}`, 'Live Location');
 }
 
 // ── Top-down car icon — rotates to face direction of travel ──────────────────
@@ -154,31 +175,21 @@ function buildPlaybackPinHtml(innerColor = '#E8192C', outerColor = '#8B0000', be
   </div>`;
 }
 
-// ── Small data-point pin — dark maroon lollipop, smaller than main pin ───────
-function buildSmallPinHtml() {
+// ── Small data-point pin — dark maroon lollipop, smaller than main pin.
+// `scale` grows every part proportionally (aggregated multi-sample stops
+// use a larger pin than single-reading ones).
+function buildSmallPinHtml(scale = 1) {
+  const s = (n) => Math.max(1, Math.round(n * scale));
   return `
-  <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:14px;height:22px;">
-    <div style="width:11px;height:11px;border-radius:50%;flex-shrink:0;
+  <div style="position:relative;display:flex;flex-direction:column;align-items:center;width:${s(14)}px;height:${s(22)}px;">
+    <div style="width:${s(11)}px;height:${s(11)}px;border-radius:50%;flex-shrink:0;
       background:#7F1D1D;display:flex;align-items:center;justify-content:center;
       box-shadow:0 1px 4px rgba(0,0,0,0.5);">
-      <div style="width:5px;height:5px;border-radius:50%;background:#A72C32;"></div>
+      <div style="width:${s(5)}px;height:${s(5)}px;border-radius:50%;background:#A72C32;"></div>
     </div>
-    <div style="width:2px;height:9px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 2px 2px;"></div>
+    <div style="width:${s(2)}px;height:${s(9)}px;flex-shrink:0;background:#3d3d3d;border-radius:0 0 2px 2px;"></div>
     <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);
-      width:7px;height:3px;border-radius:50%;background:rgba(0,0,0,0.15);"></div>
-  </div>`;
-}
-
-// ── Stop marker — actual stop sign
-function buildActualStopSignHtml() {
-  return `
-  <div style="position:relative; width:24px; height:24px; display:flex; align-items:center; justify-content:center; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));">
-    <svg viewBox="0 0 100 100" width="24" height="24">
-      <polygon points="29.3,2.5 70.7,2.5 97.5,29.3 97.5,70.7 70.7,97.5 29.3,97.5 2.5,70.7 2.5,29.3" fill="#7F1D1D" stroke="white" stroke-width="4"/>
-      <polygon points="31,7 69,7 93,31 93,69 69,93 31,93 7,69 7,31" fill="none" stroke="white" stroke-width="1.5"/>
-      <rect x="38" y="32" width="8" height="36" fill="white" rx="2" />
-      <rect x="54" y="32" width="8" height="36" fill="white" rx="2" />
-    </svg>
+      width:${s(7)}px;height:${s(3)}px;border-radius:50%;background:rgba(0,0,0,0.15);"></div>
   </div>`;
 }
 
@@ -251,6 +262,7 @@ function attachMap(parent, onReady, onError) {
     console.log('[MapView] reusing cached map instance');
     parent.appendChild(_cachedContainer);
     try { _cachedMap.invalidateSize(); } catch {}
+    window.__tplMap = _cachedMap; // devtools debug handle
     onReady(_cachedMap);
     return;
   }
@@ -279,6 +291,7 @@ function attachMap(parent, onReady, onError) {
       try { map.scrollWheelZoom?.enable(); } catch {}
       try { map.invalidateSize(); } catch {}
       _cachedMap = map;
+      window.__tplMap = map; // devtools debug handle
       console.log('[MapView] ✅ initMap succeeded — map instance created');
       onReady(map);
     } catch (err) {
@@ -353,12 +366,19 @@ export default function MapView({
   // All trajectory points rendered immediately as dim background dots (playback page only).
   staticDots = [],
   isPlaying = false,
+  // Playback page: pan/zoom to this point when it changes (sidebar reading clicked).
+  focusPoint = null,
+  // Playback page: called with the aggregated stop group when its map marker
+  // is clicked — opens that stop's timeline in the right sidebar.
+  onFocusGroup = null,
   // Backend TPL reverse-geocode lookup, used (Pakistan-only, as a fallback)
   // when labelling playback-page pins with their landmark.
   getGeocode = null,
 }) {
   const onFocusRef     = useRef(onFocusDevice);
   useEffect(() => { onFocusRef.current = onFocusDevice; }, [onFocusDevice]);
+  const onFocusGroupRef = useRef(onFocusGroup);
+  useEffect(() => { onFocusGroupRef.current = onFocusGroup; }, [onFocusGroup]);
 
   const containerRef   = useRef(null);
   const mapRef         = useRef(null);
@@ -456,6 +476,8 @@ export default function MapView({
       animFromRef.current = { lat: c.lat, lng: c.lng };
 
       markerRef.current.on('click', () => {
+        const p = markerRef.current?.getLatLng();
+        if (p) zoomToPoint(map, p.lat, p.lng);
         if (onFocusRef.current && snRef.current) onFocusRef.current(snRef.current);
       });
     }
@@ -468,43 +490,6 @@ export default function MapView({
   useEffect(() => { snRef.current          = sn;          }, [sn]);
   useEffect(() => { labelRef.current       = label;       }, [label]);
 
-  // Landmark — backend-stored first, Mapbox fallback for outside-Pakistan
-  useEffect(() => {
-    // `coords` on the playback page is a dummy (0,0) sentinel while playing
-    // (see `isPlayback` below) — real position lives in the turf/rAF
-    // renderer, not in this prop. Reverse-geocoding (0,0) would just spam
-    // Nominatim for "null island" every time playback starts.
-    if (isPlaybackPage && isPlayback) return;
-
-    let cancelled = false;
-
-    const updatePopup = (geocode) => {
-      geocodeRef.current = geocode;
-      if (popupRef.current && mapRef.current) {
-        popupRef.current.setContent(buildPopupHtml({
-          displayName: displayNameRef.current,
-          sn: snRef.current, label: labelRef.current,
-          coords: coordsRef.current, point: latestRef.current,
-          geocode,
-        }));
-      }
-    };
-
-    const display = landmarkDisplayFromPoint(activePoint);
-    if (display) { updatePopup(display); return; }
-
-    // No backend landmark — use Mapbox for outside-Pakistan devices
-    if (!coords || insidePakistan(coords.lat, coords.lng)) {
-      updatePopup(null);
-      return;
-    }
-
-    mapboxReverseGeocode(coords.lat, coords.lng, MAPBOX_TOKEN).then(mbx => {
-      if (!cancelled) updatePopup(mbx ?? null);
-    });
-
-    return () => { cancelled = true; };
-  }, [activePoint?.landmark, coords?.lat, coords?.lng, isPlaybackPage, isPlayback]);
 
   /* ── INVALIDATE SIZE ── */
   useEffect(() => {
@@ -539,8 +524,8 @@ export default function MapView({
     // blank map (no fallback tile layer ever gets added). Use the actual
     // loaded trajectory points instead of the dummy sentinel.
     let outside;
-    if (isPlaybackPage && isPlayback) {
-      outside = (staticDots ?? []).some(p => {
+    if (isPlaybackPage && (staticDots?.length ?? 0) > 0) {
+      outside = staticDots.some(p => {
         const c = extractCoords(p);
         return c && !insidePakistan(c.lat, c.lng);
       });
@@ -822,6 +807,51 @@ export default function MapView({
     }
   }, [coords, mapLoaded, isPlayback, playbackSpeed, ensureMarker, isPlaybackPage]);
 
+  // Landmark — backend-stored first, Mapbox fallback for outside-Pakistan
+  useEffect(() => {
+    // `coords` on the playback page is a dummy (0,0) sentinel while playing
+    // (see `isPlayback` below) — real position lives in the turf/rAF
+    // renderer, not in this prop. Reverse-geocoding (0,0) would just spam
+    // Nominatim for "null island" every time playback starts.
+    if (isPlaybackPage && isPlayback) return;
+
+    let cancelled = false;
+
+    const updatePopup = (geocode) => {
+      geocodeRef.current = geocode;
+      if (markerRef.current) {
+        const html = buildPopupHtml({
+          displayName: displayNameRef.current,
+          sn: snRef.current, label: labelRef.current,
+          coords: coordsRef.current, point: latestRef.current,
+          geocode,
+        });
+        if (!markerRef.current.getTooltip()) {
+          markerRef.current.bindTooltip(html, {
+            direction: 'top', offset: [0, -40], className: 'pb-map-label-tip', opacity: 1
+          });
+        } else {
+          markerRef.current.setTooltipContent(html);
+        }
+      }
+    };
+
+    const display = landmarkDisplayFromPoint(activePoint);
+    if (display) { updatePopup(display); return; }
+
+    // No backend landmark — use Mapbox for outside-Pakistan devices
+    if (!coords || insidePakistan(coords.lat, coords.lng)) {
+      updatePopup(null);
+      return;
+    }
+
+    mapboxReverseGeocode(coords.lat, coords.lng, MAPBOX_TOKEN).then(mbx => {
+      if (!cancelled) updatePopup(mbx ?? null);
+    });
+
+    return () => { cancelled = true; };
+  }, [activePoint, coords?.lat, coords?.lng, isPlaybackPage, isPlayback]);
+
   /* ── STANDARD TRAJECTORY (non-playback pages: Trajectory page etc.) ─────
    * This block is completely bypassed when isPlaybackPage is true.
    * The Trajectory page continues to use this untouched path.
@@ -911,7 +941,7 @@ export default function MapView({
       const loc = geo?.primary
         ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
         : 'No landmark';
-      return `<div class="pb-map-label"><div class="pb-map-label-loc">${loc}</div><div class="pb-map-label-ts">${formatTimestamp(point)}</div></div>`;
+      return buildCustomTooltipHtml(loc, formatTimestamp(point), 'Live Location');
     };
 
     const updateMainTooltip = (point) => {
@@ -1005,69 +1035,87 @@ export default function MapView({
     staticDotsRef.current.forEach(d => { try { map.removeLayer(d); } catch {} });
     staticDotsRef.current = [];
 
-    const rawItems = (staticDots ?? [])
-      .map(p => { const c = extractCoords(p); return c ? { c, p } : null; })
-      .filter(Boolean);
+    const rawItems = (staticDots ?? []).filter(p => extractCoords(p));
 
     if (rawItems.length === 0) return;
 
-    const latLngs = rawItems.map(({ c }) => [c.lat, c.lng]);
+    const latLngs = rawItems.map(p => { const c = extractCoords(p); return [c.lat, c.lng]; });
 
-    // Group points near the same landmark (or within a few meters as a
-    // fallback) and within a short time gap into a single "stop" — a
-    // stationary/idling device pinging the same place repeatedly would
-    // otherwise stack indistinguishable pins and crossing line segments on
-    // top of each other. Shared with the visit-log sidebar so both render
-    // identical groupings for the same trajectory.
-    const groups = clusterStops(rawItems.map(({ p }) => p));
+    // ONE marker per (landmark, local day) — all samples the device produced
+    // at the same place on the same day collapse into a single aggregated
+    // pin. Same aggregation the sidebar list uses, so pins and rows are 1:1.
+    const groups = aggregateByLandmarkAndDay(rawItems);
+    console.log(`[playback] map pins: ${groups.length} stops from ${rawItems.length} points`);
 
-    const smallPinIcon = window.L.divIcon({
-      html: buildSmallPinHtml(),
+    const fmtTime = (p) => {
+      const ts = p?.timestamp ?? p?.time ?? p?.locTime;
+      if (!ts) return '—';
+      try { const d = new Date(ts); return isNaN(d.getTime()) ? '—' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+      catch { return '—'; }
+    };
+
+    // Hover tooltip: stop summary + hint that clicking opens the timeline.
+    // A single-reading stop has no meaningful arrival/departure — it shows
+    // just its one timestamp instead.
+    const tooltipFor = (geo, group) => {
+      const loc = geo?.primary
+        ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
+        : 'No landmark';
+      const dayLabel = group.startTs != null
+        ? new Date(group.startTs).toLocaleDateString(undefined, { month: 'short', day: '2-digit', year: 'numeric' })
+        : group.day;
+
+      return buildCustomTooltipHtml(
+        loc, 
+        `${dayLabel} — ${fmtTime(group.firstPoint)}`, 
+        `${group.totalSamples} total samples — Click to view`
+      );
+    };
+
+    // Single-reading stops keep the small pin; aggregated (multi-sample)
+    // stops get a visibly larger one.
+    const singlePinIcon = window.L.divIcon({
+      html: buildSmallPinHtml(1),
       className: '',
       iconSize: [14, 22],
       iconAnchor: [7, 22],
     });
+    const AGG_PIN_SCALE = 1.6;
+    const aggPinIcon = window.L.divIcon({
+      html: buildSmallPinHtml(AGG_PIN_SCALE),
+      className: '',
+      iconSize: [Math.round(14 * AGG_PIN_SCALE), Math.round(22 * AGG_PIN_SCALE)],
+      iconAnchor: [Math.round(7 * AGG_PIN_SCALE), Math.round(22 * AGG_PIN_SCALE)],
+    });
 
-    // Every pin gets a permanent on-map label showing its landmark +
-    // timestamp (or, for a multi-point stop, its duration) — the same
-    // content the sidebar's visit-log row shows for that point/group, so
-    // the map and sidebar always read the same at a glance.
-    const labelFor = (geo, group, isStop, nextGroup) => {
-      const loc = geo?.primary
-        ? (geo.isSpecific ? geo.primary : `Near ${geo.primary}`)
-        : 'No landmark';
-      const sub = isStop
-        ? `<span class="pb-map-label-stop">STOP</span> ${nextGroup ? formatStopDuration(stopDurationMs(group, nextGroup)) : 'Ongoing'}`
-        : formatTimestamp(group.points[0]);
-      return `<div class="pb-map-label"><div class="pb-map-label-loc">${loc}</div><div class="pb-map-label-ts">${sub}</div></div>`;
-    };
-
-    groups.forEach((group, i) => {
-      const nextGroup = groups[i + 1];
+    groups.forEach((group) => {
       const { coords: c } = group;
-      const isStop = group.points.length > 1;
-      const icon = isStop
-        ? window.L.divIcon({ html: buildActualStopSignHtml(), className: '', iconSize: [24, 24], iconAnchor: [12, 12] })
-        : smallPinIcon;
+      const geoPoint = { ...group.firstPoint, landmark: group.landmark ?? group.firstPoint?.landmark };
+      const geo = peekGeocode(geoPoint);
+      const isAgg = group.totalSamples > 1;
 
       const dot = window.L.marker([c.lat, c.lng], {
-        icon,
-        interactive: false,
+        icon: isAgg ? aggPinIcon : singlePinIcon,
         keyboard: false,
       }).addTo(map);
 
-      const geoPoint = { ...group.points[0], landmark: group.landmark ?? group.points[0]?.landmark };
-      const geo = peekGeocode(geoPoint);
-      dot.bindTooltip(labelFor(geo, group, isStop, nextGroup), {
-        permanent: true, direction: 'top', offset: [0, isStop ? -14 : -20],
+      dot.bindTooltip(tooltipFor(geo, group), {
+        direction: 'top', offset: [0, isAgg ? -Math.round(22 * AGG_PIN_SCALE) + 2 : -20],
         className: 'pb-map-label-tip', opacity: 1,
       });
 
       if (!geo) {
         resolveGeocode(geoPoint, getGeocode).then((resolved) => {
-          try { dot.setTooltipContent(labelFor(resolved, group, isStop, nextGroup)); } catch {}
+          try { dot.setTooltipContent(tooltipFor(resolved, group)); } catch {}
         });
       }
+
+      // Clicking an aggregated marker instantly zooms to it and opens its
+      // timeline in the right sidebar.
+      dot.on('click', () => {
+        zoomToPoint(map, c.lat, c.lng);
+        onFocusGroupRef.current?.(group);
+      });
 
       staticDotsRef.current.push(dot);
     });
@@ -1076,23 +1124,31 @@ export default function MapView({
     // The persistent map instance gets detached/reattached across page and
     // device switches (see attachMap/detachMap above), and the ResizeObserver
     // that normally keeps `_size` in sync fires asynchronously — so on first
-    // load right after a switch, fitBounds below can still be computing
-    // against a stale container size, producing a pan/zoom that's off until
-    // the user manually zooms (which forces Leaflet to fully re-project
-    // against the container's actual current size).
+    // load right after a switch, framing below can still be computing
+    // against a stale container size.
     try { map.invalidateSize({ animate: false, pan: false }); } catch {}
 
-    // Fit map to show all points on load
+    // Fit map to show all points on load (frameBounds = integer-zoom,
+    // non-animated fitBounds so TPL's basemap and markers stay aligned).
     if (latLngs.length > 1) {
       try {
         const bounds = window.L.latLngBounds(latLngs);
-        if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        if (bounds.isValid()) frameBounds(map, bounds, { padding: [50, 50], maxZoom: 16 });
       } catch {}
     } else if (latLngs.length === 1) {
-      try { map.setView(latLngs[0], Math.max(map.getZoom(), 15)); } catch {}
+      try { map.setView(latLngs[0], Math.max(Math.round(map.getZoom()), 15), { animate: false }); } catch {}
     }
-
   }, [staticDots, mapLoaded, isPlaybackPage, getGeocode]);
+
+  /* ── FOCUS POINT (sidebar selections — pan/zoom to the point when set) ── */
+  useEffect(() => {
+    if (!focusPoint) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const c = extractCoords(focusPoint);
+    if (!c) return;
+    zoomToPoint(map, c.lat, c.lng);
+  }, [focusPoint, mapLoaded]);
 
   /* ── FENCE OVERLAY ── */
   useEffect(() => {
@@ -1148,23 +1204,50 @@ export default function MapView({
       const c = extractCoords(point);
       if (!c) return;
 
+      let marker;
       if (multiMarkersRef.current.has(sn)) {
         const entry = multiMarkersRef.current.get(sn);
         entry.marker.setLatLng([c.lat, c.lng]);
         entry.pointHolder.current = point;
+        marker = entry.marker;
       } else {
         const icon = window.L.divIcon({
           html: buildPinIconHtml(color),
           className: '', iconSize: [30, 48], iconAnchor: [15, 42],
         });
-        const marker      = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
+        marker = window.L.marker([c.lat, c.lng], { icon }).addTo(map);
         const pointHolder = { current: point };
 
         marker.on('click', () => {
+          const p = marker.getLatLng();
+          if (p) zoomToPoint(map, p.lat, p.lng);
           if (onFocusRef.current) onFocusRef.current(sn);
         });
 
         multiMarkersRef.current.set(sn, { marker, pointHolder });
+      }
+
+      const updateTooltip = (geocode) => {
+        if (!multiMarkersRef.current.has(sn)) return;
+        const html = buildPopupHtml({
+          displayName: devLabel,
+          sn, label: devLabel,
+          coords: { lat: c.lat, lng: c.lng }, point, geocode
+        });
+        if (!marker.getTooltip()) {
+          marker.bindTooltip(html, { direction: 'top', offset: [0, -40], className: 'pb-map-label-tip', opacity: 1 });
+        } else {
+          marker.setTooltipContent(html);
+        }
+      };
+
+      const display = landmarkDisplayFromPoint(point);
+      if (display) {
+        updateTooltip(display);
+      } else if (!insidePakistan(c.lat, c.lng)) {
+        mapboxReverseGeocode(c.lat, c.lng, MAPBOX_TOKEN).then(mbx => updateTooltip(mbx ?? null));
+      } else {
+        updateTooltip(null);
       }
     });
 
@@ -1197,7 +1280,7 @@ export default function MapView({
       } else if (validCoords.length > 1) {
         try {
           const bounds = window.L.latLngBounds(validCoords.map(c => [c.lat, c.lng]));
-          if (bounds.isValid()) map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+          if (bounds.isValid()) frameBounds(map, bounds, { padding: [60, 60], maxZoom: 15 });
         } catch {}
       }
     }
@@ -1238,12 +1321,17 @@ export default function MapView({
         </div>
       )}
 
-      {sn && !coords && (
-        <div style={{ position:'absolute', top:0, left:0, right:0, height:3, zIndex:1000, overflow:'hidden', pointerEvents:'none' }}>
-          <style>{`@keyframes mv-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}`}</style>
-          <div style={{ position:'absolute', inset:0, background:'rgba(167,44,50,0.25)' }} />
-          <div style={{ position:'absolute', top:0, bottom:0, width:'50%', background:'linear-gradient(90deg,transparent,#A72C32,transparent)', animation:'mv-shimmer 1.4s ease-in-out infinite' }} />
-        </div>
+      {sn && !coords && (staticDots?.length ?? 0) === 0 && (
+        isPlaybackPage ? (
+          /* Playback page — same branded loader the Map View page uses */
+          <TPLLoader overlay label="Loading map…" />
+        ) : (
+          <div style={{ position:'absolute', top:0, left:0, right:0, height:3, zIndex:1000, overflow:'hidden', pointerEvents:'none' }}>
+            <style>{`@keyframes mv-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(200%)}}`}</style>
+            <div style={{ position:'absolute', inset:0, background:'rgba(167,44,50,0.25)' }} />
+            <div style={{ position:'absolute', top:0, bottom:0, width:'50%', background:'linear-gradient(90deg,transparent,#A72C32,transparent)', animation:'mv-shimmer 1.4s ease-in-out infinite' }} />
+          </div>
+        )
       )}
 
       <div ref={containerRef} style={{ position:'absolute', inset:0 }} />

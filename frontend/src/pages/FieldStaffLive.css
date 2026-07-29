@@ -1,0 +1,629 @@
+/* Live monitor additions for the Field Staff page — floating alert queue, info
+   panel, staff roster, map tooltip. Kept beside FieldStaffDashboard.css rather
+   than merged into it so the older table/pagination styles stay untouched. */
+
+.fsd-field-label {
+  font-size: 0.6875em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.40);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+/* ── Alert banner ────────────────────────────────────────────────────────────
+   One banner at a time, living in the header row immediately left of the zone
+   picker. `margin-left: auto` eats the header's empty middle so the banner
+   always sits against the picker rather than drifting to the centre.
+
+   It rides in the header rather than floating over the cards: floating meant it
+   covered the roster, and an earlier top-strip position sat *under* the header
+   (z-index 100) which swallowed the dismiss clicks entirely. In the flow there
+   is no stacking contest to lose. */
+.fsd-header > .fsd-toast-layer {
+  flex: 1 1 20em;
+  min-width: 0;
+  max-width: 34em;
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Translucent by design: a tinted gradient over a blurred backdrop, with a
+   solid accent rail on the leading edge carrying the severity colour. */
+.fsd-toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.375em minmax(0, 1fr) auto;
+  column-gap: 0.875em;
+  align-items: start;
+  padding: 1.125em 1em 1.125em 1.125em;
+  border-radius: 0.9375em;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0.3125em solid var(--fsd-tone);
+  background: linear-gradient(
+    to right,
+    rgba(var(--fsd-tone-rgb), 0.30),
+    rgba(var(--fsd-tone-rgb), 0.12) 55%,
+    rgba(var(--fsd-tone-rgb), 0.20)
+  );
+  backdrop-filter: blur(0.875em) saturate(150%);
+  -webkit-backdrop-filter: blur(0.875em) saturate(150%);
+  box-shadow: 0 0.75em 2em rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  animation: fsdToastIn 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fsd-toast.leaving {
+  animation: fsdToastOut 0.2s ease-in forwards;   /* keep in sync with TOAST_EXIT_MS */
+}
+
+.fsd-toast-critical { --fsd-tone: #f87171; --fsd-tone-rgb: 248, 113, 113; }
+.fsd-toast-high     { --fsd-tone: #fb923c; --fsd-tone-rgb: 251, 146, 60; }
+.fsd-toast-medium   { --fsd-tone: #fbbf24; --fsd-tone-rgb: 251, 191, 36; }
+.fsd-toast-low      { --fsd-tone: #38bdf8; --fsd-tone-rgb: 56, 189, 248; }
+
+.fsd-toast-icon {
+  width: 1.375em;
+  height: 1.375em;
+  margin-top: 0.0625em;
+  color: var(--fsd-tone);
+  flex-shrink: 0;
+}
+
+/* Nothing in the banner is clipped — the description wraps to as many lines as
+   it needs, and long zone names / serials break rather than run off the edge. */
+.fsd-toast-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fsd-toast-title {
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  color: #ffffff;
+}
+
+/* Two lines is the floor, not the ceiling: a one-line description no longer
+   makes the banner shorter, and a long one still wraps freely rather than
+   being clipped. Combined with dropping the footer, the banner holds one
+   height across every alert and queue length. */
+.fsd-toast-desc {
+  margin-top: 0.3125em;
+  font-size: 0.875em;
+  line-height: 1.5;
+  min-height: 3em;              /* 2 × line-height, in the desc's own em */
+  color: rgba(255, 255, 255, 0.80);
+}
+
+/* Controls sit on the title row — no footer, so no height change. */
+.fsd-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375em;
+  flex-shrink: 0;
+}
+
+.fsd-toast-all {
+  padding: 0.25em 0.625em;
+  border-radius: 0.4375em;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.75em;
+  font-weight: 700;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.fsd-toast-all:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.fsd-toast-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75em;
+  height: 1.75em;
+  border: none;
+  border-radius: 0.375em;
+  background: transparent;
+  color: #ffffff;
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+}
+.fsd-toast-x:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.14);
+}
+.fsd-toast-x-icon { width: 0.875em; height: 0.875em; }
+
+@keyframes fsdToastIn {
+  from { opacity: 0; transform: translateX(1.25em) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fsdToastOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(1.25em) scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fsd-toast, .fsd-toast.leaving { animation-duration: 0.01ms; }
+}
+
+/* Narrow header: the banner takes its own full-width line under the title and
+   picker rather than crushing all three onto one row. */
+@media (max-width: 900px) {
+  .fsd-header > .fsd-toast-layer {
+    flex: 1 1 100%;
+    max-width: none;
+    margin-left: 0;
+  }
+}
+
+/* ── Info panel ──────────────────────────────────────────────────────────── */
+.fsd-panel {
+  --fsd-panel-bg: #151515;
+  --fsd-panel-line: rgba(255, 255, 255, 0.08);
+  background: var(--fsd-panel-bg);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 1em;
+  box-shadow: 0 0.25em 1.5em rgba(0, 0, 0, 0.40);
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;       /* roster scrolls inside; the card itself never overflows */
+  overflow: hidden;
+}
+
+.fsd-panel-empty {
+  align-items: center;
+  justify-content: center;
+  gap: 0.875em;
+}
+.fsd-panel-empty p {
+  color: rgba(255, 255, 255, 0.28);
+  font-size: 0.9375em;
+  margin: 0;
+  text-align: center;
+  max-width: 13em;
+  line-height: 1.5;
+}
+
+.fsd-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75em;
+  padding: 1.25em 1.25em 1em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.fsd-panel-title {
+  font-size: 1.5em;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fsd-panel-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.4375em;
+  flex-wrap: wrap;
+  margin-top: 0.4375em;
+  font-size: 0.875em;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.fsd-zone-dot {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.fsd-sep { opacity: 0.35; }
+
+.fsd-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375em;
+  flex-shrink: 0;
+  padding: 0.25em 0.625em;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.30);
+  color: #4ade80;
+  font-size: 0.75em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.fsd-live-badge.paused {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #94a3b8;
+}
+.fsd-live-dot {
+  width: 0.4375em;
+  height: 0.4375em;
+  border-radius: 50%;
+  background: currentColor;
+  animation: fsdBlink 1.8s ease-in-out infinite;
+}
+.fsd-live-badge.paused .fsd-live-dot { animation: none; }
+
+@keyframes fsdBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+
+/* ── KPI chips ───────────────────────────────────────────────────────────────
+   One bordered bar split into three tinted segments, rather than three loose
+   cards — the divider carries the grouping, so no gaps and no per-chip border. */
+.fsd-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 1em 1.25em 0;
+  border: 1px solid var(--fsd-panel-line);
+  border-radius: 0.75em;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.fsd-kpi {
+  padding: 0.875em 0.75em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  min-width: 0;
+}
+.fsd-kpi + .fsd-kpi { border-left: 1px solid var(--fsd-panel-line); }
+
+.fsd-kpi-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4375em;
+  min-width: 0;
+}
+
+.fsd-kpi-icon {
+  width: 1.5em;
+  height: 1.5em;
+  border: 1px solid transparent;
+  border-radius: 0.4375em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Wraps rather than ellipsises: "OUT-OF-ZONE" is the longest label and it
+   stops fitting on one line once the panel drops under ~440px. All three
+   segments share a grid row, so a second line grows them together. */
+.fsd-kpi-label {
+  font-size: 0.75em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.52);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fsd-kpi-value {
+  font-size: 2.125em;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+/* ── Compliance bar ──────────────────────────────────────────────────────── */
+.fsd-compliance {
+  margin: 1em 1.25em;
+  padding: 1em 1.125em;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--fsd-panel-line);
+  border-radius: 0.75em;
+  flex-shrink: 0;
+}
+
+.fsd-compliance-bar-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75em;
+  font-size: 0.875em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.52);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.fsd-compliance-track {
+  margin-top: 0.625em;
+  height: 0.375em;
+  border-radius: 0.1875em;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.fsd-compliance-fill {
+  height: 100%;
+  border-radius: 0.1875em;
+  transition: width 0.6s ease;
+}
+
+.fsd-compliance-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4375em;
+  margin-top: 0.625em;
+  font-size: 0.875em;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+}
+
+.fsd-compliance-note-icon {
+  width: 0.9375em;
+  height: 0.9375em;
+  flex-shrink: 0;
+  color: #fbbf24;
+}
+
+/* ── Staff roster ────────────────────────────────────────────────────────── */
+/* The row layout depends on how wide *this panel* is, not the window — the
+   panel is a 40% grid column, so a viewport media query guesses wrong. Rows
+   query this container instead. */
+.fsd-roster {
+  container-type: inline-size;
+  container-name: fsdroster;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+.fsd-roster::-webkit-scrollbar { width: 0.375em; }
+.fsd-roster::-webkit-scrollbar-track { background: transparent; }
+.fsd-roster::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+.fsd-roster::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+
+.fsd-roster-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.875em 1.25em 0.5em;
+  background: var(--fsd-panel-bg);
+  font-size: 0.8125em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.42);
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+}
+.fsd-roster-ts {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.28);
+}
+
+.fsd-roster-empty {
+  padding: 2em 1.25em;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 0.9375em;
+}
+
+/* The row itself is the button, so the meta stack is part of the hit area too.
+   Stacked by default; the three-column form is opted into by the container
+   query further down, once there's room for it. */
+.fsd-staff-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.5em 0.875em;
+  width: 100%;
+  padding: 0.9375em 1.25em;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.fsd-staff-row:hover { background: rgba(255, 255, 255, 0.04); }
+.fsd-staff-row:focus-visible {
+  outline: 2px solid rgba(167, 44, 50, 0.75);
+  outline-offset: -2px;
+}
+
+.fsd-staff-id {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.fsd-staff-dot {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.fsd-staff-name {
+  font-size: 1.0625em;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #ffffff;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fsd-staff-caret {
+  width: 0.875em;
+  height: 0.875em;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.28);
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.fsd-staff-row:hover .fsd-staff-caret {
+  transform: translateX(0.1875em);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* Marks a tracker with nobody bound to it — the row is titled by serial, and
+   that should read as a gap in the roster, not as a person's name. */
+.fsd-staff-tag {
+  margin-left: 0.5em;
+  padding: 0.125em 0.4375em;
+  border-radius: 0.3125em;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Fixed min-widths so every row's status column is the same width. Without
+   them the wider "OUT OF ZONE" pill shrank that row's two fr columns, and the
+   meta divider visibly drifted from row to row. */
+.fsd-pill {
+  flex-shrink: 0;
+  min-width: 8em;
+  padding: 0.125em 0.5em;
+  border-radius: 999px;
+  font-size: 0.6875em;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  text-align: center;
+  white-space: nowrap;
+}
+.fsd-pill-in      { background: rgba(20,184,166,0.16);  color: #2dd4bf; border-color: rgba(20,184,166,0.34); }
+.fsd-pill-out     { background: rgba(234,88,12,0.16);   color: #fb923c; border-color: rgba(234,88,12,0.34); }
+.fsd-pill-missing { background: rgba(239,68,68,0.16);   color: #f87171; border-color: rgba(239,68,68,0.38); }
+.fsd-pill-online  { background: rgba(34,197,94,0.14);   color: #4ade80; border-color: rgba(34,197,94,0.32); }
+.fsd-pill-offline { background: rgba(107,114,128,0.16); color: #9ca3af; border-color: rgba(107,114,128,0.32); }
+.fsd-pill-online, .fsd-pill-offline { min-width: 5em; }
+
+/* Narrow panel: the meta takes its own full-width line under the name, laid
+   out inline, rather than squeezing three columns into ~400px. */
+.fsd-staff-id     { grid-area: 1 / 1 / 2 / 2; }
+.fsd-staff-status { grid-area: 1 / 2 / 2 / 3; }
+.fsd-staff-meta   { grid-area: 2 / 1 / 3 / 3; }
+
+.fsd-staff-meta {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  column-gap: 0.875em;
+  row-gap: 0.3125em;
+  min-width: 0;
+  padding-left: 1em;
+  font-size: 0.8125em;
+  line-height: 1.35;
+}
+
+.fsd-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 0.375em;
+  min-width: 0;
+}
+
+.fsd-meta-k {
+  color: rgba(255, 255, 255, 0.38);
+  white-space: nowrap;
+}
+
+.fsd-meta-v {
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fsd-meta-icon {
+  width: 0.9375em;
+  height: 0.9375em;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.fsd-staff-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.4375em;
+  justify-self: end;
+}
+
+/* Roomy panel: who · what we last heard · current state, side by side, with
+   the meta stacked and fenced off by a hairline rule. 30em is where the meta
+   values stop fitting on one line — measured, not guessed. */
+@container fsdroster (min-width: 30em) {
+  .fsd-staff-row {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1fr) auto;
+  }
+  .fsd-staff-id     { grid-area: auto; }
+  .fsd-staff-status { grid-area: auto; }
+  .fsd-staff-meta {
+    grid-area: auto;
+    flex-direction: column;
+    row-gap: 0.3125em;
+    border-left: 1px solid var(--fsd-panel-line);
+  }
+}
+
+/* ── Map marker tooltip (hover) ──────────────────────────────────────────── */
+.fsd-tip-wrap.leaflet-tooltip {
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.5em;
+  background: rgba(13, 13, 13, 0.96);
+  box-shadow: 0 0.5em 1.5em rgba(0, 0, 0, 0.55);
+}
+.fsd-tip-wrap.leaflet-tooltip-top::before { border-top-color: rgba(13, 13, 13, 0.96); }
+
+.fsd-tip {
+  padding: 0.5em 0.75em;
+  font-family: var(--font-display, sans-serif);
+  min-width: 9.5em;
+}
+.fsd-tip-name   { font-size: 0.8125em; font-weight: 800; color: #f9fafb; }
+.fsd-tip-sn     { margin-top: 0.125em; font-family: var(--font-mono, monospace);
+                  font-size: 0.6875em; color: rgba(255, 255, 255, 0.45); }
+.fsd-tip-status { margin-top: 0.375em; font-size: 0.6875em; font-weight: 700; letter-spacing: 0.04em; }
+.fsd-tip-meta   { margin-top: 0.1875em; font-size: 0.625em; color: rgba(255, 255, 255, 0.42); }
