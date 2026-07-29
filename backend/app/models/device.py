@@ -19,7 +19,7 @@ class DeviceInDB(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     location: Optional[str] = None         # sub-region / location label (admin-defined)
     zone: Optional[str] = None             # legacy single-zone field (kept for backward compat)
-    fence_zone_ids: Optional[List[str]] = Field(default_factory=list)  # many-to-many KML fence zone IDs
+    fence_zone_ids: Optional[List[str]] = Field(default_factory=list)  # many-to-many zone ids (Mongo zone _id hex)
     category: Optional[str] = None         # device category e.g. "car", "wallet", "bag"
 
     class Config:

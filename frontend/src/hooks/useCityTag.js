@@ -163,6 +163,7 @@ export function useCityTag() {
   const updateMyProfile = useCallback(
     async ({
       name,
+      email,
       cnic,
       cnic_expiry,
       driving_license_no,
@@ -178,6 +179,7 @@ export function useCityTag() {
         if (value !== undefined) form.append(key, value ?? "");
       };
       appendIfDefined("name", name);
+      appendIfDefined("email", email);
       appendIfDefined("cnic", cnic);
       appendIfDefined("cnic_expiry", cnic_expiry);
       appendIfDefined("driving_license_no", driving_license_no);

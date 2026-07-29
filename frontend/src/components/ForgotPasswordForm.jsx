@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { isValidEmail, normalizeEmail } from "../utils/email.js";
+import BackButton from "./common/BackButton.jsx";
 
 const STEP = { REQUEST: "request", RESET: "reset", DONE: "done" };
 
@@ -77,30 +78,7 @@ export default function ForgotPasswordForm({ onBack }) {
   }
 
   const backButton = (
-    <button
-      type="button"
-      onClick={onBack}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        background: "none",
-        border: "none",
-        color: "rgba(255,255,255,0.5)",
-        cursor: "pointer",
-        fontSize: 12,
-        fontWeight: 600,
-        marginBottom: 16,
-        padding: 0,
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
-      }}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
-      Back to Login
-    </button>
+    <BackButton label="Back to login" onClick={onBack} style={{ marginBottom: 8 }} />
   );
 
   if (step === STEP.DONE) {

@@ -231,7 +231,7 @@ def admin_to_public(admin: AdminInDB) -> AdminPublic:
 def user_to_public(user: UserInDB) -> UserPublic:
     return UserPublic(
         id=str(user.id),
-        email=public_contact(str(user.email), user.phone),
+        email=public_contact(user.email, user.phone),
         name=user.name,
         phone=user.phone,
         admin_id=str(user.admin_id) if user.admin_id else None,

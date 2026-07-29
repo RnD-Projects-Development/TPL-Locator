@@ -53,6 +53,25 @@ export function AuthProvider({ children }) {
         const payload = { user: normalized, accessToken: token, role: newRole ?? "user" };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       },
+      /**
+       * Merge fields into the signed-in user and persist.
+       *
+       * Use this for profile edits. loginSuccess() REPLACES the user and calls
+       * clearAppCaches(), so passing it a partial object silently drops everything
+       * it omits — id, devices, admin_id — and wipes every cache on what should be
+       * a simple field update.
+       */
+      updateUser: (partial) => {
+        if (!partial) return;
+        const merged = normalizeUserForClient({ ...(user || {}), ...partial });
+        setUser(merged);
+        try {
+          const prev = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...prev, user: merged }));
+        } catch {
+          /* ignore */
+        }
+      },
       logout: () => {
         // Best-effort: stamp last_logged_out so admin views can show this
         // account as offline. Fire-and-forget — never block the local logout.

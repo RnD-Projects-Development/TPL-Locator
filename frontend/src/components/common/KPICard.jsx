@@ -61,9 +61,22 @@ export default function KPICard({ title, value, sub, icon: Icon, trend, trendVal
         pointerEvents: 'none',
       }} />
 
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: '10px', minHeight: 0 }}>
-        {/* Header row: icon (left) · title stacked above value (right of icon) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(0.5em, 1vw, 0.75em)' }}>
+      {/* One horizontal row: [icon] title ······ count.
+          Sizes are clamped em rather than fixed px — the dashboard grid scales
+          its own font-size to the viewport, so a hard px would break the
+          fit-to-screen layout on short windows. The bounds land the title at
+          15–16px and the count at 36–40px on a normal desktop. */}
+      <div style={{
+        position: 'relative', zIndex: 1,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 'clamp(10px, 0.75em, 16px)', minWidth: 0,
+      }}>
+        {/* Left group: icon + title (+ optional subtitle) */}
+        <div style={{
+          display: 'flex', alignItems: 'center',
+          gap: 'clamp(12px, 1.1em, 20px)',
+          minWidth: 0, flex: '1 1 auto',
+        }}>
           <div style={{
             padding: '0.625em',
             background: c.iconBg,
@@ -73,32 +86,46 @@ export default function KPICard({ title, value, sub, icon: Icon, trend, trendVal
           }}>
             <Icon style={{ width: '1.375em', height: '1.375em', color: c.iconColor }} />
           </div>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '0.25em' }}>
-            <div style={{ fontSize: '0.875em', fontWeight: 600, color: c.titleColor, letterSpacing: '0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              fontSize: 'clamp(13px, 1.05em, 18px)', fontWeight: 600, color: c.titleColor,
+              letterSpacing: '0.01em', lineHeight: 1.25,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
               {title}
             </div>
-            <div style={{ fontSize: 'clamp(1.5em, 3vw, 2.25em)', fontWeight: 800, color: c.valueColor, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</div>
-          </div>
-        </div>
-
-        {/* Footer: subtitle (left) · trend (right) */}
-        {(sub || trend) && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5em', flexWrap: 'wrap' }}>
-            <span style={{ minWidth: 0, fontSize: '0.75em', color: c.subColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>
-            {trend && (
+            {sub && (
               <div style={{
-                flexShrink: 0,
-                fontSize: '0.625em', fontWeight: 700, padding: '0.1875em 0.5625em', borderRadius: 0,
-                background: 'rgba(0,0,0,0.38)', border: '1px solid rgba(255,255,255,0.07)',
-                color: trend === 'up' ? '#6ee7b7' : '#fca5a5',
-                display: 'flex', alignItems: 'center', gap: '0.1875em',
+                marginTop: '0.25em', fontSize: '0.75em', color: c.subColor,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
-                {trend === 'up' ? <TrendingUp style={{ width: '0.625em', height: '0.625em' }} /> : <TrendingDown style={{ width: '0.625em', height: '0.625em' }} />}
-                {trendVal}
+                {sub}
               </div>
             )}
           </div>
-        )}
+        </div>
+
+        {/* Right group: trend badge (when given) + the count, pinned to the edge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', flexShrink: 0 }}>
+          {trend && (
+            <div style={{
+              fontSize: '0.625em', fontWeight: 700, padding: '0.1875em 0.5625em', borderRadius: 0,
+              background: 'rgba(0,0,0,0.38)', border: '1px solid rgba(255,255,255,0.07)',
+              color: trend === 'up' ? '#6ee7b7' : '#fca5a5',
+              display: 'flex', alignItems: 'center', gap: '0.1875em', whiteSpace: 'nowrap',
+            }}>
+              {trend === 'up' ? <TrendingUp style={{ width: '0.625em', height: '0.625em' }} /> : <TrendingDown style={{ width: '0.625em', height: '0.625em' }} />}
+              {trendVal}
+            </div>
+          )}
+          <div style={{
+            fontSize: 'clamp(22px, 2.4em, 40px)', fontWeight: 800, color: c.valueColor,
+            letterSpacing: '-0.03em', lineHeight: 1, whiteSpace: 'nowrap',
+          }}>
+            {value}
+          </div>
+        </div>
       </div>
     </div>
   )

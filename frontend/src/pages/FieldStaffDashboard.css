@@ -12,8 +12,12 @@ html { scroll-behavior: smooth; }
   flex-direction: column;
   height: 100%;
   width: 100%;
+  min-height: 0;              /* lets the flex children shrink instead of overflowing */
   box-sizing: border-box;
-  padding: 1.375em 0 1.875em;
+  /* This route is rendered with p-0 on <main>, so the page owns its own gutters.
+     Horizontal padding lives here (not on the header) so header, alerts and the
+     card row all line up on the same edge. */
+  padding: 1.375em 1.625em 1.375em;
   gap: 1.125em;
   font-family: var(--font-display);
   position: relative;
@@ -57,7 +61,6 @@ html { scroll-behavior: smooth; }
   flex-wrap: wrap;
   position: relative;
   z-index: 100;
-  padding: 0 1.625em;
 }
 
 .fsd-header-left {
@@ -318,15 +321,19 @@ html { scroll-behavior: smooth; }
 }
 
 /* ═══════════════════════════════════════════════════
-   TOP LAYOUT — Map (55%) | Side Column (45%)
-   Fixed height row so both columns are identical height.
+   TOP LAYOUT — Map (60%) | Side Column (40%)
+   The row takes whatever height the header + alerts leave over. It must
+   never carry a fixed height: on a short screen that pushes the cards past
+   the viewport, and the page clips them with no way to scroll down to them.
 ═══════════════════════════════════════════════════ */
 .fsd-top-layout {
   display: grid;
   grid-template-columns: 6fr 4fr; /* 60% Map, 40% Analytics */
+  grid-template-rows: minmax(0, 1fr); /* ← row may never outgrow the container */
   gap: 1.125em;
   width: 100%;
-  height: 37.5em;
+  flex: 1 1 0;
+  min-height: 0;
   align-items: stretch;
   transition: grid-template-columns 0.3s ease;
 }
@@ -337,6 +344,8 @@ html { scroll-behavior: smooth; }
   display: flex;
   flex-direction: column;
   height: 100%;          /* fill the grid row */
+  min-width: 0;
+  min-height: 0;         /* its content must not set the row's floor */
 }
 
 /* The MapSection wrapper div that React renders must also stretch */
@@ -363,6 +372,15 @@ html { scroll-behavior: smooth; }
   height: 100% !important;
 }
 
+/* TPLMaps is Leaflet under the hood. Its root must fill the card, and its
+   backdrop must match the card — Leaflet's default is a light grey that reads
+   as a broken slab in the moment before tiles paint. */
+.fsd-map-container .leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  background: #1a1a1a;
+}
+
 /* ─── Side Column ──────────────────────────────── */
 .fsd-side-cards {
   display: flex;
@@ -370,6 +388,7 @@ html { scroll-behavior: smooth; }
   gap: 1.125em;
   height: 100%;
   min-width: 0;
+  min-height: 0;         /* the panel's fixed sections must not set the row's floor */
 }
 
 .fsd-side-card {
@@ -670,19 +689,25 @@ html { scroll-behavior: smooth; }
 @media (max-width: 1024px) {
   .fsd-top-layout {
     grid-template-columns: 55fr 45fr; /* Slight adjustment for laptops */
-    height: 32.5em;
   }
 }
 
+/* Below 900px the two cards stack, so fit-to-screen is off the table — the page
+   scrolls instead of clipping, and each card gets a real height to live in. */
 @media (max-width: 900px) {
+  .fsd-dashboard {
+    overflow-y: auto;
+    height: 100%;
+  }
   .fsd-top-layout {
     grid-template-columns: 1fr;
-    height: auto;
+    grid-template-rows: auto auto;
+    flex: 0 0 auto;
   }
-  .fsd-map-card         { min-height: 20em; height: 20em; }
+  .fsd-map-card         { height: 20em; }
   .fsd-map-card > *     { min-height: 0; }
   .fsd-map-container    { min-height: 0; height: 100% !important; }
-  .fsd-side-cards       { flex-direction: row; height: 17.5em; }
+  .fsd-side-cards       { height: 30em; }
   .fsd-side-card,
   .fsd-table-card       { flex: 1 1 0; min-width: 0; }
 }
@@ -691,13 +716,20 @@ html { scroll-behavior: smooth; }
   .fsd-dashboard        { padding: 0.875em 0.875em 1.5em; gap: 0.875em; }
   .fsd-header           { flex-direction: column; align-items: flex-start; }
   .fsd-filters-bar      { width: 100%; }
-  .fsd-side-cards       { flex-direction: column; height: auto; }
+  .fsd-side-cards       { height: 28em; }
   .fsd-side-card,
   .fsd-table-card       { min-height: 15em; flex: 0 0 auto; }
-  .fsd-map-card         { min-height: 16.25em; height: 16.25em; }
+  .fsd-map-card         { height: 16.25em; }
   .fsd-map-card > *     { min-height: 0; }
   .fsd-map-container    { min-height: 0; height: 100% !important; }
   .fsd-title            { font-size: 1.125em; }
+}
+
+/* Very short windows (laptop + devtools open, split screen): even the em-scaled
+   layout can't fit, so hand the page back its scrollbar rather than clip. */
+@media (max-height: 520px) {
+  .fsd-dashboard  { overflow-y: auto; }
+  .fsd-top-layout { flex: 0 0 auto; min-height: 26em; }
 }
 
 /* ═══════════════════════════════════════════════════

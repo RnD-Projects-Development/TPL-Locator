@@ -9,7 +9,7 @@ from app.models.admin import PyObjectId
 
 class UserInDB(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
-    email: EmailStr
+    email: Optional[EmailStr] = None  # None for phone-only signups
     password: str
     name: Optional[str] = ""
     phone: Optional[str] = None
@@ -27,7 +27,7 @@ class UserInDB(BaseModel):
 
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
     password: str
     name: Optional[str] = None
     phone: Optional[str] = None
@@ -37,7 +37,7 @@ class UserCreate(BaseModel):
 
 class UserPublic(BaseModel):
     id: str
-    email: str  # real email or phone when account was created with phone only
+    email: Optional[str] = None  # None for phone-only accounts
     name: Optional[str] = None
     phone: Optional[str] = None
     admin_id: Optional[str] = None

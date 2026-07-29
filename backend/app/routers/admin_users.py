@@ -108,9 +108,10 @@ async def admin_create_user(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-        existing = await mongo.get_account_by_email(email)
-        if existing:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+        if email:
+            existing = await mongo.get_account_by_email(email)
+            if existing:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
         if phone:
             existing_phone = await mongo.get_user_by_phone(phone)
@@ -131,7 +132,7 @@ async def admin_create_user(
         devices = _populate_devices(updated.devices or [], device_map)
         response = {
             "id":         str(updated.id),
-            "email":      public_contact(str(updated.email), updated.phone),
+            "email":      public_contact(updated.email, updated.phone),
             "phone":      updated.phone,
             "name":       updated.name,
             "role":       updated.role or "user",
@@ -264,7 +265,7 @@ async def admin_update_user(
     devices = _populate_devices(updated.devices or [], device_map)
     response = {
         "id":         str(updated.id),
-        "email":      public_contact(str(updated.email), updated.phone),
+        "email":      public_contact(updated.email, updated.phone),
         "phone":      updated.phone,
         "name":       updated.name,
         "role":       updated.role or "user",

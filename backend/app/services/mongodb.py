@@ -117,11 +117,11 @@ class MongoService:
         from app.models.user import UserInDB
         return UserInDB(**doc)
 
-    async def create_user(self, email: str, password: str, name: Optional[str] = None, phone: Optional[str] = None) -> 'UserInDB':
+    async def create_user(self, email: Optional[str], password: str, name: Optional[str] = None, phone: Optional[str] = None) -> 'UserInDB':
 
         from app.models.user import UserInDB
         payload = {
-            "email": email.strip().lower(),
+            "email": email.strip().lower() if email else None,
             "password": hash_password(password),
             "name": name or "",
             "phone": phone or None,

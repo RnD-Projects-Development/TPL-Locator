@@ -10,7 +10,6 @@ export default function ZoneSidebar({
   statusLoading   = false,
   assignments     = {},
   onOpenAssign,
-  onUnassign,
   assigningZoneId = null,
   deviceTracks    = [],
   tracksLoading   = false,

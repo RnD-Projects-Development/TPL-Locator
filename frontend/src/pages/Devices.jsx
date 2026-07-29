@@ -824,10 +824,21 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                       with a whisper of top bleed. It's tall, so on these wide tiles it
                       naturally occupies the left ~third. */}
                   <SwirlPin style={{ position: 'absolute', left: '0%', top: '-3%', height: '100%', width: 'auto', zIndex: 0, pointerEvents: 'none' }} />
-                  {/* Device info — offset from the left to clear the red swirl artwork */}
+                  {/* Device info. It sits after a spacer that mirrors the swirl's
+                      footprint — the pin is height:100% width:auto, so it occupies
+                      cardHeight × the artwork's 1052:1481 ratio. The old left:44%
+                      was a share of card *width* while the pin scales with card
+                      *height*, so the space between them ballooned on wider tiles
+                      (13px at 240px wide, 55px at 400px). The spacer keeps that gap
+                      at a constant ~13px whatever the tile size. */}
                   <div style={{
-                    position: 'absolute', zIndex: 1, left: '44%', right: '1em', top: '0.55em', bottom: '2.1em',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.22em', minWidth: 0,
+                    position: 'absolute', inset: 0, zIndex: 1,
+                    display: 'flex', alignItems: 'stretch', minWidth: 0,
+                  }}>
+                  <div aria-hidden="true" style={{ height: '100%', aspectRatio: '1052 / 1481', flexShrink: 0 }} />
+                  <div style={{
+                    flex: 1, minWidth: 0, margin: '0.55em 1em 2.1em 0.85em',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.22em',
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
                       <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
@@ -845,6 +856,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                         No last report
                       </div>
                     )}
+                  </div>
                   </div>
 
                   {/* Actions + chevron, bottom-right */}

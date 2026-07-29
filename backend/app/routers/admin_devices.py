@@ -80,7 +80,7 @@ async def _lookup_user_name(mongo: MongoService, raw_user_id) -> tuple[str | Non
     if not user_doc:
         return str(raw_user_id), None
     name = (user_doc.get("name") or "").strip()
-    display = name or user_doc.get("email", "").split("@")[0] or None
+    display = name or (user_doc.get("email") or "").split("@")[0] or user_doc.get("phone") or None
     return str(raw_user_id), display
 
 
@@ -134,7 +134,7 @@ def _resolve_user(raw_user_id, users_by_id: dict) -> tuple[str | None, str | Non
     if not user_doc:
         return str(raw_user_id), None
     name = (user_doc.get("name") or "").strip()
-    display = name or user_doc.get("email", "").split("@")[0] or None
+    display = name or (user_doc.get("email") or "").split("@")[0] or user_doc.get("phone") or None
     return str(raw_user_id), display
 
 
