@@ -121,7 +121,7 @@ class MongoService:
 
         from app.models.user import UserInDB
         payload = {
-            "email": email.strip().lower() if email else None,
+            **({"email": email.strip().lower()} if email else {}),
             "password": hash_password(password),
             "name": name or "",
             "phone": phone or None,
