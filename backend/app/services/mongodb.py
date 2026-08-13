@@ -18,7 +18,7 @@ from app.services.tpl_geocode import reverse_geocode
 import os
 
 # choose database name via environment, default to development db
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "TPL-Locator-db")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "citytag_development")
 logger = logging.getLogger(__name__)
 
 # Sentinel: omit batteryStatus from $set (legacy callers). Any other value includes the field (None = BSON null).
