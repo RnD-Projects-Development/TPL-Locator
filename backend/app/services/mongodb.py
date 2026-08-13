@@ -93,6 +93,15 @@ class MongoService:
             return None
         return AdminInDB(**account.dict())
 
+    async def get_admin_by_phone(self, phone: str) -> Optional[AdminInDB]:
+        """Get admin account by normalized phone (03XXXXXXXXX)."""
+        doc = await self.accounts.find_one({"phone": phone.strip(), "role": "admin"})
+        if not doc:
+            return None
+        from app.models.admin import AccountInDB
+        account = AccountInDB(**doc)
+        return AdminInDB(**account.dict())
+
     async def get_user_by_email(self, email: str):
         """Get user account by email."""
         account = await self.get_account_by_email(email, role="user")

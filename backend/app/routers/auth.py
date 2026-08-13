@@ -424,10 +424,9 @@ async def login_portal(
     """
     Login endpoint for admins and users.
 
-    - If the identifier contains '@' it is treated as an email.
-      Admins can only log in via email. Users can log in via email too.
+    - If the identifier contains '@' it is treated as an email (admin or user).
     - If the identifier does not contain '@' it is treated as a phone number
-      (users only — admin table is never checked by phone).
+      (admin or user; phone must be stored in normalized 03XXXXXXXXX form).
 
     Admin authentication is purely local (Mongo).
     CityTag interactions (token refresh + device/location sync) are handled by /sync endpoints.
@@ -499,8 +498,28 @@ async def login_portal(
                 return LoginResponse(account=_user_account_payload(user_to_public(user)), access_token=access_token)
 
         else:
-            # Phone path — users only, skip admin table
+            # Phone path — admin first, then user
             phone = normalize_phone(raw)
+
+            admin = await mongo.get_admin_by_phone(phone)
+            if admin:
+                if not verify_password(payload.password, admin.password):
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials")
+
+                admin_data = AdminCreate(
+                    email=str(admin.email),
+                    password=payload.password,
+                    uid=payload.uid or admin.uid or "",
+                )
+                try:
+                    admin = await mongo.create_or_update_admin(admin_data)
+                except ValueError as e:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+                logger.info("admin login by phone completed phone=%s admin_id=%s", phone, admin.id)
+
+                access_token = create_access_token(str(admin.id))
+                return LoginResponse(account=_admin_account_payload(admin_to_public(admin)), access_token=access_token)
+
             user = await mongo.get_user_by_phone(phone)
             if user and verify_password(payload.password, user.password):
                 await mongo.accounts.update_one(
