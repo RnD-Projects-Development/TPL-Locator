@@ -35,77 +35,84 @@ export function landmarkDisplayFromPoint(point) {
 }
 
 // ── External reverse geocoding, worldwide (outside-Pakistan fallback) ─────────
+import loadGoogleMaps from "../components/loadGoogleMaps.js";
+
 const _extCache = {};
 
+function _componentName(components, ...types) {
+  if (!Array.isArray(components)) return null;
+  for (const type of types) {
+    const match = components.find(c => Array.isArray(c.types) && c.types.includes(type));
+    if (match?.long_name) return match.long_name;
+  }
+  return null;
+}
+
 /**
- * Find the nearest actual POI point near a coordinate via Mapbox's Tilequery
- * API — this queries the same `poi_label` vector-tile layer that renders the
- * POI labels/icons visible on the map itself (Starbucks, hotels, etc.), so
- * it reliably finds "what's the closest landmark" instead of exact-point
- * reverse geocoding, which only matches if the coordinate sits essentially
- * on top of a POI's indexed centroid.
+ * Find the nearest POI near a coordinate via Google Places Nearby Search.
  */
-async function _mapboxNearestPOI(lat, lng, token) {
-  if (!token) return null;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+async function _googleNearestPOI(lat, lng) {
   try {
-    const url =
-      `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${Number(lng)},${Number(lat)}.json` +
-      `?radius=150&limit=5&layers=poi_label&access_token=${encodeURIComponent(token)}`;
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    const features = (await res.json())?.features;
-    if (!Array.isArray(features) || features.length === 0) return null;
-    features.sort((a, b) =>
-      (a.properties?.tilequery?.distance ?? Infinity) - (b.properties?.tilequery?.distance ?? Infinity));
-    const name = features[0].properties?.name;
-    return name ? { name } : null;
+    const maps = await loadGoogleMaps();
+    const host = document.createElement('div');
+    const service = new maps.places.PlacesService(host);
+    return await new Promise((resolve) => {
+      const timeoutId = setTimeout(() => resolve(null), 5000);
+      service.nearbySearch(
+        { location: new maps.LatLng(Number(lat), Number(lng)), radius: 150 },
+        (results, status) => {
+          clearTimeout(timeoutId);
+          if (status !== maps.places.PlacesServiceStatus.OK || !Array.isArray(results) || results.length === 0) {
+            resolve(null);
+            return;
+          }
+          const name = results[0]?.name;
+          resolve(name ? { name } : null);
+        },
+      );
+    });
   } catch {
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
-/** Reverse geocode to neighbourhood/city context via Mapbox's Geocoding API. */
-async function _mapboxReverseArea(lat, lng, token) {
-  if (!token) return null;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+/** Reverse geocode to neighbourhood/city context via Google Geocoder. */
+async function _googleReverseArea(lat, lng) {
   try {
-    const url =
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${Number(lng)},${Number(lat)}.json` +
-      `?access_token=${encodeURIComponent(token)}&types=neighborhood,locality,place&limit=1`;
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    const feature = (await res.json())?.features?.[0];
-    if (!feature) return null;
-    const area = feature.text || feature.place_name;
-    if (!area) return null;
-    const context = Array.isArray(feature.context) ? feature.context : [];
-    const place = context.find(c => c.id?.startsWith('place'))?.text
-      || context.find(c => c.id?.startsWith('region'))?.text;
-    return { area, secondary: (place && place !== area) ? place : null };
+    const maps = await loadGoogleMaps();
+    const geocoder = new maps.Geocoder();
+    return await new Promise((resolve) => {
+      const timeoutId = setTimeout(() => resolve(null), 5000);
+      geocoder.geocode({ location: { lat: Number(lat), lng: Number(lng) } }, (results, status) => {
+        clearTimeout(timeoutId);
+        if (status !== 'OK' || !Array.isArray(results) || results.length === 0) {
+          resolve(null);
+          return;
+        }
+        const components = results[0]?.address_components;
+        const area = _componentName(components, 'neighborhood', 'sublocality', 'sublocality_level_1', 'locality');
+        if (!area) { resolve(null); return; }
+        const place = _componentName(components, 'locality', 'administrative_area_level_1');
+        resolve({ area, secondary: (place && place !== area) ? place : null });
+      });
+    });
   } catch {
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
 /**
- * Reverse geocode via Mapbox — nearest actual POI (Tilequery) for the
+ * Reverse geocode via Google Maps — nearest POI (Places Nearby Search) for the
  * primary label when one exists within range, with neighbourhood/city as
  * secondary context. Falls back to area-only when no nearby POI is found.
- * Returns null (not throws) on missing token/no match, so the caller can
+ * Returns null (not throws) on missing key/no match, so the caller can
  * fall back further (e.g. to Nominatim).
  */
-async function _mapboxGeocodePOI(lat, lng, token) {
-  if (!token) return null;
+async function _googleGeocodePOI(lat, lng, key) {
+  if (!key) return null;
   const [poi, area] = await Promise.all([
-    _mapboxNearestPOI(lat, lng, token),
-    _mapboxReverseArea(lat, lng, token),
+    _googleNearestPOI(lat, lng),
+    _googleReverseArea(lat, lng),
   ]);
   if (poi) {
     return { primary: poi.name, secondary: area?.area ?? null, isSpecific: true };
@@ -159,21 +166,22 @@ async function _nominatimReverseGeocode(lat, lng) {
 
 /**
  * Reverse geocode a worldwide (typically out-of-Pakistan) point. Tries
- * Mapbox's Geocoding API first for accurate POI-level results (needs a
- * token), falling back to Nominatim if that's unavailable or comes up empty.
+ * Google Maps (Places + Geocoder) first for accurate POI-level results
+ * (needs VITE_GOOGLE_MAPS_KEY), falling back to Nominatim if that's
+ * unavailable or comes up empty.
  */
-export async function mapboxReverseGeocode(lat, lng, token) {
+export async function googleReverseGeocode(lat, lng, key = import.meta.env.VITE_GOOGLE_MAPS_KEY) {
   if (lat == null || lng == null) return null;
   const cacheKey = `geo:${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
   if (cacheKey in _extCache) return _extCache[cacheKey];
 
-  const result = (await _mapboxGeocodePOI(lat, lng, token)) ?? (await _nominatimReverseGeocode(lat, lng));
+  const result = (await _googleGeocodePOI(lat, lng, key)) ?? (await _nominatimReverseGeocode(lat, lng));
   _extCache[cacheKey] = result;
   return result;
 }
 
 /** Format a geocode result as a landmark string (for geoLabel state in detail pages). */
-export function mapboxGeoLabelString(geo) {
+export function googleGeoLabelString(geo) {
   if (!geo?.primary) return null;
   return geo.secondary ? `${geo.primary} — ${geo.secondary}` : geo.primary;
 }

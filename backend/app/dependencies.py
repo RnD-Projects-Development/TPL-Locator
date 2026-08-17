@@ -64,6 +64,7 @@ def get_settings():
         "tpl_maps_rgeocode_url": _env_strip(
             "TPL_MAPS_RGEOCODE_URL", "https://api1.tplmaps.com:8888/search/rgeocode"
         ),
+        "google_maps_api_key": _env_strip("GOOGLE_MAPS_API_KEY", ""),
         # Password reset email (Exchange / OWA mailbox)
         "smtp_host": _env_strip("SMTP_HOST", "email.trakker.com.pk"),
         "smtp_port": int(os.getenv("SMTP_PORT", "587")),

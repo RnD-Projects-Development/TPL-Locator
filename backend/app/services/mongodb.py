@@ -9,7 +9,7 @@ import certifi
 from app.auth_utils import hash_password
 from app.models.admin import AdminInDB, AdminCreate
 from app.models.device import DeviceInDB
-from app.services.tpl_geocode import reverse_geocode
+from app.services.geocode import reverse_geocode
 
 
 

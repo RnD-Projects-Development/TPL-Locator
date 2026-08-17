@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import loadTPLMaps from "./loadTPLMaps.js";
-import { landmarkDisplayFromPoint, mapboxReverseGeocode, insidePakistan } from "../utils/landmark.js";
+import { landmarkDisplayFromPoint, googleReverseGeocode, insidePakistan } from "../utils/landmark.js";
+import { GOOGLE_MAPS_KEY } from "./loadGoogleMaps.js";
 import { deviceColor } from "../utils/zonePolygonManager.js";
 import { usePlaybackStore } from "../store/usePlaybackStore.js";
 import { aggregateByLandmarkAndDay } from "../utils/stopClustering.js";
@@ -8,9 +9,8 @@ import { peekGeocode, resolveGeocode } from "../utils/geocodeCache.js";
 import { frameBounds } from "../utils/frameBounds.js";
 import TPLLoader from "./TPLLoader.jsx";
 
-// ── Mapbox fallback — used for devices outside Pakistan ───────────────────────
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? '';
-const MAPBOX_TILE  = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
+// ── Google Maps fallback — used for devices outside Pakistan ──────────────────
+const GOOGLE_TILE = `https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=${GOOGLE_MAPS_KEY}`;
 
 // Street-level zoom enforced the moment playback starts, and held for the
 // whole session — enforced every frame (cheap: no-op once already at this
@@ -413,8 +413,8 @@ export default function MapView({
   // Static preview dots refs (playback page — all points shown immediately on load)
   const staticDotsRef   = useRef([]);
 
-  // Tile-swap — we add our own Mapbox layer on top when outside Pakistan
-  const mapboxLayerRef = useRef(null);
+  // Tile-swap — we add our own Google layer on top when outside Pakistan
+  const googleLayerRef = useRef(null);
 
   // Fence overlay refs
   const fenceLayersRef = useRef([]);
@@ -511,13 +511,13 @@ export default function MapView({
     return () => cancelAnimationFrame(raf);
   }, [mapLoaded]);
 
-  /* ── TILE SWAP — overlay a Mapbox layer when any visible device is outside Pakistan ── */
+  /* ── TILE SWAP — overlay a Google Maps layer when any visible device is outside Pakistan ── */
   useEffect(() => {
     if (!mapLoaded || !mapRef.current || !window.L) return;
     // `coords` on the playback page is a dummy (0,0) sentinel while playing
     // (real position lives in the turf/rAF renderer's own state, not this
     // prop) — (0,0) is never "inside Pakistan", so treating it as real would
-    // permanently overlay a second, competing Mapbox tile layer on top of
+    // permanently overlay a second, competing Google tile layer on top of
     // the TPL base map. But we still need SOME real-coordinate signal here:
     // TPL Maps has no tile coverage outside Pakistan, so a genuinely
     // out-of-Pakistan device playing back would otherwise render a totally
@@ -535,13 +535,13 @@ export default function MapView({
       // Multi-device mode: check any device in multiDevices
       outside = multiDevices.some(d => { const c = extractCoords(d.latest); return c && !insidePakistan(c.lat, c.lng); });
     }
-    if (outside && !mapboxLayerRef.current) {
+    if (outside && !googleLayerRef.current) {
       try {
-        mapboxLayerRef.current = window.L.tileLayer(MAPBOX_TILE, { maxZoom: 19 }).addTo(mapRef.current);
+        googleLayerRef.current = window.L.tileLayer(GOOGLE_TILE, { maxZoom: 19 }).addTo(mapRef.current);
       } catch {}
-    } else if (!outside && mapboxLayerRef.current) {
-      try { mapRef.current.removeLayer(mapboxLayerRef.current); } catch {}
-      mapboxLayerRef.current = null;
+    } else if (!outside && googleLayerRef.current) {
+      try { mapRef.current.removeLayer(googleLayerRef.current); } catch {}
+      googleLayerRef.current = null;
     }
   }, [coords?.lat, coords?.lng, mapLoaded, multiDevices, isPlaybackPage, isPlayback, staticDots]);
 
@@ -597,9 +597,9 @@ export default function MapView({
       multiSnsRef.current  = new Set();
       pannedSnsRef.current = new Set();
       animFromRef.current  = null;
-      if (mapboxLayerRef.current) {
-        try { _cachedMap?.removeLayer(mapboxLayerRef.current); } catch {}
-        mapboxLayerRef.current = null;
+      if (googleLayerRef.current) {
+        try { _cachedMap?.removeLayer(googleLayerRef.current); } catch {}
+        googleLayerRef.current = null;
       }
       detachMap();
       mapRef.current = null;
@@ -807,7 +807,7 @@ export default function MapView({
     }
   }, [coords, mapLoaded, isPlayback, playbackSpeed, ensureMarker, isPlaybackPage]);
 
-  // Landmark — backend-stored first, Mapbox fallback for outside-Pakistan
+  // Landmark — backend-stored first, Google Maps fallback for outside-Pakistan
   useEffect(() => {
     // `coords` on the playback page is a dummy (0,0) sentinel while playing
     // (see `isPlayback` below) — real position lives in the turf/rAF
@@ -839,14 +839,14 @@ export default function MapView({
     const display = landmarkDisplayFromPoint(activePoint);
     if (display) { updatePopup(display); return; }
 
-    // No backend landmark — use Mapbox for outside-Pakistan devices
+    // No backend landmark — use Google Maps for outside-Pakistan devices
     if (!coords || insidePakistan(coords.lat, coords.lng)) {
       updatePopup(null);
       return;
     }
 
-    mapboxReverseGeocode(coords.lat, coords.lng, MAPBOX_TOKEN).then(mbx => {
-      if (!cancelled) updatePopup(mbx ?? null);
+    googleReverseGeocode(coords.lat, coords.lng, GOOGLE_MAPS_KEY).then(geo => {
+      if (!cancelled) updatePopup(geo ?? null);
     });
 
     return () => { cancelled = true; };
@@ -1245,7 +1245,7 @@ export default function MapView({
       if (display) {
         updateTooltip(display);
       } else if (!insidePakistan(c.lat, c.lng)) {
-        mapboxReverseGeocode(c.lat, c.lng, MAPBOX_TOKEN).then(mbx => updateTooltip(mbx ?? null));
+        googleReverseGeocode(c.lat, c.lng, GOOGLE_MAPS_KEY).then(geo => updateTooltip(geo ?? null));
       } else {
         updateTooltip(null);
       }
