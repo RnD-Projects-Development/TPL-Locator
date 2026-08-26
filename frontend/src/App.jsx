@@ -41,10 +41,11 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
   const { unreadCount } = useAlerts()
 
   const appUser = {
-    name:    user?.name    || user?.email || 'User',
-    role:    isAdmin ? 'admin' : (user?.role || 'user'),
-    company: user?.company || '',
-    email:   user?.email   || '',
+    name:            user?.name    || user?.email || 'User',
+    role:            isAdmin ? 'admin' : (user?.role || 'user'),
+    company:         user?.company || '',
+    email:           user?.email   || '',
+    geofence_access: Boolean(user?.geofence_access),
   }
 
   return (
@@ -77,7 +78,7 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
           <Route path="/map"          element={<MapViewPage />} />
           <Route path="/trajectory"   element={<Navigate to="/dashboard" replace />} />
           <Route path="/playback"     element={<PlaybackPage />} />
-          <Route path="/fence"        element={<FencePage />} />
+          <Route path="/fence"        element={isAdmin || Boolean(user?.geofence_access) ? <FencePage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/users"        element={isAdmin ? <UsersPage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/field-staff"  element={<FieldStaffDashboard />} />
           <Route path="/alerts"       element={<Alerts />} />

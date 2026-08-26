@@ -202,6 +202,7 @@ def _user_account_payload(user: UserPublic) -> dict:
         "phone": user.phone,
         "admin_id": user.admin_id,
         "devices": user.devices,
+        "geofence_access": getattr(user, "geofence_access", False),
         "uid": None,
         "created_at": None,
         "reg_device": None,

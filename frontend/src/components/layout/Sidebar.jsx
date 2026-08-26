@@ -10,7 +10,7 @@ import {
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
 
-function getNav(isAdmin) {
+function getNav(isAdmin, hasGeofenceAccess) {
   return [
     {
       section: 'OVERVIEW', links: [
@@ -26,7 +26,7 @@ function getNav(isAdmin) {
       section: 'INTELLIGENCE', links: [
         { to: '/map', icon: Map, label: 'Map View' },
         { to: '/playback', icon: PlayCircle, label: 'Playback' },
-        { to: '/fence', icon: Shield, label: 'Fence' },
+        ...(isAdmin || hasGeofenceAccess ? [{ to: '/fence', icon: Shield, label: 'Fence' }] : []),
       ]
     },
     {
@@ -43,7 +43,7 @@ export default function Sidebar() {
   const { alerts } = useAlerts()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
-  const nav = getNav(isAdmin)
+  const nav = getNav(isAdmin, Boolean(user?.geofence_access))
 
   const confirmLogout = () => {
     setShowLogoutConfirm(false)

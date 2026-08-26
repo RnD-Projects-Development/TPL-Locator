@@ -45,6 +45,7 @@ class UpdateUserRequest(BaseModel):
     name: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
+    geofence_access: Optional[bool] = None
 
 
 def _to_oid(value) -> Optional[ObjectId]:
@@ -131,14 +132,15 @@ async def admin_create_user(
         device_map = await _load_device_map(mongo, updated.devices or [])
         devices = _populate_devices(updated.devices or [], device_map)
         response = {
-            "id":         str(updated.id),
-            "email":      public_contact(updated.email, updated.phone),
-            "phone":      updated.phone,
-            "name":       updated.name,
-            "role":       updated.role or "user",
-            "admin_id":   str(updated.admin_id) if updated.admin_id else None,
-            "devices":    devices,
-            "created_at": _dt_iso(created_at),
+            "id":              str(updated.id),
+            "email":           public_contact(updated.email, updated.phone),
+            "phone":           updated.phone,
+            "name":            updated.name,
+            "role":            updated.role or "user",
+            "admin_id":        str(updated.admin_id) if updated.admin_id else None,
+            "devices":         devices,
+            "geofence_access": getattr(updated, "geofence_access", False),
+            "created_at":      _dt_iso(created_at),
         }
         logger.info("admin_create_user completed admin=%s user_id=%s", current_admin.email, response["id"])
         return response
@@ -194,17 +196,18 @@ async def admin_list_users(
             raw_email = user_dict.get("email", "")
             raw_phone = user_dict.get("phone")
             result.append({
-                "id":             str(user_dict.get("_id", "")),
-                "email":          public_contact(raw_email, raw_phone),
-                "phone":          raw_phone,
-                "name":           user_dict.get("name", ""),
-                "role":           user_dict.get("role", "user"),
-                "admin_id":       str(user_dict.get("admin_id", "")) if user_dict.get("admin_id") else None,
-                "devices":        devices,
-                "created_at":     created_at,
-                "last_logged_in": last_logged_in,
+                "id":              str(user_dict.get("_id", "")),
+                "email":           public_contact(raw_email, raw_phone),
+                "phone":           raw_phone,
+                "name":            user_dict.get("name", ""),
+                "role":            user_dict.get("role", "user"),
+                "admin_id":        str(user_dict.get("admin_id", "")) if user_dict.get("admin_id") else None,
+                "devices":         devices,
+                "geofence_access": bool(user_dict.get("geofence_access", False)),
+                "created_at":      created_at,
+                "last_logged_in":  last_logged_in,
                 "last_logged_out": last_logged_out,
-                "is_online":      is_online,
+                "is_online":       is_online,
             })
         logger.info("admin_list_users completed admin=%s count=%s", current_admin.email, len(result))
         return result
@@ -254,6 +257,8 @@ async def admin_update_user(
         update_fields["password"] = hash_password(payload.password)
     if payload.role is not None:
         update_fields["role"] = payload.role
+    if payload.geofence_access is not None:
+        update_fields["geofence_access"] = payload.geofence_access
 
     if update_fields:
         await mongo.accounts.update_one({"_id": ObjectId(user_id), "role": "user"}, {"$set": update_fields})
@@ -264,14 +269,15 @@ async def admin_update_user(
     device_map = await _load_device_map(mongo, updated.devices or [])
     devices = _populate_devices(updated.devices or [], device_map)
     response = {
-        "id":         str(updated.id),
-        "email":      public_contact(updated.email, updated.phone),
-        "phone":      updated.phone,
-        "name":       updated.name,
-        "role":       updated.role or "user",
-        "admin_id":   str(updated.admin_id) if updated.admin_id else None,
-        "devices":    devices,
-        "created_at": _dt_iso(updated.created_at),
+        "id":              str(updated.id),
+        "email":           public_contact(updated.email, updated.phone),
+        "phone":           updated.phone,
+        "name":            updated.name,
+        "role":            updated.role or "user",
+        "admin_id":        str(updated.admin_id) if updated.admin_id else None,
+        "devices":         devices,
+        "geofence_access": getattr(updated, "geofence_access", False),
+        "created_at":      _dt_iso(updated.created_at),
     }
     logger.info("admin_update_user completed admin=%s target_user_id=%s", current_admin.email, user_id)
     return response

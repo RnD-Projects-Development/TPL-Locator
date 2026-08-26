@@ -633,11 +633,15 @@ export default function Dashboard() {
   const activeNow = summary.online
   const offlineDevices = summary.offline
 
-  // Battery tiers — sourced from GET /api/location/{sn} → batteryStatus field
+  // Battery tiers — sourced from latest location doc (batteryStatus)
   const batteryTiers = useMemo(() => {
-    const vals = Object.values(locations)
-      .map(loc => loc?.batteryStatus)
-      .filter(v => v != null && !isNaN(v))
+    const vals = Object.values(locations || {})
+      .map(loc => {
+        const b = loc?.batteryStatus ?? loc?.batteryLevel ?? loc?.battery ?? loc?.battery_status ?? loc?.batteryPowerVal
+        const num = Number(b)
+        return b != null && !isNaN(num) ? num : null
+      })
+      .filter(v => v != null)
     return {
       high: vals.filter(v => v >= 60).length,
       medium: vals.filter(v => v >= 20 && v < 60).length,

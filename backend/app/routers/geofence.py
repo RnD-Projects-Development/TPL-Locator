@@ -94,6 +94,16 @@ async def _resolve_zone(zone_id: str, account, mongo: MongoService):
     return (doc.get("coordinates") or []), sns, (doc.get("name") or zone_id)
 
 
+def _check_geofence_access(account):
+    if isinstance(account, AdminInDB):
+        return
+    if not getattr(account, "geofence_access", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Geofence access is not enabled for your account. Please contact an administrator.",
+        )
+
+
 # ── GET /api/geofence/debug ──────────────────────────────────────────────────
 @router.get("/debug")
 async def geofence_debug(
@@ -101,6 +111,7 @@ async def geofence_debug(
     mongo:   Annotated[MongoService, Depends(get_mongo_service)],
 ):
     """Diagnostic: shows which zones and devices this token resolves to."""
+    _check_geofence_access(account)
     role = "admin" if isinstance(account, AdminInDB) else "user"
 
     # Raw user doc from DB (unfiltered by Pydantic)
@@ -148,6 +159,7 @@ async def get_geofence_status(
     }
     The frontend merges user_name from its DeviceCache.
     """
+    _check_geofence_access(account)
     # (sn, zone_id, polygon) — a device can belong to multiple zones
     pairs: list[tuple[str, str, list]] = []
     zone_names: dict[str, str] = {}
@@ -208,6 +220,7 @@ async def get_zone_report(
     Pass start/end to scope the walk to a window — without them every call re-reads each device's
     full history, which is wasteful for pollers that only want recent crossings.
     """
+    _check_geofence_access(account)
     resolved = await _resolve_zone(zone_id, account, mongo)
     if resolved is None:
         raise HTTPException(status_code=404, detail="Zone not found")
@@ -319,6 +332,7 @@ async def get_zone_tracks(
         [tracks] device sn  points_in_range  points_returned
         [tracks] done  zone  total_points
     """
+    _check_geofence_access(account)
     role = "admin" if isinstance(account, AdminInDB) else "user"
 
     # Default: last 7 days (frontend sends explicit start/end via TRACK_RANGES)

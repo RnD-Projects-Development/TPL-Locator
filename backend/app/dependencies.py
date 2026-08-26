@@ -237,6 +237,7 @@ def user_to_public(user: UserInDB) -> UserPublic:
         phone=user.phone,
         admin_id=str(user.admin_id) if user.admin_id else None,
         devices=[str(d) for d in user.devices],
+        geofence_access=getattr(user, "geofence_access", False),
     )
 
 

@@ -12,7 +12,7 @@ import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import AddDeviceToUserModal from '../components/AddDeviceToUserModal.jsx'
 import { displayContact, isValidIdentifier } from '../utils/userContact.js'
-import { isUserOnline, lastActiveTs, lastActiveStamp } from '../utils/userPresence.js'
+import { isUserOnline, lastActiveTs, lastActiveStamp, parseTs } from '../utils/userPresence.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
@@ -61,10 +61,17 @@ const AVATAR_COLORS = [
 
 function ActiveAvatarStack({ users, isLight }) {
   const ringColor = isLight ? '#F1F1F1' : '#18181b'
-  const active = users.filter(u => {
-    const ts = u.last_logged_in || u.last_login
-    return ts && Date.now() - new Date(ts).getTime() < 86_400_000
-  })
+  const active = users
+    .filter(u => {
+      const ts = u.last_logged_in || u.last_login
+      const ms = parseTs(ts)
+      return ms > 0 && Date.now() - ms < 86_400_000
+    })
+    .sort((a, b) => {
+      const tsA = parseTs(a.last_logged_in || a.last_login)
+      const tsB = parseTs(b.last_logged_in || b.last_login)
+      return tsB - tsA
+    })
   if (active.length === 0) return null
   const shown = active.slice(0, 7)
   const extra = active.length - shown.length
@@ -222,7 +229,7 @@ function DeviceCard({ device, pushTrail, isAdmin, onUnbind, isLight }) {
 }
 
 /* ── User row ─────────────────────────────────────────────────────────────── */
-function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onToggle, boundDevices, pushTrail, onUnbindDevice, isLight }) {
+function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, onToggleGeofence, isGeofenceLoading, expanded, onToggle, boundDevices, pushTrail, onUnbindDevice, isLight }) {
   const [hov, setHov] = useState(false)
   const contact = displayContact(u)
   const initials = (u.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
@@ -280,7 +287,7 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
           <RoleBadge role={u.role} isLight={isLight} />
         </td>
 
-        {/* Last active — Online badge while logged in; elapsed-since-logout after */}
+        {/* Last Logged In — Online badge while logged in; elapsed time after */}
         <td style={{ padding: '0.92em 1.15em' }}>
           {isUserOnline(u) ? (
             <span className="badge badge-teal-500 text-uppercase tracking-wider">
@@ -288,8 +295,8 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
             </span>
           ) : (
             <span style={{ fontSize: '0.8em', color: txt3, fontFamily: 'var(--font-mono)' }}>
-              {lastActiveStamp(u)
-                ? fmtRelTime(lastActiveStamp(u))
+              {(u.last_logged_in || u.last_login || lastActiveStamp(u))
+                ? fmtRelTime(u.last_logged_in || u.last_login || lastActiveStamp(u))
                 : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
             </span>
           )}
@@ -313,6 +320,53 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, expanded, onT
                 ? <ChevronDown style={{ width: '0.92em', height: '0.92em' }} />
                 : <ChevronRight style={{ width: '0.92em', height: '0.92em' }} />}
             </button>
+            {isAdmin && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggleGeofence(u)
+                }}
+                disabled={isGeofenceLoading}
+                title={u.geofence_access ? 'Geofence: Granted (Click to Revoke)' : 'Geofence: Locked (Click to Grant)'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.32em',
+                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: isGeofenceLoading ? 'wait' : 'pointer',
+                  background: u.geofence_access
+                    ? (isLight ? 'rgba(16,185,129,0.10)' : 'rgba(16,185,129,0.14)')
+                    : (isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+                  border: u.geofence_access
+                    ? `1px solid ${isLight ? 'rgba(16,185,129,0.30)' : 'rgba(16,185,129,0.35)'}`
+                    : `1px solid ${isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.10)'}`,
+                  color: u.geofence_access
+                    ? (isLight ? '#059669' : '#34D399')
+                    : (isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.40)'),
+                  fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
+                  opacity: isGeofenceLoading ? 0.6 : 1,
+                }}
+                onMouseEnter={e => {
+                  if (isGeofenceLoading) return
+                  if (u.geofence_access) {
+                    e.currentTarget.style.background = isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)'
+                    e.currentTarget.style.borderColor = isLight ? 'rgba(16,185,129,0.45)' : 'rgba(16,185,129,0.50)'
+                  } else {
+                    e.currentTarget.style.background = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+                    e.currentTarget.style.borderColor = isLight ? 'rgba(0,0,0,0.20)' : 'rgba(255,255,255,0.18)'
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (u.geofence_access) {
+                    e.currentTarget.style.background = isLight ? 'rgba(16,185,129,0.10)' : 'rgba(16,185,129,0.14)'
+                    e.currentTarget.style.borderColor = isLight ? 'rgba(16,185,129,0.30)' : 'rgba(16,185,129,0.35)'
+                  } else {
+                    e.currentTarget.style.background = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'
+                    e.currentTarget.style.borderColor = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.10)'
+                  }
+                }}
+              >
+                <Shield style={{ width: '0.8em', height: '0.8em', color: u.geofence_access ? (isLight ? '#059669' : '#34D399') : (isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.35)') }} />
+                <span>{u.geofence_access ? 'Fence: On' : 'Fence: Off'}</span>
+              </button>
+            )}
             {isAdmin && (
               <button
                 onClick={() => onEdit(u)}
@@ -490,9 +544,10 @@ export default function UsersPage() {
   const [query,      setQuery]    = useState(savedUsersView?.q || '')
   const [debouncedQ, setDQ]       = useState((savedUsersView?.q || '').trim().toLowerCase())
   const [page,       setPage]     = useState(savedUsersView?.page || 1)
-  const [expanded,   setExpanded] = useState(() => new Set(savedUsersView?.expanded || []))
+  const [expanded,   setExpanded] = useState(() => new Set())
   const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
+  const tableContainerRef = useRef(null)
 
   // Search-history dropdown (recent user searches, separate from the Devices
   // page). Recorded on Enter / on pick; the store is wiped on logout.
@@ -511,10 +566,22 @@ export default function UsersPage() {
     return () => document.removeEventListener('mousedown', onDocMouseDown)
   }, [histOpen])
 
-  // Persist the list view so returning via the breadcrumb restores it.
+  // Collapse expanded rows on any click outside the table container
   useEffect(() => {
-    saveUsersView({ q: query, page, expanded: [...expanded] })
-  }, [query, page, expanded])
+    if (expanded.size === 0) return
+    const onDocMouseDown = (e) => {
+      if (tableContainerRef.current && !tableContainerRef.current.contains(e.target)) {
+        setExpanded(new Set())
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [expanded.size])
+
+  // Persist the list view (search query & page only — expanded rows reset on fresh load/session)
+  useEffect(() => {
+    saveUsersView({ q: query, page })
+  }, [query, page])
 
   /* Create User state */
   const [showCreate,    setShowCreate]    = useState(false)
@@ -529,12 +596,15 @@ export default function UsersPage() {
   const [deleteLoading, setDeleteLoading] = useState(false)
 
   /* Edit User state */
-  const [editTarget,   setEditTarget]   = useState(null)
-  const [editName,     setEditName]     = useState('')
-  const [editRole,     setEditRole]     = useState('user')
-  const [editPassword, setEditPassword] = useState('')
-  const [editLoading,  setEditLoading]  = useState(false)
-  const [editError,    setEditError]    = useState('')
+  const [editTarget,         setEditTarget]         = useState(null)
+  const [editName,           setEditName]           = useState('')
+  const [editPassword,       setEditPassword]       = useState('')
+  const [editGeofenceAccess, setEditGeofenceAccess] = useState(false)
+  const [editLoading,        setEditLoading]        = useState(false)
+  const [editError,          setEditError]          = useState('')
+
+  /* Geofence access per-row loading state */
+  const [geofenceLoadingIds, setGeofenceLoadingIds] = useState(() => new Set())
 
   /* Unbind Device state */
   const [unbindTarget,  setUnbindTarget]  = useState(null)
@@ -543,33 +613,16 @@ export default function UsersPage() {
   const handleSearch = useCallback((val) => {
     setQuery(val)
     setPage(1)
+    setExpanded(new Set())
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => setDQ(val.trim().toLowerCase()), 300)
   }, [])
-
-  const filtered = useMemo(() => {
-    const q = debouncedQ
-    const list = users.filter(u => {
-      if (!q) return true
-      return u.name?.toLowerCase().includes(q) || displayContact(u).toLowerCase().includes(q)
-    })
-    // Online users first, then by most recent session activity (logout/login)
-    return list.sort((a, b) => {
-      const onlineDiff = (isUserOnline(b) ? 1 : 0) - (isUserOnline(a) ? 1 : 0)
-      if (onlineDiff !== 0) return onlineDiff
-      return lastActiveTs(b) - lastActiveTs(a)
-    })
-  }, [users, debouncedQ])
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const safePage   = Math.min(page, totalPages)
-  const paged      = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   /* Build userId → bound devices map */
   const devicesByUser = useMemo(() => {
     const map = {}
     ;(devices || []).forEach(d => {
-      const uid = d.user_id || d.assigned_user_id
+      const uid = String(d.user_id || d.assigned_user_id || '')
       if (!uid) return
       if (!map[uid]) map[uid] = []
       map[uid].push(d)
@@ -577,13 +630,110 @@ export default function UsersPage() {
     return map
   }, [devices])
 
-  const toggleExpand = useCallback((userId) => {
-    setExpanded(prev => {
-      const next = new Set(prev)
-      next.has(userId) ? next.delete(userId) : next.add(userId)
-      return next
+  // Priority order:
+  // 1. Active Today / Online users with assigned devices (most recent activity & active devices first)
+  // 2. Active Today / Online users without assigned devices (most recent activity first)
+  // 3. Other users with assigned devices (most recent activity first)
+  // 4. Other users without assigned devices (most recent activity first)
+  const filtered = useMemo(() => {
+    const q = debouncedQ
+    const list = users.filter(u => {
+      if (!q) return true
+      return u.name?.toLowerCase().includes(q) || displayContact(u).toLowerCase().includes(q)
     })
+
+    return list.sort((a, b) => {
+      const uidA = String(a._id || a.id || '')
+      const uidB = String(b._id || b.id || '')
+      const boundA = a.devices?.length ? a.devices : (devicesByUser[uidA] || [])
+      const boundB = b.devices?.length ? b.devices : (devicesByUser[uidB] || [])
+
+      const isDevActive = (d) => {
+        const st = String(d.status || d.deviceStatus || '').toLowerCase()
+        return st === 'online' || st === 'on' || (d.dataRetrievalTime && (Date.now() - new Date(d.dataRetrievalTime).getTime() < 12 * 3600 * 1000))
+      }
+
+      const activeDevsA = boundA.filter(isDevActive).length
+      const activeDevsB = boundB.filter(isDevActive).length
+
+      const onlineA = isUserOnline(a)
+      const onlineB = isUserOnline(b)
+
+      const tsA = a.last_logged_in || a.last_login
+      const tsB = b.last_logged_in || b.last_login
+      const loginA = parseTs(tsA)
+      const loginB = parseTs(tsB)
+
+      const activeTodayA = (loginA > 0 && (Date.now() - loginA < 86_400_000)) || onlineA
+      const activeTodayB = (loginB > 0 && (Date.now() - loginB < 86_400_000)) || onlineB
+
+      const hasDevsA = boundA.length > 0
+      const hasDevsB = boundB.length > 0
+
+      // Tier 1: Active Today with assigned devices
+      const t1A = activeTodayA && hasDevsA
+      const t1B = activeTodayB && hasDevsB
+      if (t1A !== t1B) return t1B ? 1 : -1
+      if (t1A && t1B) {
+        if (onlineA !== onlineB) return onlineB ? 1 : -1
+        if (activeDevsB !== activeDevsA) return activeDevsB - activeDevsA
+        const actDiff = lastActiveTs(b) - lastActiveTs(a)
+        if (actDiff !== 0) return actDiff
+      }
+
+      // Tier 2: Active Today without assigned devices
+      const t2A = activeTodayA && !hasDevsA
+      const t2B = activeTodayB && !hasDevsB
+      if (t2A !== t2B) return t2B ? 1 : -1
+      if (t2A && t2B) {
+        if (onlineA !== onlineB) return onlineB ? 1 : -1
+        const actDiff = lastActiveTs(b) - lastActiveTs(a)
+        if (actDiff !== 0) return actDiff
+      }
+
+      // Tier 3: Inactive users with assigned devices
+      const t3A = !activeTodayA && hasDevsA
+      const t3B = !activeTodayB && hasDevsB
+      if (t3A !== t3B) return t3B ? 1 : -1
+      if (t3A && t3B) {
+        if (activeDevsB !== activeDevsA) return activeDevsB - activeDevsA
+        const actDiff = lastActiveTs(b) - lastActiveTs(a)
+        if (actDiff !== 0) return actDiff
+      }
+
+      // Tier 4: Inactive users without assigned devices
+      return lastActiveTs(b) - lastActiveTs(a)
+    })
+  }, [users, debouncedQ, devicesByUser])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage   = Math.min(page, totalPages)
+  const paged      = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // Accordion behavior: only one row expanded at a time
+  const toggleExpand = useCallback((userId) => {
+    setExpanded(prev => (prev.has(userId) ? new Set() : new Set([userId])))
   }, [])
+
+  /* ── Toggle user geofence permission ────────────────────────────────────── */
+  const handleToggleGeofence = useCallback(async (u) => {
+    const uid = u._id || u.id
+    if (!uid) return
+    setGeofenceLoadingIds(prev => new Set(prev).add(uid))
+    try {
+      const nextVal = !u.geofence_access
+      await adminUpdateUser(uid, { geofence_access: nextVal })
+      await silentRefresh()
+    } catch (err) {
+      console.error('Failed to toggle geofence access:', err)
+    } finally {
+      setGeofenceLoadingIds(prev => {
+        const next = new Set(prev)
+        next.delete(uid)
+        return next
+      })
+    }
+  }, [adminUpdateUser, silentRefresh])
 
   /* ── Create user ────────────────────────────────────────────────────────── */
   const openCreate  = () => { setNewIdentifier(''); setNewName(''); setNewPassword(''); setCreateError(''); setShowCreate(true) }
@@ -623,7 +773,13 @@ export default function UsersPage() {
   }
 
   /* ── Edit user ──────────────────────────────────────────────────────────── */
-  const openEdit  = (u) => { setEditTarget(u); setEditName(u.name || ''); setEditRole((u.role || 'user').toLowerCase()); setEditPassword(''); setEditError('') }
+  const openEdit  = (u) => {
+    setEditTarget(u)
+    setEditName(u.name || '')
+    setEditPassword('')
+    setEditGeofenceAccess(Boolean(u.geofence_access))
+    setEditError('')
+  }
   const closeEdit = () => { if (!editLoading) setEditTarget(null) }
 
   const handleEditUser = async () => {
@@ -632,7 +788,7 @@ export default function UsersPage() {
     setEditError(''); setEditLoading(true)
     try {
       const uid = editTarget._id || editTarget.id
-      const payload = { name: editName.trim(), role: editRole }
+      const payload = { name: editName.trim(), geofence_access: editGeofenceAccess }
       if (editPassword.trim()) payload.password = editPassword.trim()
       await adminUpdateUser(uid, payload)
       refresh()
@@ -760,12 +916,12 @@ export default function UsersPage() {
       ) : loading && users.length === 0 ? (
         <TPLLoader label="Loading users…" />
       ) : (
-        <div style={{ ...panelStyle, overflow: 'hidden' }}>
+        <div ref={tableContainerRef} style={{ ...panelStyle, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table className="scalable-container" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.theadBdr}`, background: T.theadBg }}>
-                  {['User', 'Email', 'Role', 'Last Active', 'Devices', 'Actions'].map(col => (
+                  {['User', 'Email', 'Role', 'Last Logged In', 'Devices', 'Actions'].map(col => (
                     <th key={col} style={{ padding: '0.85em 1.15em', textAlign: 'left', fontSize: '0.65em', fontWeight: 700, color: T.theadTxt, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
@@ -789,6 +945,8 @@ export default function UsersPage() {
                         u={u} idx={i} isAdmin={isAdmin}
                         onDelete={setDeleteTarget} onEdit={openEdit}
                         onAddDevice={setAddDeviceTarget}
+                        onToggleGeofence={handleToggleGeofence}
+                        isGeofenceLoading={geofenceLoadingIds.has(uid)}
                         expanded={expanded.has(uid)} onToggle={() => { recordSearch(query); toggleExpand(uid) }}
                         boundDevices={bound} pushTrail={pushTrail}
                         onUnbindDevice={setUnbindTarget} isLight={isLight}
@@ -811,7 +969,10 @@ export default function UsersPage() {
                   <Pagination
                     count={totalPages}
                     page={safePage}
-                    onChange={(_, p) => setPage(p)}
+                    onChange={(_, p) => {
+                      setPage(p)
+                      setExpanded(new Set())
+                    }}
                     color="primary"
                     shape="rounded"
                     size="medium"
@@ -928,20 +1089,38 @@ export default function UsersPage() {
                   <input type="text" placeholder="e.g. Ahmed Khan" name="eu-fullname" autoComplete="off"
                     value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEditUser()} autoFocus style={inputSt} />
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Role</label>
-                  <select value={editRole} onChange={e => setEditRole(e.target.value)} style={{ ...inputSt, cursor: 'pointer' }}>
-                    <option value="user">User</option>
-                    <option value="operator">Operator</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>
                     New Password <span style={{ fontWeight: 400, color: T.txt4 }}>(leave blank to keep current)</span>
                   </label>
                   <input type="password" placeholder="Minimum 8 characters" name="eu-password" autoComplete="new-password"
                     value={editPassword} onChange={e => setEditPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEditUser()} style={inputSt} />
+                </div>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${T.bdrLight}`,
+                  borderRadius: 8,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.dlgTxt1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Shield style={{ width: 14, height: 14, color: '#C86068' }} />
+                      Geofence Access
+                    </div>
+                    <div style={{ fontSize: 11, color: T.txt4, marginTop: 2 }}>
+                      Allow this user to view their geofence map and events
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative' }}>
+                    <input
+                      type="checkbox"
+                      checked={editGeofenceAccess}
+                      onChange={e => setEditGeofenceAccess(e.target.checked)}
+                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#A72C32' }}
+                    />
+                  </label>
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px', borderTop: `1px solid ${T.bdrLight}` }}>

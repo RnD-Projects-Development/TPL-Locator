@@ -314,13 +314,14 @@ export function useCityTag() {
   );
 
   const adminUpdateUser = useCallback(
-    async (userId, { name, password, role } = {}) => {
+    async (userId, { name, password, role, geofence_access } = {}) => {
       // Only include fields that were actually provided — backend treats
       // null/undefined as "leave unchanged".
       const body = {};
-      if (name !== undefined)     body.name = name;
-      if (password !== undefined) body.password = password;
-      if (role !== undefined)     body.role = role;
+      if (name !== undefined)            body.name = name;
+      if (password !== undefined)        body.password = password;
+      if (role !== undefined)            body.role = role;
+      if (geofence_access !== undefined) body.geofence_access = geofence_access;
       return apiFetch(
         `/api/admin/users/${encodeURIComponent(userId)}`,
         { method: "PUT", body },

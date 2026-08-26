@@ -233,15 +233,15 @@ class MongoService:
 
         query = {"sn": {"$in": sns}}
         if isinstance(account, AdminInDB):
-            query["admin_id"] = account.id
+            cursor = self.devices.find(query, {"sn": 1, "_id": 0})
         else:
             from app.models.user import UserInDB
 
             if not isinstance(account, UserInDB):
                 return []
             query["user_id"] = account.id
+            cursor = self.devices.find(query, {"sn": 1, "_id": 0})
 
-        cursor = self.devices.find(query, {"sn": 1, "_id": 0})
         return [doc["sn"] async for doc in cursor if doc.get("sn")]
 
     async def get_latest_locations_by_sns(self, sns: List[str]) -> dict[str, dict]:
