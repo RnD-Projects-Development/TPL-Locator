@@ -66,8 +66,8 @@ def _normalize_records(payload: Union[list, dict, None]) -> List[Dict[str, Any]]
     return []
 
 
-async def reverse_geocode(lat: float, lng: float) -> Optional[str]:
-    """Reverse geocode lat/lng to a human-readable landmark string."""
+async def tpl_reverse_geocode(lat: float, lng: float) -> Optional[str]:
+    """Reverse geocode lat/lng via TPL Maps (Pakistan only)."""
     if lat == 0.0 and lng == 0.0:
         return None
 

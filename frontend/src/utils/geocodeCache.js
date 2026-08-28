@@ -1,7 +1,7 @@
 // Shared reverse-geocode resolver — used by both the playback sidebar and the
 // map's per-pin labels so a given coordinate is only ever looked up once and
 // both surfaces always agree on the resolved landmark text.
-import { landmarkDisplayFromPoint, parseLandmarkDisplay, clientReverseGeocode, mapboxReverseGeocode, mapboxGeoLabelString, insidePakistan } from "./landmark.js";
+import { landmarkDisplayFromPoint, parseLandmarkDisplay, clientReverseGeocode, googleReverseGeocode, googleGeoLabelString, insidePakistan } from "./landmark.js";
 import { getCoords } from "./stopClustering.js";
 
 const cache = new Map();
@@ -75,8 +75,8 @@ export function resolveGeocode(point, getGeocode) {
     }
     if (!label) {
       try {
-        const mbx = await mapboxReverseGeocode(lat, lng, import.meta.env.VITE_MAPBOX_TOKEN);
-        if (mbx) label = mapboxGeoLabelString(mbx);
+        const geo = await googleReverseGeocode(lat, lng, import.meta.env.VITE_GOOGLE_MAPS_KEY);
+        if (geo) label = googleGeoLabelString(geo);
       } catch {}
     }
     const parsed = label ? parseLandmarkDisplay(label) : null;

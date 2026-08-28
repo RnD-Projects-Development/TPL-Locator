@@ -77,6 +77,9 @@ class AccountInDB(BaseModel):
     phone: Optional[str] = None
     admin_id: Optional[PyObjectId] = None
     devices: List[PyObjectId] = Field(default_factory=list)
+    dashboard_access: bool = True
+    geofence_access: bool = False
+    geofence_create_access: bool = False
     
     # Admin fields
     uid: Optional[str] = None
@@ -106,6 +109,9 @@ class AccountPublic(BaseModel):
     name: Optional[str] = None
     uid: Optional[str] = None
     devices: List[str] = Field(default_factory=list)
+    dashboard_access: bool = True
+    geofence_access: bool = False
+    geofence_create_access: bool = False
 
 
 class AdminPublic(BaseModel):

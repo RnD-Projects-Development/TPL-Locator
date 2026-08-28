@@ -16,6 +16,9 @@ class UserInDB(BaseModel):
     admin_id: Optional[PyObjectId] = None
     devices: List[PyObjectId] = Field(default_factory=list)
     role: str = "user"  # user or admin
+    dashboard_access: bool = True
+    geofence_access: bool = False
+    geofence_create_access: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_logged_in: Optional[datetime] = None
     last_logged_out: Optional[datetime] = None
@@ -32,6 +35,9 @@ class UserCreate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     role: Optional[str] = "user"
+    dashboard_access: Optional[bool] = None
+    geofence_access: Optional[bool] = None
+    geofence_create_access: Optional[bool] = None
 
 
 
@@ -42,3 +48,6 @@ class UserPublic(BaseModel):
     phone: Optional[str] = None
     admin_id: Optional[str] = None
     devices: List[str] = []
+    dashboard_access: bool = True
+    geofence_access: bool = False
+    geofence_create_access: bool = False

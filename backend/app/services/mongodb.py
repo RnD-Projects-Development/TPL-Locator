@@ -11,7 +11,7 @@ import certifi
 from app.auth_utils import hash_password
 from app.models.admin import AdminInDB, AdminCreate
 from app.models.device import DeviceInDB
-from app.services.tpl_geocode import reverse_geocode
+from app.services.geocode import reverse_geocode
 
 
 
@@ -97,6 +97,15 @@ class MongoService:
             return None
         return AdminInDB(**account.dict())
 
+    async def get_admin_by_phone(self, phone: str) -> Optional[AdminInDB]:
+        """Get admin account by normalized phone (03XXXXXXXXX)."""
+        doc = await self.accounts.find_one({"phone": phone.strip(), "role": "admin"})
+        if not doc:
+            return None
+        from app.models.admin import AccountInDB
+        account = AccountInDB(**doc)
+        return AdminInDB(**account.dict())
+
     async def get_user_by_email(self, email: str):
         """Get user account by email."""
         account = await self.get_account_by_email(email, role="user")
@@ -125,7 +134,7 @@ class MongoService:
 
         from app.models.user import UserInDB
         payload = {
-            "email": email.strip().lower() if email else None,
+            **({"email": email.strip().lower()} if email else {}),
             "password": hash_password(password),
             "name": name or "",
             "phone": phone or None,
@@ -228,15 +237,15 @@ class MongoService:
 
         query = {"sn": {"$in": sns}}
         if isinstance(account, AdminInDB):
-            query["admin_id"] = account.id
+            cursor = self.devices.find(query, {"sn": 1, "_id": 0})
         else:
             from app.models.user import UserInDB
 
             if not isinstance(account, UserInDB):
                 return []
             query["user_id"] = account.id
+            cursor = self.devices.find(query, {"sn": 1, "_id": 0})
 
-        cursor = self.devices.find(query, {"sn": 1, "_id": 0})
         return [doc["sn"] async for doc in cursor if doc.get("sn")]
 
     async def get_latest_locations_by_sns(self, sns: List[str]) -> dict[str, dict]:

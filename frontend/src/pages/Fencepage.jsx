@@ -18,7 +18,9 @@ import AssignDeviceModal from '../components/AssignDeviceModal.jsx';
 import ConfirmDeleteDeviceModal from '../components/ConfirmDeleteDeviceModal.jsx';
 import ZoneDetailSidebar from '../components/ZoneDetailSidebar.jsx';
 import TPLLoader from '../components/TPLLoader.jsx';
+import LocatingOverlay from '../components/LocatingOverlay.jsx';
 import { frameBounds } from '../utils/frameBounds.js';
+import { parseKML } from '../utils/kmlParser.js';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -95,8 +97,9 @@ class ErrorBoundary extends Component {
 // ─── Main page ────────────────────────────────────────────────────────────────
 function FencePageInner() {
   const { devices, refresh, silentRefresh } = useDeviceCache();
-  const { accessToken, isAdmin } = useAuth();
+  const { accessToken, isAdmin, user } = useAuth();
   const { zones, refreshZones, zonesLoading } = useZoneCache();
+  const canManageFence = isAdmin || Boolean(user?.geofence_create_access);
 
   const mapRef             = useRef(null);
   const mapContainerRef    = useRef(null);
@@ -119,7 +122,9 @@ function FencePageInner() {
   const [deviceTracks,    setDeviceTracks]    = useState([]);
   const [tracksLoading,   setTracksLoading]   = useState(false);
   const [tracksFetchKey,  setTracksFetchKey]  = useState(0);
-  const [tracksRangeDays, setTracksRangeDays] = useState(7);
+  const [tracksRangeDays, setTracksRangeDays] = useState(1);
+  const [isUploadingKML,  setIsUploadingKML]  = useState(false);
+  const kmlInputRef = useRef(null);
 
   // User-adjustable zone sidebar width (drag the divider, double-click resets).
   const zonePanel = useResizablePanel('fp_sidebar_w', { defaultWidth: 260, min: 220, max: 480, edge: 'right' });
@@ -380,42 +385,35 @@ function FencePageInner() {
   }, [selectedZoneId, mapReady, accessToken, authHeaders, tracksFetchKey, tracksRangeDays]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Assign devices ────────────────────────────────────────────────────────────
-  // Takes a list so several devices can go into a zone in one pass. The API is
-  // one-SN-per-call, so this walks the list and reports per-device failures
-  // instead of aborting the whole batch on the first error.
+  // Sends device SNs in a single batch request to avoid slow sequential round-trips.
   async function handleAssign(zone_id, sns, onProgress) {
-    const list = Array.isArray(sns) ? sns : [sns];
+    const list = (Array.isArray(sns) ? sns : [sns])
+      .map(s => String(s ?? '').trim())
+      .filter(s => s && s !== 'undefined');
+
+    if (list.length === 0) return { failures: [] };
+
     setAssigningZoneId(zone_id);
     const failures = [];
-    let done = 0;
 
     try {
-      for (const raw of list) {
-        const sn = String(raw ?? '').trim();
-        if (!sn || sn === 'undefined') {
-          failures.push({ sn: String(raw), message: 'serial number is missing or invalid' });
-        } else {
-          try {
-            const res = await fetch(
-              `${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}/assign`,
-              { method: 'POST', headers: authHeaders(), body: JSON.stringify({ sn }) },
-            );
-            if (!res.ok) {
-              const errBody = await res.json().catch(() => ({}));
-              failures.push({ sn, message: errBody?.detail || `HTTP ${res.status}` });
-            }
-          } catch (err) {
-            failures.push({ sn, message: err?.message || 'network error' });
-          }
-        }
-        done += 1;
-        onProgress?.(done);
+      const res = await fetch(
+        `${API_BASE_URL}/api/zones/${encodeURIComponent(zone_id)}/assign`,
+        { method: 'POST', headers: authHeaders(), body: JSON.stringify({ sns: list }) },
+      );
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        failures.push({ sn: list.join(', '), message: errBody?.detail || `HTTP ${res.status}` });
       }
 
-      // Force-refresh: the fleet cache has a 5-minute TTL, so a plain refresh()
-      // would hand back the pre-assignment list and the zone would look empty.
+      onProgress?.(list.length);
+
+      // Force-refresh device cache silently
       await silentRefresh();
       setTracksFetchKey((k) => k + 1);
+      return { failures };
+    } catch (err) {
+      failures.push({ sn: list.join(', '), message: err?.message || 'network error' });
       return { failures };
     } finally {
       setAssigningZoneId(null);
@@ -483,9 +481,66 @@ function FencePageInner() {
     setToolboxMode('edit');
   }
 
+  // ── Upload KML handlers ───────────────────────────────────────────────────────
+  const handleUploadKMLClick = useCallback(() => {
+    kmlInputRef.current?.click();
+  }, []);
+
+  const handleKmlFileChange = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ''; // allow selecting same file again if desired
+
+    setIsUploadingKML(true);
+    try {
+      const text = await file.text();
+      const parsedZones = parseKML(text);
+      if (!parsedZones || parsedZones.length === 0) {
+        alert('No valid polygon boundaries found in this KML file.');
+        return;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/zones/batch`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(parsedZones),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody?.detail || `Failed to import zones (HTTP ${res.status})`);
+      }
+
+      await refreshZones();
+      await refresh();
+
+      // Zoom & frame map to imported zones
+      const allCoords = parsedZones.flatMap((z) => z.coordinates || []).map((p) => [p.lat, p.lng]);
+      if (allCoords.length > 0 && mapRef.current && window.L) {
+        try {
+          const bounds = window.L.latLngBounds(allCoords);
+          frameBounds(mapRef.current, bounds, { padding: [50, 50], maxZoom: 16 });
+        } catch {}
+      }
+    } catch (err) {
+      console.error('[FencePage] KML upload failed:', err);
+      alert(err.message || 'Failed to parse and import KML file');
+    } finally {
+      setIsUploadingKML(false);
+    }
+  }, [authHeaders, refresh, refreshZones]);
+
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="fp-page">
+      {/* Hidden file input for KML upload */}
+      <input
+        type="file"
+        ref={kmlInputRef}
+        accept=".kml,.xml"
+        onChange={handleKmlFileChange}
+        style={{ display: 'none' }}
+      />
 
       {/* Top bar */}
       <div className="fp-topbar">
@@ -521,23 +576,27 @@ function FencePageInner() {
           onSelect={(id) => { setSelectedZoneId(id); if (id) setIsRightSidebarOpen(true); }}
           zoneStatuses={displayStatuses}
           assignments={assignments}
-          onOpenAssign={isAdmin ? (zone) => setAssignModal({ zone }) : null}
+          onOpenAssign={canManageFence ? (zone) => setAssignModal({ zone }) : null}
           assigningZoneId={assigningZoneId}
           deviceTracks={coloredTracks}
           tracksLoading={tracksLoading}
           zonesLoading={zonesLoading}
-          onCreateZone={isAdmin ? () => {
+          onCreateZone={canManageFence ? () => {
             setEditingZone(null);
             setToolboxMode('create');
           } : null}
-          onEditZone={isAdmin ? handleEditZone : null}
-          onDeleteZone={isAdmin ? handleDeleteZone : null}
+          onEditZone={canManageFence ? handleEditZone : null}
+          onDeleteZone={canManageFence ? handleDeleteZone : null}
+          onUploadKML={canManageFence ? handleUploadKMLClick : null}
+          isUploadingKML={isUploadingKML}
+          isAdmin={isAdmin}
+          currentUserId={String(user?._id || user?.id || '')}
         />
         </div>
         <div className="pb-resizer" {...zonePanel.handleProps} />
         <div className="fp-map-wrap" ref={mapWrapRef}>
           <div ref={mapContainerRef} id="fence-map" style={{ position: 'absolute', inset: 0 }} />
-          {tracksLoading && <TPLLoader overlay label="Fetching GPS tracks…" />}
+          <LocatingOverlay isVisible={Boolean(tracksLoading && selectedZoneId)} />
           
           {/* Floating Expand Button (only when closed) */}
           {!isRightSidebarOpen && selectedZoneId && (
@@ -573,7 +632,7 @@ function FencePageInner() {
                 isAssigning={assigningZoneId === selectedZoneId}
                 deviceTracks={coloredTracks}
                 tracksLoading={tracksLoading}
-                onDeleteDevice={isAdmin ? (entry) => setDeleteTarget({
+                onDeleteDevice={canManageFence ? (entry) => setDeleteTarget({
                   entry,
                   zone_id: selectedZoneId,
                   zoneName: zones.find(z => z.zone_id === selectedZoneId)?.name || 'this zone',

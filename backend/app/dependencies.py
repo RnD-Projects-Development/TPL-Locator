@@ -67,6 +67,7 @@ def get_settings():
         "tpl_maps_rgeocode_url": _env_strip(
             "TPL_MAPS_RGEOCODE_URL", "https://api1.tplmaps.com:8888/search/rgeocode"
         ),
+        "google_maps_api_key": _env_strip("GOOGLE_MAPS_API_KEY", ""),
         # Password reset email (Exchange / OWA mailbox)
         "smtp_host": _env_strip("SMTP_HOST", "email.trakker.com.pk"),
         "smtp_port": int(os.getenv("SMTP_PORT", "587")),
@@ -239,6 +240,9 @@ def user_to_public(user: UserInDB) -> UserPublic:
         phone=user.phone,
         admin_id=str(user.admin_id) if user.admin_id else None,
         devices=[str(d) for d in user.devices],
+        dashboard_access=getattr(user, "dashboard_access", True),
+        geofence_access=getattr(user, "geofence_access", False),
+        geofence_create_access=getattr(user, "geofence_create_access", False),
     )
 
 

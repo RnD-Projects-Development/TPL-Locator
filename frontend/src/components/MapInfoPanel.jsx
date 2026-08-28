@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { landmarkDisplayFromPoint, mapboxReverseGeocode } from "../utils/landmark.js";
+import { landmarkDisplayFromPoint, googleReverseGeocode } from "../utils/landmark.js";
 import "./MapInfoPanel.css";
 
 function extractCoords(point) {
@@ -49,7 +49,7 @@ function DeviceSection({ device, detectionsLabel, focused, onFocus }) {
     if (stored) { setGeo(stored); return; }
     if (!coords) { setGeo(null); return; }
     let cancelled = false;
-    mapboxReverseGeocode(coords.lat, coords.lng).then(result => {
+    googleReverseGeocode(coords.lat, coords.lng).then(result => {
       if (!cancelled) setGeo(result ?? null);
     });
     return () => { cancelled = true; };

@@ -5,7 +5,7 @@ import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
-import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay, mapboxReverseGeocode, mapboxGeoLabelString, insidePakistan } from '../utils/landmark.js'
+import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay, googleReverseGeocode, googleGeoLabelString, insidePakistan } from '../utils/landmark.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
@@ -147,9 +147,9 @@ export default function StickerDetail() {
                 if (geo?.landmark) { setGeoLabel(geo.landmark); return }
               } catch {}
               try {
-                const mbx = await mapboxReverseGeocode(ptLat, ptLng, import.meta.env.VITE_MAPBOX_TOKEN)
+                const geo = await googleReverseGeocode(ptLat, ptLng, import.meta.env.VITE_GOOGLE_MAPS_KEY)
                 if (cancelled) return
-                if (mbx) setGeoLabel(mapboxGeoLabelString(mbx) ?? '')
+                if (geo) setGeoLabel(googleGeoLabelString(geo) ?? '')
               } catch {}
             })()
           }
@@ -181,13 +181,13 @@ export default function StickerDetail() {
         const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
         const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
         if (ptLat == null || ptLng == null) return
-        // Gate by country so the auto-refresh only pays the worldwide (Mapbox)
+        // Gate by country so the auto-refresh only pays the worldwide (Google Maps)
         // cost when it's actually needed — inside PK uses TPL Maps / backend.
         if (insidePakistan(ptLat, ptLng)) {
           try { const lm = await clientReverseGeocode(ptLat, ptLng); if (cancelled) return; if (lm) { setGeoLabel(lm); return } } catch {}
           try { const geo = await getGeocode(ptLat, ptLng); if (cancelled) return; if (geo?.landmark) setGeoLabel(geo.landmark) } catch {}
         } else {
-          try { const mbx = await mapboxReverseGeocode(ptLat, ptLng, import.meta.env.VITE_MAPBOX_TOKEN); if (cancelled) return; if (mbx) setGeoLabel(mapboxGeoLabelString(mbx) ?? '') } catch {}
+          try { const geo = await googleReverseGeocode(ptLat, ptLng, import.meta.env.VITE_GOOGLE_MAPS_KEY); if (cancelled) return; if (geo) setGeoLabel(googleGeoLabelString(geo) ?? '') } catch {}
         }
       } catch {}
     }, 15 * 60 * 1000)

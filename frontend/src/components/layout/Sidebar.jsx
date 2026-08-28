@@ -10,11 +10,11 @@ import {
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
 
-function getNav(isAdmin) {
-  return [
+function getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess) {
+  const sections = [
     {
       section: 'OVERVIEW', links: [
-        { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+        ...(isAdmin || hasDashboardAccess ? [{ to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
       ]
     },
     {
@@ -26,7 +26,7 @@ function getNav(isAdmin) {
       section: 'INTELLIGENCE', links: [
         { to: '/map', icon: Map, label: 'Map View' },
         { to: '/playback', icon: PlayCircle, label: 'Playback' },
-        { to: '/fence', icon: Shield, label: 'Fence' },
+        ...(isAdmin || hasGeofenceAccess ? [{ to: '/fence', icon: Shield, label: 'Fence' }] : []),
       ]
     },
     {
@@ -36,6 +36,7 @@ function getNav(isAdmin) {
       ]
     },
   ]
+  return sections.filter(sec => sec.links && sec.links.length > 0)
 }
 
 export default function Sidebar() {
@@ -43,7 +44,9 @@ export default function Sidebar() {
   const { alerts } = useAlerts()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
-  const nav = getNav(isAdmin)
+  const hasGeofenceAccess = Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access)
+  const hasDashboardAccess = Boolean(user?.dashboard_access !== false)
+  const nav = getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess)
 
   const confirmLogout = () => {
     setShowLogoutConfirm(false)

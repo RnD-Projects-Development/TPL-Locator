@@ -2,29 +2,17 @@
 // Pure JS utility — no React imports.
 import { frameBounds } from './frameBounds.js';
 
-const DEFAULT_STYLE = {
-  color:       '#C1121F',
-  fillColor:   '#C1121F',
-  fillOpacity: 0.18,
-  weight:      2,
-};
-
-const SELECTED_STYLE = {
-  color:       '#C1121F',
-  fillColor:   '#C1121F',
-  fillOpacity: 0.42,
-  weight:      3,
-};
+export function getZoneStyle(color = '#C1121F', isSelected = false) {
+  const c = color || '#C1121F';
+  return {
+    color:       c,
+    fillColor:   c,
+    fillOpacity: isSelected ? 0.40 : 0.18,
+    weight:      isSelected ? 3 : 2,
+  };
+}
 
 const HOVER_FILL_OPACITY = 0.32;
-
-const DOT_STYLE = {
-  radius:      4,
-  color:       '#fff',
-  fillColor:   '#C1121F',
-  fillOpacity: 0.85,
-  weight:      1,
-};
 
 // ── Per-device color palette ──────────────────────────────────────────────────
 // 12 vivid, high-contrast colors visible on both light and dark map tiles
@@ -153,7 +141,7 @@ export function createPolygonManager(map) {
   let _selectedZoneId = null;
 
   function _baseOpacityFor(zoneId) {
-    return (zoneId === _selectedZoneId ? SELECTED_STYLE : DEFAULT_STYLE).fillOpacity;
+    return zoneId === _selectedZoneId ? 0.40 : 0.18;
   }
 
   // ── Dot rendering (original — visit points from zone data) ────────────────
@@ -165,9 +153,16 @@ export function createPolygonManager(map) {
   function _renderDots(zone) {
     _clearDots();
     if (!zone.points || zone.points.length === 0) return;
+    const dotColor = zone.color || '#C1121F';
 
     zone.points.forEach((pt) => {
-      const marker = window.L.circleMarker([pt.lat, pt.lng], { ...DOT_STYLE });
+      const marker = window.L.circleMarker([pt.lat, pt.lng], {
+        radius:      4,
+        color:       '#fff',
+        fillColor:   dotColor,
+        fillOpacity: 0.85,
+        weight:      1,
+      });
       marker.addTo(map);
 
       const label = _fmt(pt.timestamp);
@@ -276,7 +271,12 @@ export function createPolygonManager(map) {
         allLatLngs.push(...latLngs);
       }
 
-      const polygon = window.L.polygon(latLngs, { ...DEFAULT_STYLE });
+      const zoneColor = zone.color || '#C1121F';
+      const isSelected = zone.zone_id === _selectedZoneId;
+      const defaultStyle = getZoneStyle(zoneColor, false);
+      const selectedStyle = getZoneStyle(zoneColor, true);
+
+      const polygon = window.L.polygon(latLngs, { ...(isSelected ? selectedStyle : defaultStyle) });
       polygon.addTo(map);
 
       polygon.on('click', () => {
@@ -284,7 +284,7 @@ export function createPolygonManager(map) {
       });
 
       polygon.on('mouseover', () => {
-        polygon.setStyle({ fillOpacity: HOVER_FILL_OPACITY });
+        polygon.setStyle({ fillOpacity: 0.32 });
         if (onZoneHover) onZoneHover(zone.zone_id);
       });
 
@@ -293,7 +293,7 @@ export function createPolygonManager(map) {
         if (onZoneHoverOut) onZoneHoverOut(zone.zone_id);
       });
 
-      _polygons.set(zone.zone_id, { polygon, zone });
+      _polygons.set(zone.zone_id, { polygon, zone, defaultStyle, selectedStyle, zoneColor });
     });
 
     if (allLatLngs.length > 0) {
@@ -314,9 +314,9 @@ export function createPolygonManager(map) {
   function selectZone(zoneId) {
     _selectedZoneId = zoneId;
 
-    // Restyle all polygons
-    _polygons.forEach(({ polygon }, id) => {
-      polygon.setStyle(id === zoneId ? SELECTED_STYLE : DEFAULT_STYLE);
+    // Restyle all polygons preserving their individual color
+    _polygons.forEach(({ polygon, defaultStyle, selectedStyle }, id) => {
+      polygon.setStyle(id === zoneId ? selectedStyle : defaultStyle);
     });
 
     // Clear previous zone visit-dots AND device playback dots on zone switch

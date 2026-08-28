@@ -1,9 +1,9 @@
 ## CityTag Tracking Dashboard (Prototype)
 
-Web dashboard that logs into the CityTag GPS tracking service, lists user devices, and shows the latest known location on a Mapbox map.
+Web dashboard that logs into the CityTag GPS tracking service, lists user devices, and shows the latest known location on a map (TPL Maps for Pakistan, Google Maps fallback worldwide).
 
 ### Tech
-- **Frontend**: React 18 (Vite), React Router v6, Tailwind CSS, Mapbox GL JS
+- **Frontend**: React 18 (Vite), React Router v6, Tailwind CSS, TPL Maps + Google Maps
 - **Backend**: Python 3.11+, FastAPI, Motor (MongoDB), PyJWT, python-dotenv, pycryptodome
 - **Encryption**: TripleDES ECB + PKCS7 (token as key)
 
@@ -13,7 +13,7 @@ Web dashboard that logs into the CityTag GPS tracking service, lists user device
 - Node.js 18+
 - Python 3.11+
 - MongoDB running locally (or Atlas URI)
-- A Mapbox access token
+- A Google Maps API key (Geocoding + Places + Maps JavaScript API enabled)
 
 ---
 
@@ -34,6 +34,8 @@ Edit `backend/.env`:
 - **MONGO_URI**: your Mongo connection string (default points to local)
 - **CITYTAG_BASE_URL**: keep as `http://citytag.yuminstall.top`
 - **JWT_SECRET_KEY**: set any random string
+- **TPL_MAPS_API_KEY**: TPL Maps key (Pakistan geocoding)
+- **GOOGLE_MAPS_API_KEY**: Google Maps key (worldwide geocoding outside Pakistan)
 
 Optional: seed demo users into MongoDB (upsert-safe):
 
@@ -61,7 +63,7 @@ npm install
 
 Edit `frontend/.env`:
 - **VITE_API_BASE_URL**: `http://127.0.0.1:8000`
-- **VITE_MAPBOX_TOKEN**: your Mapbox token
+- **VITE_GOOGLE_MAPS_KEY**: your Google Maps API key
 
 Run:
 
@@ -101,5 +103,5 @@ Open:
 
 ## Notes / Troubleshooting
 - If CityTag rejects requests, re-login (token may be invalid/expired).
-- If the map is blank, ensure `VITE_MAPBOX_TOKEN` is set and valid.
+- If the map is blank outside Pakistan, ensure `VITE_GOOGLE_MAPS_KEY` is set and valid (Maps JavaScript API + Places enabled).
 

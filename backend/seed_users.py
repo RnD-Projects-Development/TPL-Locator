@@ -116,7 +116,7 @@ async def main() -> None:
     # ────────────────────────────────────────────────
 
     print("\nEnsuring indexes on accounts collection...")
-    await accounts.create_index([("email", 1)], name="email_idx", unique=True, background=True)
+    await accounts.create_index([("email", 1)], name="email_idx", unique=True, sparse=True, background=True)
     await accounts.create_index([("role", 1)], name="role_idx", background=True)
     await accounts.create_index([("email", 1), ("role", 1)], name="email_role_idx", background=True)
 
