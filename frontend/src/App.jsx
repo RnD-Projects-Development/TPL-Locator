@@ -41,12 +41,17 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
   const { unreadCount } = useAlerts()
 
   const appUser = {
-    name:            user?.name    || user?.email || 'User',
-    role:            isAdmin ? 'admin' : (user?.role || 'user'),
-    company:         user?.company || '',
-    email:           user?.email   || '',
-    geofence_access: Boolean(user?.geofence_access),
+    name:                   user?.name    || user?.email || 'User',
+    role:                   isAdmin ? 'admin' : (user?.role || 'user'),
+    company:                user?.company || '',
+    email:                  user?.email   || '',
+    dashboard_access:       user?.dashboard_access !== false,
+    geofence_access:        Boolean(user?.geofence_access),
+    geofence_create_access: Boolean(user?.geofence_create_access),
   }
+
+  const hasDashboard = isAdmin || user?.dashboard_access !== false
+  const defaultHome = hasDashboard ? '/dashboard' : '/devices'
 
   return (
     <AppCtx.Provider value={{
@@ -68,27 +73,27 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
       <AppCachePrefetch />
       <Layout>
         <Routes>
-          <Route path="/dashboard"    element={<Dashboard />} />
-          <Route path="/search"       element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard"    element={hasDashboard ? <Dashboard /> : <Navigate to="/devices" replace />} />
+          <Route path="/search"       element={<Navigate to={defaultHome} replace />} />
           <Route path="/locators"     element={<Navigate to="/devices?tab=locator" replace />} />
           <Route path="/locators/:id" element={<LocatorDetail />} />
           <Route path="/stickers"     element={<Navigate to="/devices?tab=sticker" replace />} />
           <Route path="/stickers/:id" element={<StickerDetail />} />
           <Route path="/missing"      element={<Navigate to="/devices" replace />} />
           <Route path="/map"          element={<MapViewPage />} />
-          <Route path="/trajectory"   element={<Navigate to="/dashboard" replace />} />
+          <Route path="/trajectory"   element={<Navigate to={defaultHome} replace />} />
           <Route path="/playback"     element={<PlaybackPage />} />
-          <Route path="/fence"        element={isAdmin || Boolean(user?.geofence_access) ? <FencePage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/users"        element={isAdmin ? <UsersPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/fence"        element={isAdmin || Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access) ? <FencePage /> : <Navigate to={defaultHome} replace />} />
+          <Route path="/users"        element={isAdmin ? <UsersPage /> : <Navigate to={defaultHome} replace />} />
           <Route path="/field-staff"  element={<FieldStaffDashboard />} />
           <Route path="/alerts"       element={<Alerts />} />
           <Route path="/reports"      element={<Reports />} />
           {/* Unified devices view (Locators / Stickers / Offline tabs) */}
           <Route path="/devices"      element={<Devices />} />
           {/* Legacy redirects */}
-          <Route path="/Homepage"     element={<Navigate to="/dashboard" replace />} />
+          <Route path="/Homepage"     element={<Navigate to={defaultHome} replace />} />
           <Route path="/geofence"     element={<Navigate to="/fence" replace />} />
-          <Route path="*"             element={<Navigate to="/dashboard" replace />} />
+          <Route path="*"             element={<Navigate to={defaultHome} replace />} />
         </Routes>
       </Layout>
       </SidebarDevicesProvider>

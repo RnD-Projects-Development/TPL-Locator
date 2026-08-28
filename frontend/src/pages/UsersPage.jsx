@@ -1,11 +1,17 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import {
-  Users, Search, X, RefreshCw, Shield, UserCog,
+  Users, Search, X, RefreshCw, Shield, ShieldCheck, UserCog,
   Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown, Pencil, Link2,
+  Eye, PlusCircle, Check, Loader2, Smartphone, LayoutDashboard,
 } from 'lucide-react'
+import {
+  Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription,
+  DrawerBody, DrawerFooter, DrawerClose,
+} from '../components/ui/Drawer.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
@@ -33,17 +39,49 @@ function saveUsersView(v) {
 }
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
+function parseDeviceTs(raw) {
+  if (!raw) return null
+  if (typeof raw === 'number') {
+    const d = new Date(raw > 1e11 ? raw : raw * 1000)
+    return isNaN(d.getTime()) ? null : d
+  }
+  if (typeof raw === 'string') {
+    const str = raw.trim().replace(' ', 'T')
+    let d = new Date(str)
+    if (!isNaN(d.getTime())) return d
+    if (!str.includes('Z') && !str.includes('+')) {
+      d = new Date(str + 'Z')
+      if (!isNaN(d.getTime())) return d
+    }
+  }
+  return null
+}
+
+function fmtDeviceDisplayTime(device) {
+  const raw = device?.dataRetrievalTime ?? device?.last_seen ?? device?.lastSeen ?? device?.last_report ?? device?.lastReport ?? device?.timestamp ?? null
+  const d = parseDeviceTs(raw)
+  if (!d) return '—'
+  const diff = Date.now() - d.getTime()
+  if (diff >= 0 && diff < 60_000) return 'Just now'
+  if (diff >= 0 && diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff >= 0 && diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  return d.toLocaleString(undefined, {
+    month: 'short', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  })
+}
+
 function fmtRelTime(ts) {
   if (!ts) return '—'
   try {
-    const t = typeof ts === 'string' && !ts.includes('+') && !ts.endsWith('Z') ? ts + 'Z' : ts
-    const diff = Date.now() - new Date(t).getTime()
-    if (isNaN(diff) || diff < 0) return '—'
-    if (diff < 60_000)           return 'Just now'
-    if (diff < 3_600_000)        return `${Math.floor(diff / 60_000)}m ago`
-    if (diff < 86_400_000)       return `${Math.floor(diff / 3_600_000)}h ago`
-    if (diff < 604_800_000)      return `${Math.floor(diff / 86_400_000)}d ago`
-    return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const d = parseDeviceTs(ts)
+    if (!d) return '—'
+    const diff = Date.now() - d.getTime()
+    if (diff < 60_000)     return 'Just now'
+    if (diff < 3_600_000)  return `${Math.floor(diff / 60_000)}m ago`
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+    if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   } catch { return '—' }
 }
 
@@ -228,8 +266,527 @@ function DeviceCard({ device, pushTrail, isAdmin, onUnbind, isLight }) {
   )
 }
 
+/* ── Permissions dropdown (Dashboard, Fence Access & Fence Create) ───────── */
+function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0, openUp: false })
+  const btnRef = useRef(null)
+  const menuRef = useRef(null)
+
+  const uid = String(u._id || u.id || '')
+  const hasDashboard = u.dashboard_access !== false
+  const hasAccess = Boolean(u.geofence_access)
+  const hasCreate = Boolean(u.geofence_create_access)
+  const activeCount = (hasDashboard ? 1 : 0) + (hasAccess ? 1 : 0) + (hasCreate ? 1 : 0)
+
+  const loadingDashboard = Boolean(permLoading?.[`${uid}_dashboard_access`])
+  const loadingAccess = Boolean(permLoading?.[`${uid}_geofence_access`])
+  const loadingCreate = Boolean(permLoading?.[`${uid}_geofence_create_access`])
+
+  const toggle = (e) => {
+    e.stopPropagation()
+    if (open) { setOpen(false); return }
+    const r = btnRef.current.getBoundingClientRect()
+    const menuW = 285
+    const menuH = 240
+    const openUp = r.bottom + menuH + 12 > window.innerHeight
+    const left = Math.max(10, Math.min(r.left, window.innerWidth - menuW - 16))
+    const top = openUp ? Math.max(10, r.top - menuH - 6) : r.bottom + 6
+    setPos({ top, left, openUp })
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => {
+      if (menuRef.current?.contains(e.target) || btnRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    const onMotion = () => setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onMotion)
+    window.addEventListener('scroll', onMotion, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onMotion)
+      window.removeEventListener('scroll', onMotion, true)
+    }
+  }, [open])
+
+  // Color tokens
+  const bgActive = isLight ? 'rgba(16,185,129,0.10)' : 'rgba(16,185,129,0.14)'
+  const bdrActive = isLight ? 'rgba(16,185,129,0.30)' : 'rgba(16,185,129,0.35)'
+  const txtActive = isLight ? '#059669' : '#34D399'
+
+  const bgMuted = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'
+  const bdrMuted = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.10)'
+  const txtMuted = isLight ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.45)'
+
+  const menuBg = isLight ? '#FFFFFF' : '#1A1D20'
+  const menuBdr = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'
+  const itemHov = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'
+  const subTxt = isLight ? '#666666' : 'rgba(255,255,255,0.48)'
+  const mainTxt = isLight ? '#111111' : '#FFFFFF'
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        title="Manage User Permissions"
+        style={{
+          display: 'flex', alignItems: 'center', gap: '0.36em',
+          padding: '0.28em 0.65em', borderRadius: '0.5em', cursor: 'pointer',
+          background: activeCount > 0 ? bgActive : bgMuted,
+          border: `1px solid ${activeCount > 0 ? bdrActive : bdrMuted}`,
+          color: activeCount > 0 ? txtActive : txtMuted,
+          fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
+          userSelect: 'none',
+        }}
+        onMouseEnter={e => {
+          if (activeCount > 0) {
+            e.currentTarget.style.background = isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)'
+            e.currentTarget.style.borderColor = isLight ? 'rgba(16,185,129,0.45)' : 'rgba(16,185,129,0.50)'
+          } else {
+            e.currentTarget.style.background = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+            e.currentTarget.style.borderColor = isLight ? 'rgba(0,0,0,0.20)' : 'rgba(255,255,255,0.18)'
+          }
+        }}
+        onMouseLeave={e => {
+          if (!open) {
+            e.currentTarget.style.background = activeCount > 0 ? bgActive : bgMuted
+            e.currentTarget.style.borderColor = activeCount > 0 ? bdrActive : bdrMuted
+          }
+        }}
+      >
+        <Shield style={{ width: '0.88em', height: '0.88em', color: activeCount > 0 ? (isLight ? '#059669' : '#34D399') : (isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.35)') }} />
+        <span>Permission</span>
+        <ChevronDown style={{
+          width: '0.78em', height: '0.78em',
+          transform: open ? 'rotate(180deg)' : 'none',
+          transition: 'transform 0.15s ease',
+          opacity: 0.7,
+        }} />
+      </button>
+
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: 285,
+            background: menuBg,
+            border: `1px solid ${menuBdr}`,
+            borderRadius: 12,
+            boxShadow: isLight
+              ? '0 12px 32px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06)'
+              : '0 16px 40px rgba(0,0,0,0.70), 0 0 0 1px rgba(255,255,255,0.05)',
+            zIndex: 99999,
+            padding: 8,
+            fontFamily: 'inherit',
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '6px 8px 8px', borderBottom: `1px solid ${isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)'}`,
+            marginBottom: 6,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Shield style={{ width: 13, height: 13, color: '#A72C32' }} />
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: mainTxt }}>
+                User Permissions
+              </span>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 600, color: txtActive, background: bgActive, padding: '2px 6px', borderRadius: 6 }}>
+              {activeCount} of 3 Active
+            </span>
+          </div>
+
+          {/* Option 1: Dashboard Access */}
+          <div
+            onClick={() => {
+              if (loadingDashboard) return
+              onTogglePermission(u, 'dashboard_access')
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 10px', borderRadius: 8, cursor: loadingDashboard ? 'wait' : 'pointer',
+              background: hasDashboard ? (isLight ? 'rgba(16,185,129,0.06)' : 'rgba(16,185,129,0.08)') : 'transparent',
+              border: `1px solid ${hasDashboard ? (isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)') : 'transparent'}`,
+              marginBottom: 4, transition: 'all 0.12s',
+            }}
+            onMouseEnter={e => {
+              if (!hasDashboard) e.currentTarget.style.background = itemHov
+            }}
+            onMouseLeave={e => {
+              if (!hasDashboard) e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{
+                marginTop: 2, width: 22, height: 22, borderRadius: 6,
+                background: hasDashboard ? (isLight ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.18)') : (isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'),
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <LayoutDashboard style={{ width: 12, height: 12, color: hasDashboard ? (isLight ? '#059669' : '#34D399') : subTxt }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: mainTxt, lineHeight: 1.2 }}>Dashboard</div>
+                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>View overview & KPIs dashboard</div>
+              </div>
+            </div>
+
+            {/* Switch / Status Pill */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
+              {loadingDashboard ? (
+                <div style={{
+                  width: 14, height: 14, borderRadius: '50%',
+                  border: `2px solid ${isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)'}`,
+                  borderTopColor: '#10B981', animation: 'spin 0.6s linear infinite',
+                }} />
+              ) : (
+                <div style={{
+                  width: 32, height: 18, borderRadius: 10,
+                  background: hasDashboard ? '#10B981' : (isLight ? '#D1D5DB' : '#4B5563'),
+                  position: 'relative', transition: 'background 0.18s ease',
+                  padding: 2, boxSizing: 'border-box',
+                }}>
+                  <div style={{
+                    width: 14, height: 14, borderRadius: '50%', background: '#FFFFFF',
+                    transform: hasDashboard ? 'translateX(14px)' : 'translateX(0)',
+                    transition: 'transform 0.18s ease',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+                  }} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Option 2: Fence Access (View) */}
+          <div
+            onClick={() => {
+              if (loadingAccess) return
+              onTogglePermission(u, 'geofence_access')
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 10px', borderRadius: 8, cursor: loadingAccess ? 'wait' : 'pointer',
+              background: hasAccess ? (isLight ? 'rgba(16,185,129,0.06)' : 'rgba(16,185,129,0.08)') : 'transparent',
+              border: `1px solid ${hasAccess ? (isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)') : 'transparent'}`,
+              marginBottom: 4, transition: 'all 0.12s',
+            }}
+            onMouseEnter={e => {
+              if (!hasAccess) e.currentTarget.style.background = itemHov
+            }}
+            onMouseLeave={e => {
+              if (!hasAccess) e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{
+                marginTop: 2, width: 22, height: 22, borderRadius: 6,
+                background: hasAccess ? (isLight ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.18)') : (isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'),
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <Eye style={{ width: 12, height: 12, color: hasAccess ? (isLight ? '#059669' : '#34D399') : subTxt }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: mainTxt, lineHeight: 1.2 }}>Fence Access</div>
+                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>View fence map & events</div>
+              </div>
+            </div>
+
+            {/* Switch / Status Pill */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
+              {loadingAccess ? (
+                <div style={{
+                  width: 14, height: 14, borderRadius: '50%',
+                  border: `2px solid ${isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)'}`,
+                  borderTopColor: '#10B981', animation: 'spin 0.6s linear infinite',
+                }} />
+              ) : (
+                <div style={{
+                  width: 32, height: 18, borderRadius: 10,
+                  background: hasAccess ? '#10B981' : (isLight ? '#D1D5DB' : '#4B5563'),
+                  position: 'relative', transition: 'background 0.18s ease',
+                  padding: 2, boxSizing: 'border-box',
+                }}>
+                  <div style={{
+                    width: 14, height: 14, borderRadius: '50%', background: '#FFFFFF',
+                    transform: hasAccess ? 'translateX(14px)' : 'translateX(0)',
+                    transition: 'transform 0.18s ease',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+                  }} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Option 3: Fence Create */}
+          <div
+            onClick={() => {
+              if (loadingCreate) return
+              onTogglePermission(u, 'geofence_create_access')
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 10px', borderRadius: 8, cursor: loadingCreate ? 'wait' : 'pointer',
+              background: hasCreate ? (isLight ? 'rgba(16,185,129,0.06)' : 'rgba(16,185,129,0.08)') : 'transparent',
+              border: `1px solid ${hasCreate ? (isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)') : 'transparent'}`,
+              transition: 'all 0.12s',
+            }}
+            onMouseEnter={e => {
+              if (!hasCreate) e.currentTarget.style.background = itemHov
+            }}
+            onMouseLeave={e => {
+              if (!hasCreate) e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{
+                marginTop: 2, width: 22, height: 22, borderRadius: 6,
+                background: hasCreate ? (isLight ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.18)') : (isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'),
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <PlusCircle style={{ width: 12, height: 12, color: hasCreate ? (isLight ? '#059669' : '#34D399') : subTxt }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: mainTxt, lineHeight: 1.2 }}>Create Fence</div>
+                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>Create & manage fences</div>
+              </div>
+            </div>
+
+            {/* Switch / Status Pill */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
+              {loadingCreate ? (
+                <div style={{
+                  width: 14, height: 14, borderRadius: '50%',
+                  border: `2px solid ${isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)'}`,
+                  borderTopColor: '#10B981', animation: 'spin 0.6s linear infinite',
+                }} />
+              ) : (
+                <div style={{
+                  width: 32, height: 18, borderRadius: 10,
+                  background: hasCreate ? '#10B981' : (isLight ? '#D1D5DB' : '#4B5563'),
+                  position: 'relative', transition: 'background 0.18s ease',
+                  padding: 2, boxSizing: 'border-box',
+                }}>
+                  <div style={{
+                    width: 14, height: 14, borderRadius: '50%', background: '#FFFFFF',
+                    transform: hasCreate ? 'translateX(14px)' : 'translateX(0)',
+                    transition: 'transform 0.18s ease',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+                  }} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+/* ── User Devices Drawer (Slider) ────────────────────────────────────────── */
+function UserDevicesDrawer({
+  user,
+  devices = [],
+  open,
+  onClose,
+  isAdmin,
+  onUnbindDevice,
+  pushTrail,
+  isLight,
+}) {
+  if (!user) return null
+
+  const contact = displayContact(user)
+  const initials = (user.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  const online = isUserOnline(user)
+
+  // Status computation for each device
+  const enrichedDevices = devices.map(d => {
+    const isSticker = /^\d+$/.test(String(d.sn ?? ''))
+    const path = isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`
+    const st = String(d.status || d.deviceStatus || '').toLowerCase()
+    const rawTs = d.dataRetrievalTime ?? d.last_seen ?? d.lastSeen ?? d.last_report ?? d.lastReport ?? d.timestamp ?? null
+    const parsedD = parseDeviceTs(rawTs)
+    const isOnline = st === 'online' || st === 'on' || (parsedD && (Date.now() - parsedD.getTime() < 12 * 3600 * 1000))
+    const lastSeenFormatted = fmtDeviceDisplayTime(d)
+    return {
+      ...d,
+      isSticker,
+      path,
+      isOnline,
+      lastSeenFormatted,
+    }
+  })
+
+  return (
+    <Drawer open={open} onOpenChange={isOpen => { if (!isOpen) onClose() }} swipeDirection="right">
+      <DrawerContent style={{ background: '#141414', borderLeft: '1px solid rgba(255,255,255,0.10)' }}>
+        <DrawerHeader style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '20px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                background: '#A72C32', border: '1.5px solid #C44E54',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 16, fontWeight: 800, color: '#FFFFFF',
+              }}>
+                {initials}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <DrawerTitle style={{ color: '#FFFFFF', fontSize: 17, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.name || contact || 'User Details'}
+                  </span>
+                </DrawerTitle>
+                <DrawerDescription style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, margin: '2px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>{contact}</span>
+                  <span>·</span>
+                  <span style={{ color: '#60a5fa', fontWeight: 600 }}>{devices.length} device{devices.length !== 1 ? 's' : ''}</span>
+                </DrawerDescription>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                background: online ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)',
+                border: `1px solid ${online ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.12)'}`,
+                color: online ? '#34d399' : 'rgba(255,255,255,0.40)',
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#10b981' : '#6b7280' }} />
+                {online ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+          </div>
+        </DrawerHeader>
+
+        <DrawerBody style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
+          {devices.length === 0 ? (
+            <div style={{
+              padding: '40px 20px', textAlign: 'center', background: 'rgba(255,255,255,0.02)',
+              borderRadius: 12, border: '1px dashed rgba(255,255,255,0.10)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+            }}>
+              <Smartphone style={{ width: 32, height: 32, color: 'rgba(255,255,255,0.18)' }} />
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.40)' }}>No devices assigned to this user</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {enrichedDevices.map(d => {
+                const DevIcon = d.isSticker ? Tag : Radio
+                return (
+                  <div
+                    key={d.sn}
+                    onClick={() => pushTrail(d.path)}
+                    style={{
+                      background: '#1d1d1d',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 12, padding: '14px 16px', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: 10,
+                      transition: 'all 0.18s ease',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = '#252525'
+                      e.currentTarget.style.borderColor = 'rgba(167,44,50,0.45)'
+                      e.currentTarget.style.transform = 'translateY(-1px)'
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = '#1d1d1d'
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+                      e.currentTarget.style.transform = 'translateY(0)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <div style={{
+                          width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                          background: 'rgba(167,44,50,0.12)', border: '1px solid rgba(167,44,50,0.25)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <DevIcon style={{ width: 15, height: 15, color: '#C44E54' }} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {d.name || d.assigned_user_name || d.sn}
+                          </div>
+                          <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
+                            {d.sn} {d.client ? `· ${d.client}` : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <span style={{
+                        padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+                        background: d.isOnline ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${d.isOnline ? 'rgba(16,185,129,0.30)' : 'rgba(255,255,255,0.10)'}`,
+                        color: d.isOnline ? '#34d399' : 'rgba(255,255,255,0.40)',
+                        display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                      }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: d.isOnline ? '#10b981' : '#6b7280' }} />
+                        {d.isOnline ? 'Online' : 'Offline'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>
+                      <span>Last report: <strong style={{ color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>{d.lastSeenFormatted}</strong></span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              onClose?.()
+                              onUnbindDevice(d)
+                            }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4,
+                              padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+                              background: 'rgba(220,38,38,0.10)', border: '1px solid rgba(220,38,38,0.25)',
+                              color: '#f87171', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.20)'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.40)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.25)'; }}
+                          >
+                            <Trash2 style={{ width: 11, height: 11 }} /> Unbind
+                          </button>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 2, color: '#60a5fa', fontWeight: 600, fontSize: 11 }}>
+                          <span>Track</span>
+                          <ChevronRight style={{ width: 12, height: 12 }} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </DrawerBody>
+
+        <DrawerFooter style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '14px 24px', display: 'flex', justifyContent: 'flex-end' }}>
+          <DrawerClose />
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  )
+}
+
 /* ── User row ─────────────────────────────────────────────────────────────── */
-function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, onToggleGeofence, isGeofenceLoading, expanded, onToggle, boundDevices, pushTrail, onUnbindDevice, isLight }) {
+function UserRow({
+  u, idx, isAdmin, onDelete, onEdit, onAddDevice, onTogglePermission,
+  permLoading, onOpenDevices, boundDevices, isLight,
+}) {
   const [hov, setHov] = useState(false)
   const contact = displayContact(u)
   const initials = (u.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
@@ -243,200 +800,157 @@ function UserRow({ u, idx, isAdmin, onDelete, onEdit, onAddDevice, onToggleGeofe
   const rowBdr  = isLight ? 'rgba(0,0,0,0.07)'    : 'rgba(255,255,255,0.04)'
 
   return (
-    <>
-      <tr
-        onMouseEnter={() => setHov(true)}
-        onMouseLeave={() => setHov(false)}
-        style={{
-          background: hov ? rowHov : idx % 2 === 0 ? 'transparent' : rowAlt,
-          transition: 'background 0.12s',
-          borderBottom: expanded ? 'none' : `1px solid ${rowBdr}`,
-          cursor: 'pointer',
-        }}
-        onClick={onToggle}
-      >
-        {/* Name + avatar */}
-        <td style={{ padding: '0.92em 1.15em' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7em' }}>
-            <div style={{
-              width: '2.4em', height: '2.4em', borderRadius: '50%', flexShrink: 0,
-              background: '#A72C32', border: '1px solid #8B2328',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '0.8em', fontWeight: 700, color: '#FFFFFF',
-            }}>
-              {initials}
-            </div>
-            <div>
-              <div style={{ fontSize: '0.92em', fontWeight: 600, color: txt1 }}>{u.name || '—'}</div>
-              <div style={{ fontSize: '0.7em', color: txt4, fontFamily: 'var(--font-mono)' }}>
-                {String(u._id || u.id || '').slice(-10)}
-              </div>
+    <tr
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        background: hov ? rowHov : idx % 2 === 0 ? 'transparent' : rowAlt,
+        transition: 'background 0.12s',
+        borderBottom: `1px solid ${rowBdr}`,
+        cursor: 'pointer',
+      }}
+      onClick={() => onOpenDevices(u)}
+    >
+      {/* Name + avatar */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.7em' }}>
+          <div style={{
+            width: '2.4em', height: '2.4em', borderRadius: '50%', flexShrink: 0,
+            background: '#A72C32', border: '1px solid #8B2328',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '0.8em', fontWeight: 700, color: '#FFFFFF',
+          }}>
+            {initials}
+          </div>
+          <div>
+            <div style={{ fontSize: '0.92em', fontWeight: 600, color: txt1 }}>{u.name || '—'}</div>
+            <div style={{ fontSize: '0.7em', color: txt4, fontFamily: 'var(--font-mono)' }}>
+              {String(u._id || u.id || '').slice(-10)}
             </div>
           </div>
-        </td>
+        </div>
+      </td>
 
-        {/* Email */}
-        <td style={{ padding: '0.92em 1.15em' }}>
-          <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
-            {contact || '—'}
+      {/* Email */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
+          {contact || '—'}
+        </span>
+      </td>
+
+      {/* Role */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        <RoleBadge role={u.role} isLight={isLight} />
+      </td>
+
+      {/* Last Logged In — Online badge while logged in; elapsed time after */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        {isUserOnline(u) ? (
+          <span className="badge badge-teal-500 text-uppercase tracking-wider">
+            Online
           </span>
-        </td>
+        ) : (
+          <span style={{ fontSize: '0.8em', color: txt3, fontFamily: 'var(--font-mono)' }}>
+            {(u.last_logged_in || u.last_login || lastActiveStamp(u))
+              ? fmtRelTime(u.last_logged_in || u.last_login || lastActiveStamp(u))
+              : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
+          </span>
+        )}
+      </td>
 
-        {/* Role */}
-        <td style={{ padding: '0.92em 1.15em' }}>
-          <RoleBadge role={u.role} isLight={isLight} />
-        </td>
+      {/* Devices */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenDevices(u); }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 10px', borderRadius: 8, cursor: 'pointer',
+            background: boundDevices.length > 0 ? 'rgba(59,130,246,0.12)' : (isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+            border: `1px solid ${boundDevices.length > 0 ? 'rgba(59,130,246,0.30)' : (isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)')}`,
+            color: boundDevices.length > 0 ? '#60a5fa' : txt4,
+            fontSize: '0.85em', fontWeight: boundDevices.length > 0 ? 600 : 400,
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={e => {
+            if (boundDevices.length > 0) {
+              e.currentTarget.style.background = 'rgba(59,130,246,0.22)'
+              e.currentTarget.style.borderColor = 'rgba(59,130,246,0.50)'
+            }
+          }}
+          onMouseLeave={e => {
+            if (boundDevices.length > 0) {
+              e.currentTarget.style.background = 'rgba(59,130,246,0.12)'
+              e.currentTarget.style.borderColor = 'rgba(59,130,246,0.30)'
+            }
+          }}
+          title="Click to view assigned devices slider"
+        >
+          <Smartphone style={{ width: 12, height: 12 }} />
+          <span>{boundDevices.length} device{boundDevices.length !== 1 ? 's' : ''}</span>
+        </button>
+      </td>
 
-        {/* Last Logged In — Online badge while logged in; elapsed time after */}
-        <td style={{ padding: '0.92em 1.15em' }}>
-          {isUserOnline(u) ? (
-            <span className="badge badge-teal-500 text-uppercase tracking-wider">
-              Online
-            </span>
-          ) : (
-            <span style={{ fontSize: '0.8em', color: txt3, fontFamily: 'var(--font-mono)' }}>
-              {(u.last_logged_in || u.last_login || lastActiveStamp(u))
-                ? fmtRelTime(u.last_logged_in || u.last_login || lastActiveStamp(u))
-                : <span style={{ color: isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.20)' }}>Never</span>}
-            </span>
+      {/* Actions */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.57em' }} onClick={e => e.stopPropagation()}>
+          {isAdmin && (
+            <PermissionsDropdown
+              u={u}
+              isLight={isLight}
+              onTogglePermission={onTogglePermission}
+              permLoading={permLoading}
+            />
           )}
-        </td>
-
-        {/* Devices */}
-        <td style={{ padding: '0.92em 1.15em' }}>
-          <span style={{ fontSize: '0.85em', color: boundDevices.length > 0 ? '#60a5fa' : txt4, fontWeight: boundDevices.length > 0 ? 600 : 400 }}>
-            {boundDevices.length} device{boundDevices.length !== 1 ? 's' : ''}
-          </span>
-        </td>
-
-        {/* Actions */}
-        <td style={{ padding: '0.92em 1.15em' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.57em' }} onClick={e => e.stopPropagation()}>
+          {isAdmin && (
             <button
-              onClick={onToggle}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: txt3, padding: '0.28em', display: 'flex', alignItems: 'center', gap: '0.28em', fontSize: '0.8em' }}
+              onClick={() => onEdit(u)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.28em',
+                padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
+                background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)',
+                color: '#C44E54', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.18)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.40)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.25)' }}
             >
-              {expanded
-                ? <ChevronDown style={{ width: '0.92em', height: '0.92em' }} />
-                : <ChevronRight style={{ width: '0.92em', height: '0.92em' }} />}
+              <Pencil style={{ width: '0.8em', height: '0.8em' }} /> Edit
             </button>
-            {isAdmin && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onToggleGeofence(u)
-                }}
-                disabled={isGeofenceLoading}
-                title={u.geofence_access ? 'Geofence: Granted (Click to Revoke)' : 'Geofence: Locked (Click to Grant)'}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.32em',
-                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: isGeofenceLoading ? 'wait' : 'pointer',
-                  background: u.geofence_access
-                    ? (isLight ? 'rgba(16,185,129,0.10)' : 'rgba(16,185,129,0.14)')
-                    : (isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
-                  border: u.geofence_access
-                    ? `1px solid ${isLight ? 'rgba(16,185,129,0.30)' : 'rgba(16,185,129,0.35)'}`
-                    : `1px solid ${isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.10)'}`,
-                  color: u.geofence_access
-                    ? (isLight ? '#059669' : '#34D399')
-                    : (isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.40)'),
-                  fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
-                  opacity: isGeofenceLoading ? 0.6 : 1,
-                }}
-                onMouseEnter={e => {
-                  if (isGeofenceLoading) return
-                  if (u.geofence_access) {
-                    e.currentTarget.style.background = isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)'
-                    e.currentTarget.style.borderColor = isLight ? 'rgba(16,185,129,0.45)' : 'rgba(16,185,129,0.50)'
-                  } else {
-                    e.currentTarget.style.background = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
-                    e.currentTarget.style.borderColor = isLight ? 'rgba(0,0,0,0.20)' : 'rgba(255,255,255,0.18)'
-                  }
-                }}
-                onMouseLeave={e => {
-                  if (u.geofence_access) {
-                    e.currentTarget.style.background = isLight ? 'rgba(16,185,129,0.10)' : 'rgba(16,185,129,0.14)'
-                    e.currentTarget.style.borderColor = isLight ? 'rgba(16,185,129,0.30)' : 'rgba(16,185,129,0.35)'
-                  } else {
-                    e.currentTarget.style.background = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'
-                    e.currentTarget.style.borderColor = isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.10)'
-                  }
-                }}
-              >
-                <Shield style={{ width: '0.8em', height: '0.8em', color: u.geofence_access ? (isLight ? '#059669' : '#34D399') : (isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.35)') }} />
-                <span>{u.geofence_access ? 'Fence: On' : 'Fence: Off'}</span>
-              </button>
-            )}
-            {isAdmin && (
-              <button
-                onClick={() => onEdit(u)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.28em',
-                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
-                  background: 'rgba(167,44,50,0.10)', border: '1px solid rgba(167,44,50,0.25)',
-                  color: '#C44E54', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.18)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.40)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,44,50,0.10)'; e.currentTarget.style.borderColor = 'rgba(167,44,50,0.25)' }}
-              >
-                <Pencil style={{ width: '0.8em', height: '0.8em' }} /> Edit
-              </button>
-            )}
-            {isAdmin && (
-              <button
-                onClick={() => onAddDevice(u)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.28em',
-                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
-                  background: isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)',
-                  border: `1px solid ${isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)'}`,
-                  color: isLight ? '#1D4ED8' : '#60A5FA', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.13)' : 'rgba(59,130,246,0.18)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.35)' : 'rgba(59,130,246,0.40)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)' }}
-              >
-                <Link2 style={{ width: '0.8em', height: '0.8em' }} /> Add Device
-              </button>
-            )}
-            {isAdmin && (
-              <button
-                onClick={() => onDelete(u)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.28em',
-                  padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
-                  background: isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)',
-                  border: `1px solid ${isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)'}`,
-                  color: isLight ? '#B91C1C' : '#f87171', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.12)' : 'rgba(220,38,38,0.16)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.30)' : 'rgba(220,38,38,0.35)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)' }}
-              >
-                <Trash2 style={{ width: '0.8em', height: '0.8em' }} /> Delete
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
-
-      {/* Bound devices section */}
-      {expanded && (
-        <tr style={{ borderBottom: `1px solid ${isLight ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.04)'}` }}>
-          <td colSpan={6} style={{ padding: '0 16px 16px', background: idx % 2 === 0 ? 'transparent' : (isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.015)') }}>
-            {boundDevices.length === 0 ? (
-              <div style={{ padding: '16px 0', fontSize: 12, color: isLight ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.28)', textAlign: 'center' }}>
-                No devices bound to this user
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10, paddingTop: 10 }}>
-                {boundDevices.map(d => (
-                  <DeviceCard key={d.sn} device={d} pushTrail={pushTrail} isAdmin={isAdmin} onUnbind={onUnbindDevice} isLight={isLight} />
-                ))}
-              </div>
-            )}
-          </td>
-        </tr>
-      )}
-    </>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => onAddDevice(u)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.28em',
+                padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
+                background: isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)',
+                border: `1px solid ${isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)'}`,
+                color: isLight ? '#1D4ED8' : '#60A5FA', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.13)' : 'rgba(59,130,246,0.18)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.35)' : 'rgba(59,130,246,0.40)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(37,99,235,0.07)' : 'rgba(59,130,246,0.10)'; e.currentTarget.style.borderColor = isLight ? 'rgba(37,99,235,0.20)' : 'rgba(59,130,246,0.25)' }}
+            >
+              <Link2 style={{ width: '0.8em', height: '0.8em' }} /> Add Device
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => onDelete(u)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.28em',
+                padding: '0.28em 0.7em', borderRadius: '0.5em', cursor: 'pointer',
+                background: isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)',
+                border: `1px solid ${isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)'}`,
+                color: isLight ? '#B91C1C' : '#f87171', fontSize: '0.8em', fontWeight: 600, transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.12)' : 'rgba(220,38,38,0.16)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.30)' : 'rgba(220,38,38,0.35)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = isLight ? 'rgba(220,38,38,0.06)' : 'rgba(220,38,38,0.08)'; e.currentTarget.style.borderColor = isLight ? 'rgba(220,38,38,0.18)' : 'rgba(220,38,38,0.20)' }}
+            >
+              <Trash2 style={{ width: '0.8em', height: '0.8em' }} /> Delete
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   )
 }
 
@@ -541,10 +1055,10 @@ export default function UsersPage() {
   }), [isLight])
 
   const savedUsersView = useRef(loadUsersView()).current
-  const [query,      setQuery]    = useState(savedUsersView?.q || '')
-  const [debouncedQ, setDQ]       = useState((savedUsersView?.q || '').trim().toLowerCase())
-  const [page,       setPage]     = useState(savedUsersView?.page || 1)
-  const [expanded,   setExpanded] = useState(() => new Set())
+  const [query,      setQuery]      = useState(savedUsersView?.q || '')
+  const [debouncedQ, setDQ]         = useState((savedUsersView?.q || '').trim().toLowerCase())
+  const [page,       setPage]       = useState(savedUsersView?.page || 1)
+  const [drawerUser, setDrawerUser] = useState(null)
   const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
   const tableContainerRef = useRef(null)
@@ -566,19 +1080,7 @@ export default function UsersPage() {
     return () => document.removeEventListener('mousedown', onDocMouseDown)
   }, [histOpen])
 
-  // Collapse expanded rows on any click outside the table container
-  useEffect(() => {
-    if (expanded.size === 0) return
-    const onDocMouseDown = (e) => {
-      if (tableContainerRef.current && !tableContainerRef.current.contains(e.target)) {
-        setExpanded(new Set())
-      }
-    }
-    document.addEventListener('mousedown', onDocMouseDown)
-    return () => document.removeEventListener('mousedown', onDocMouseDown)
-  }, [expanded.size])
-
-  // Persist the list view (search query & page only — expanded rows reset on fresh load/session)
+  // Persist the list view (search query & page only)
   useEffect(() => {
     saveUsersView({ q: query, page })
   }, [query, page])
@@ -596,15 +1098,17 @@ export default function UsersPage() {
   const [deleteLoading, setDeleteLoading] = useState(false)
 
   /* Edit User state */
-  const [editTarget,         setEditTarget]         = useState(null)
-  const [editName,           setEditName]           = useState('')
-  const [editPassword,       setEditPassword]       = useState('')
-  const [editGeofenceAccess, setEditGeofenceAccess] = useState(false)
-  const [editLoading,        setEditLoading]        = useState(false)
-  const [editError,          setEditError]          = useState('')
+  const [editTarget,               setEditTarget]               = useState(null)
+  const [editName,                 setEditName]                 = useState('')
+  const [editPassword,             setEditPassword]             = useState('')
+  const [editDashboardAccess,      setEditDashboardAccess]      = useState(true)
+  const [editGeofenceAccess,       setEditGeofenceAccess]       = useState(false)
+  const [editGeofenceCreateAccess, setEditGeofenceCreateAccess] = useState(false)
+  const [editLoading,              setEditLoading]              = useState(false)
+  const [editError,                setEditError]                = useState('')
 
-  /* Geofence access per-row loading state */
-  const [geofenceLoadingIds, setGeofenceLoadingIds] = useState(() => new Set())
+  /* Permissions per-row loading state map: { `${uid}_${permKey}`: true } */
+  const [permLoading, setPermLoading] = useState({})
 
   /* Unbind Device state */
   const [unbindTarget,  setUnbindTarget]  = useState(null)
@@ -613,7 +1117,6 @@ export default function UsersPage() {
   const handleSearch = useCallback((val) => {
     setQuery(val)
     setPage(1)
-    setExpanded(new Set())
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => setDQ(val.trim().toLowerCase()), 300)
   }, [])
@@ -630,6 +1133,42 @@ export default function UsersPage() {
     return map
   }, [devices])
 
+  /* Build device SN → full device object map */
+  const deviceBySn = useMemo(() => {
+    const map = {}
+    ;(devices || []).forEach(d => {
+      const sn = String(d.sn || d.local_id || '')
+      if (sn) map[sn] = d
+    })
+    return map
+  }, [devices])
+
+  /* Helper to resolve all rich device objects belonging to a user */
+  const resolveUserDevices = useCallback((u) => {
+    if (!u) return []
+    const uid = String(u._id || u.id || '')
+    const fromUserId = devicesByUser[uid] || []
+    const userDevs = Array.isArray(u.devices) ? u.devices : []
+    const fromUserDoc = userDevs.map(d => {
+      const sn = String(typeof d === 'object' && d !== null ? (d.sn || d.local_id || '') : d)
+      return deviceBySn[sn] || (typeof d === 'object' && d !== null ? d : { sn })
+    }).filter(Boolean)
+
+    const map = new Map()
+    fromUserId.forEach(d => {
+      const sn = String(d.sn || d.local_id || '')
+      if (sn) map.set(sn, d)
+    })
+    fromUserDoc.forEach(d => {
+      const sn = String(d.sn || d.local_id || '')
+      if (sn) {
+        const cached = deviceBySn[sn]
+        map.set(sn, cached ? { ...d, ...cached } : d)
+      }
+    })
+    return Array.from(map.values())
+  }, [devicesByUser, deviceBySn])
+
   // Priority order:
   // 1. Active Today / Online users with assigned devices (most recent activity & active devices first)
   // 2. Active Today / Online users without assigned devices (most recent activity first)
@@ -643,14 +1182,14 @@ export default function UsersPage() {
     })
 
     return list.sort((a, b) => {
-      const uidA = String(a._id || a.id || '')
-      const uidB = String(b._id || b.id || '')
-      const boundA = a.devices?.length ? a.devices : (devicesByUser[uidA] || [])
-      const boundB = b.devices?.length ? b.devices : (devicesByUser[uidB] || [])
+      const boundA = resolveUserDevices(a)
+      const boundB = resolveUserDevices(b)
 
       const isDevActive = (d) => {
         const st = String(d.status || d.deviceStatus || '').toLowerCase()
-        return st === 'online' || st === 'on' || (d.dataRetrievalTime && (Date.now() - new Date(d.dataRetrievalTime).getTime() < 12 * 3600 * 1000))
+        const rawTs = d.dataRetrievalTime ?? d.last_seen ?? d.lastSeen ?? d.last_report ?? d.lastReport ?? d.timestamp ?? null
+        const parsedD = parseDeviceTs(rawTs)
+        return st === 'online' || st === 'on' || (parsedD && (Date.now() - parsedD.getTime() < 12 * 3600 * 1000))
       }
 
       const activeDevsA = boundA.filter(isDevActive).length
@@ -715,21 +1254,23 @@ export default function UsersPage() {
     setExpanded(prev => (prev.has(userId) ? new Set() : new Set([userId])))
   }, [])
 
-  /* ── Toggle user geofence permission ────────────────────────────────────── */
-  const handleToggleGeofence = useCallback(async (u) => {
-    const uid = u._id || u.id
+  /* ── Toggle user permissions (Dashboard / Fence Access / Fence Create) ──── */
+  const handleTogglePermission = useCallback(async (u, permKey) => {
+    const uid = String(u._id || u.id || '')
     if (!uid) return
-    setGeofenceLoadingIds(prev => new Set(prev).add(uid))
+    const loadingKey = `${uid}_${permKey}`
+    setPermLoading(prev => ({ ...prev, [loadingKey]: true }))
     try {
-      const nextVal = !u.geofence_access
-      await adminUpdateUser(uid, { geofence_access: nextVal })
+      const currentVal = permKey === 'dashboard_access' ? (u.dashboard_access !== false) : Boolean(u[permKey])
+      const nextVal = !currentVal
+      await adminUpdateUser(uid, { [permKey]: nextVal })
       await silentRefresh()
     } catch (err) {
-      console.error('Failed to toggle geofence access:', err)
+      console.error(`Failed to toggle ${permKey}:`, err)
     } finally {
-      setGeofenceLoadingIds(prev => {
-        const next = new Set(prev)
-        next.delete(uid)
+      setPermLoading(prev => {
+        const next = { ...prev }
+        delete next[loadingKey]
         return next
       })
     }
@@ -777,7 +1318,9 @@ export default function UsersPage() {
     setEditTarget(u)
     setEditName(u.name || '')
     setEditPassword('')
+    setEditDashboardAccess(u.dashboard_access !== false)
     setEditGeofenceAccess(Boolean(u.geofence_access))
+    setEditGeofenceCreateAccess(Boolean(u.geofence_create_access))
     setEditError('')
   }
   const closeEdit = () => { if (!editLoading) setEditTarget(null) }
@@ -788,7 +1331,12 @@ export default function UsersPage() {
     setEditError(''); setEditLoading(true)
     try {
       const uid = editTarget._id || editTarget.id
-      const payload = { name: editName.trim(), geofence_access: editGeofenceAccess }
+      const payload = {
+        name: editName.trim(),
+        dashboard_access: editDashboardAccess,
+        geofence_access: editGeofenceAccess,
+        geofence_create_access: editGeofenceCreateAccess,
+      }
       if (editPassword.trim()) payload.password = editPassword.trim()
       await adminUpdateUser(uid, payload)
       refresh()
@@ -938,18 +1486,17 @@ export default function UsersPage() {
                 ) : (
                   paged.map((u, i) => {
                     const uid = String(u._id || u.id || '')
-                    const bound = u.devices?.length ? u.devices : (devicesByUser[uid] || [])
+                    const bound = resolveUserDevices(u)
                     return (
                       <UserRow
                         key={uid || i}
                         u={u} idx={i} isAdmin={isAdmin}
                         onDelete={setDeleteTarget} onEdit={openEdit}
                         onAddDevice={setAddDeviceTarget}
-                        onToggleGeofence={handleToggleGeofence}
-                        isGeofenceLoading={geofenceLoadingIds.has(uid)}
-                        expanded={expanded.has(uid)} onToggle={() => { recordSearch(query); toggleExpand(uid) }}
-                        boundDevices={bound} pushTrail={pushTrail}
-                        onUnbindDevice={setUnbindTarget} isLight={isLight}
+                        onTogglePermission={handleTogglePermission}
+                        permLoading={permLoading}
+                        onOpenDevices={(user) => { recordSearch(query); setDrawerUser(user) }}
+                        boundDevices={bound} isLight={isLight}
                       />
                     )
                   })
@@ -971,7 +1518,6 @@ export default function UsersPage() {
                     page={safePage}
                     onChange={(_, p) => {
                       setPage(p)
-                      setExpanded(new Set())
                     }}
                     color="primary"
                     shape="rounded"
@@ -1097,12 +1643,41 @@ export default function UsersPage() {
                   <input type="password" placeholder="Minimum 8 characters" name="eu-password" autoComplete="new-password"
                     value={editPassword} onChange={e => setEditPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEditUser()} style={inputSt} />
                 </div>
+
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '10px 12px',
                   background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
                   border: `1px solid ${T.bdrLight}`,
                   borderRadius: 8,
+                  marginBottom: 8,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.dlgTxt1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <LayoutDashboard style={{ width: 14, height: 14, color: '#C86068' }} />
+                      Dashboard Access
+                    </div>
+                    <div style={{ fontSize: 11, color: T.txt4, marginTop: 2 }}>
+                      Allow this user to access the Overview Dashboard and metrics
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative' }}>
+                    <input
+                      type="checkbox"
+                      checked={editDashboardAccess}
+                      onChange={e => setEditDashboardAccess(e.target.checked)}
+                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#A72C32' }}
+                    />
+                  </label>
+                </div>
+
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${T.bdrLight}`,
+                  borderRadius: 8,
+                  marginBottom: 8,
                 }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.dlgTxt1, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1118,6 +1693,32 @@ export default function UsersPage() {
                       type="checkbox"
                       checked={editGeofenceAccess}
                       onChange={e => setEditGeofenceAccess(e.target.checked)}
+                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#A72C32' }}
+                    />
+                  </label>
+                </div>
+
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${T.bdrLight}`,
+                  borderRadius: 8,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.dlgTxt1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <PlusCircle style={{ width: 14, height: 14, color: '#C86068' }} />
+                      Create Fence Access
+                    </div>
+                    <div style={{ fontSize: 11, color: T.txt4, marginTop: 2 }}>
+                      Allow this user to create, edit, and delete geofences
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative' }}>
+                    <input
+                      type="checkbox"
+                      checked={editGeofenceCreateAccess}
+                      onChange={e => setEditGeofenceCreateAccess(e.target.checked)}
                       style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#A72C32' }}
                     />
                   </label>
@@ -1192,13 +1793,33 @@ export default function UsersPage() {
         <AddDeviceToUserModal
           user={addDeviceTarget}
           devices={unboundDevices}
-          onAssign={async (sn, opts) => {
+          onAssign={async (sns, opts) => {
             const userId = addDeviceTarget._id ?? addDeviceTarget.id
-            await adminAssignDeviceToUser(userId, sn, opts)
+            const snList = Array.isArray(sns) ? sns : [sns]
+            for (const sn of snList) {
+              await adminAssignDeviceToUser(userId, sn, opts)
+            }
             await silentRefresh()
             await silentRefreshDevices()
           }}
           onClose={() => setAddDeviceTarget(null)}
+        />
+      )}
+
+      {/* ── User Assigned Devices Drawer (Slider) ───────────────────────── */}
+      {drawerUser && (
+        <UserDevicesDrawer
+          user={drawerUser}
+          devices={resolveUserDevices(drawerUser)}
+          open={Boolean(drawerUser)}
+          onClose={() => setDrawerUser(null)}
+          isAdmin={isAdmin}
+          onUnbindDevice={(d) => {
+            setDrawerUser(null)
+            setUnbindTarget(d)
+          }}
+          pushTrail={pushTrail}
+          isLight={isLight}
         />
       )}
     </div>

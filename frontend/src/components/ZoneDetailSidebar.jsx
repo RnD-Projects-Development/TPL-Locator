@@ -292,7 +292,15 @@ export default function ZoneDetailSidebar({
     <aside className="pb-visit-log" style={{ width: '100%', height: '100%', borderLeft: 'none' }}>
       <div className="pb-vl-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div className="pb-vl-title">{zone.name}</div>
+          <div className="pb-vl-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{
+              width: 9, height: 9, borderRadius: '50%',
+              background: zone.color || '#C1121F',
+              boxShadow: `0 0 6px ${zone.color || '#C1121F'}90`,
+              flexShrink: 0,
+            }} />
+            <span>{zone.name}</span>
+          </div>
           <div className="pb-vl-meta pb-vl-muted">
             {zone.uc_name} {zone.uc_name && zone.tehsil ? '·' : ''} {zone.tehsil}
           </div>

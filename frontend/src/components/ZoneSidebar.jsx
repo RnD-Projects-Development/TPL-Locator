@@ -17,15 +17,19 @@ export default function ZoneSidebar({
   onCreateZone    = null,
   onEditZone      = null,
   onDeleteZone    = null,
+  onUploadKML     = null,
+  isUploadingKML  = false,
+  isAdmin         = false,
+  currentUserId   = '',
 }) {
   const totalAssigned = Object.values(zoneStatuses).reduce((s, arr) => s + arr.length, 0);
-  const sidebarLoading = zonesLoading || tracksLoading;
+  const initialLoading = zonesLoading && zones.length === 0;
 
   return (
     <aside className="fp-sidebar" style={{ position: 'relative' }}>
 
-      {/* ── API loading overlay ── */}
-      {sidebarLoading && (
+      {/* ── Initial loading overlay only when no zones exist yet ── */}
+      {initialLoading && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 50,
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -41,7 +45,7 @@ export default function ZoneSidebar({
             style={{ width: 90, height: 'auto', filter: 'brightness(0) invert(1)', animation: 'zs-tpl-pulse 1.6s ease-in-out infinite' }}
           />
           <span style={{ fontSize: 11, color: '#9ca3af', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600 }}>
-            {zonesLoading ? 'Loading zones…' : 'Fetching GPS tracks…'}
+            Loading zones…
           </span>
         </div>
       )}
@@ -57,22 +61,48 @@ export default function ZoneSidebar({
           Zones
           <span className="fp-sidebar-count">{zones.length}</span>
         </div>
-        {onCreateZone && (
-          <button
-            onClick={onCreateZone}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-              padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-              fontSize: 11, fontWeight: 700, letterSpacing: '0.03em',
-              background: 'rgba(193,18,31,0.12)', border: '1px solid rgba(193,18,31,0.35)',
-              color: '#ef9fa2', transition: 'all 0.15s', flexShrink: 0,
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(193,18,31,0.22)'; e.currentTarget.style.color = '#fff'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(193,18,31,0.12)'; e.currentTarget.style.color = '#ef9fa2'; }}
-          >
-            + New Zone
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {onUploadKML && (
+            <button
+              onClick={onUploadKML}
+              disabled={isUploadingKML}
+              title="Upload KML file to map zones"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                padding: '4px 7px', borderRadius: 6, cursor: isUploadingKML ? 'wait' : 'pointer',
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.02em',
+                background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(37,99,235,0.35)',
+                color: '#93c5fd', transition: 'all 0.15s', flexShrink: 0,
+                opacity: isUploadingKML ? 0.6 : 1,
+              }}
+              onMouseEnter={e => { if (!isUploadingKML) { e.currentTarget.style.background = 'rgba(37,99,235,0.22)'; e.currentTarget.style.color = '#fff'; } }}
+              onMouseLeave={e => { if (!isUploadingKML) { e.currentTarget.style.background = 'rgba(37,99,235,0.12)'; e.currentTarget.style.color = '#93c5fd'; } }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              {isUploadingKML ? 'Importing…' : 'Upload KML'}
+            </button>
+          )}
+          {onCreateZone && (
+            <button
+              onClick={onCreateZone}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                fontSize: 11, fontWeight: 700, letterSpacing: '0.02em',
+                background: 'rgba(193,18,31,0.12)', border: '1px solid rgba(193,18,31,0.35)',
+                color: '#ef9fa2', transition: 'all 0.15s', flexShrink: 0,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(193,18,31,0.22)'; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(193,18,31,0.12)'; e.currentTarget.style.color = '#ef9fa2'; }}
+            >
+              + New Zone
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Zone list ── */}
@@ -104,8 +134,16 @@ export default function ZoneSidebar({
                   style={{ cursor: 'pointer', userSelect: 'none' }}
                   onClick={() => onSelect(zone.zone_id)}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div className="fp-area-name">{zone.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <span style={{
+                        width: 7, height: 7, borderRadius: '50%',
+                        background: zone.color || '#C1121F',
+                        flexShrink: 0,
+                        boxShadow: `0 0 5px ${zone.color || '#C1121F'}80`,
+                      }} />
+                      <div className="fp-area-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{zone.name}</div>
+                    </div>
 
                     {isAssigning ? (
                       <span style={{
@@ -159,8 +197,8 @@ export default function ZoneSidebar({
                       </button>
                     )}
 
-                    {/* Edit / Delete — only for user-created zones */}
-                    {(onEditZone || onDeleteZone) && zone.isUserZone && !isAssigning && (
+                    {/* Edit / Delete — allowed for Admin or zone creator */}
+                    {(onEditZone || onDeleteZone) && (isAdmin || (Boolean(zone.user_id) && String(zone.user_id) === String(currentUserId))) && !isAssigning && (
                       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                         {onEditZone && (
                           <button

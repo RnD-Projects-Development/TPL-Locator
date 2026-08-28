@@ -89,7 +89,11 @@ async def _resolve_zone(zone_id: str, account, mongo: MongoService):
     sns = doc.get("device_sns") or []
     if not isinstance(account, AdminInDB):
         own = await _user_own_sns(account, mongo)
-        sns = [s for s in sns if s in own]
+        is_user_zone = (doc.get("user_id") == _to_oid(account.id))
+        matching_sns = [s for s in sns if s in own]
+        if not is_user_zone and not matching_sns:
+            return None
+        sns = matching_sns
 
     return (doc.get("coordinates") or []), sns, (doc.get("name") or zone_id)
 
@@ -97,7 +101,7 @@ async def _resolve_zone(zone_id: str, account, mongo: MongoService):
 def _check_geofence_access(account):
     if isinstance(account, AdminInDB):
         return
-    if not getattr(account, "geofence_access", False):
+    if not (getattr(account, "geofence_access", False) or getattr(account, "geofence_create_access", False) or getattr(account, "fence_create_access", False)):
         raise HTTPException(
             status_code=403,
             detail="Geofence access is not enabled for your account. Please contact an administrator.",
