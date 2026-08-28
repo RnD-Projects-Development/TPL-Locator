@@ -151,31 +151,41 @@ class CityTagClient:
         history = decrypted.get("history") or []
         return history[-1] if history else None
 
-    async def get_location_history(self, uid: str, token: str, sn: str, start_time: datetime, end_time: datetime, page_no: int = 1, page_size: int = 500) -> list[dict]:
-        """Fetch location history for a device in a time range.
-
-        POST ``/api/interface/v2/device/{uid}`` (encrypted). Decrypted ``history`` items may include
-        ``latitude``, ``longitude``, ``timestamp`` / ``gpstime``, and ``batteryLevel`` (persist as ``batteryStatus``).
-        """
+    async def get_location_history(
+        self,
+        uid: str,
+        token: str,
+        sn: str,
+        start_time: datetime,
+        end_time: datetime,
+        page_no: int = 1,
+        page_size: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Fetch historical points for a device in the supplied time range."""
         url = f"{self.base_url}/api/interface/v2/device/{uid}"
         payload = {
             "uid": int(uid),
             "sn": sn,
             "pageNo": page_no,
             "pageSize": page_size,
-            "beginTime": int(start_time.timestamp() * 1000),
-            "endTime": int(end_time.timestamp() * 1000),
+            "startTime": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "endTime": end_time.strftime("%Y-%m-%d %H:%M:%S"),
         }
         encryption = encrypt_payload(payload, token)
         body = {"encryption": encryption}
-        async with httpx.AsyncClient(timeout=45) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(url, json=body)
         resp.raise_for_status()
         data = resp.json()
         if data.get("code") != "00000":
-            raise CityTagError(data.get("msg") or "Failed to fetch location history")
+            raise CityTagError(data.get("msg") or "CityTag history request failed")
         encrypted_data = data.get("data")
         if not encrypted_data:
             return []
         decrypted = decrypt_payload(encrypted_data, token)
-        return decrypted.get("history", [])
+        if isinstance(decrypted, dict):
+            for key in ("history", "list", "points", "records", "data"):
+                value = decrypted.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
+        return []

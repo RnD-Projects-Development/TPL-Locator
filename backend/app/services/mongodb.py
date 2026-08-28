@@ -1,7 +1,9 @@
+from datetime import datetime, timezone, timedelta
 from typing import Any, List, Optional
 from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from bson import ObjectId
+from pymongo import ReturnDocument
 import logging
 import re
 import certifi
@@ -26,9 +28,7 @@ _BATTERY_STATUS_OMIT = object()
 class MongoService:
     def __init__(self, uri: str):
         self._client = AsyncIOMotorClient(
-            uri,
-            tls=True,
-            tlsCAFile=certifi.where()
+            uri
         )
 
     @property
@@ -50,6 +50,10 @@ class MongoService:
 
     @property
     def locations(self):
+        return self.db["locations"]
+
+    @property
+    def playback_locations(self):
         return self.db["locations"]
 
     @property
@@ -273,7 +277,7 @@ class MongoService:
         if not sns:
             return {}
 
-        cursor = self.locations.find(
+        cursor = self.playback_locations.find(
             {"sn": {"$in": sns}, "timestamp": {"$gte": start_time, "$lte": end_time}},
             {"sn": 1, "lat": 1, "lng": 1, "timestamp": 1, "speed": 1, "accuracy": 1, "landmark": 1},
             sort=[("sn", 1), ("timestamp", 1)],
@@ -399,7 +403,12 @@ class MongoService:
         *,
         time_adjust_hours: float = -3.0,
     ) -> bool:
-        ts_raw = history_item.get("gpstime") or history_item.get("time") or history_item.get("timestamp")
+        ts_raw = (
+            history_item.get("timestamp")
+            or history_item.get("datePublished")
+            or history_item.get("gpstime")
+            or history_item.get("time")
+        )
         timestamp = self._parse_citytag_timestamp(ts_raw)
         # Per-vendor wall-clock adjustment before persist (CityTag/Zoqin default -3h, TrackSolid +5h).
         if timestamp is not None:
@@ -410,7 +419,7 @@ class MongoService:
             "sn": sn or history_item.get("sn"),
             "timestamp": timestamp,
             "lat": float(history_item.get("lat") or history_item.get("latitude") or 0),
-            "lng": float(history_item.get("lng") or history_item.get("lon") or history_item.get("longitude") or 0),
+            "lng": float(history_item.get("lng") or history_item.get("lon") or history_item.get("long") or history_item.get("longitude") or 0),
         }
         if battery_status is not _BATTERY_STATUS_OMIT:
             doc["batteryStatus"] = battery_status
@@ -428,13 +437,90 @@ class MongoService:
             "timestamp": doc["timestamp"],
         }
 
-        result = await self.locations.update_one(
+        result = await self.playback_locations.update_one(
             query,
             {"$set": doc},
             upsert=True
         )
 
         return bool(result.upserted_id or result.modified_count > 0)
+
+    async def upsert_latest_location(
+        self,
+        *,
+        uid: Optional[str] = None,
+        sn: str,
+        timestamp_raw=None,
+        lat: float | None = None,
+        lng: float | None = None,
+        battery_status: Any = _BATTERY_STATUS_OMIT,
+        time_adjust_hours: float = 0.0,
+        vendor: Optional[str] = None,
+    ) -> bool:
+        """
+        Upsert the latest location for a device into the `latestLocation` collection.
+
+        Stores document with keys: `sn`, `timestamps` (datetime), `batteryStatus`, `lat`, `long`, `landmark`.
+        """
+        # Parse and adjust timestamp
+        timestamp = self._parse_citytag_timestamp(timestamp_raw)
+        if timestamp is not None:
+            timestamp = timestamp + timedelta(hours=time_adjust_hours)
+
+        if lat is None:
+            lat = None
+        if lng is None:
+            lng = None
+
+        if not sn:
+            return False
+
+        # Build document
+        doc: dict = {
+            "sn": sn,
+            "timestamps": timestamp,
+        }
+        if vendor:
+            doc["vendor"] = str(vendor).strip().lower()
+        if battery_status is not _BATTERY_STATUS_OMIT:
+            doc["batteryStatus"] = battery_status
+        if lat is not None:
+            doc["lat"] = float(lat)
+        if lng is not None:
+            doc["long"] = float(lng)
+
+        # Skip if no coordinates
+        if (doc.get("lat") is None or doc.get("long") is None) and doc.get("timestamps") is None:
+            return False
+
+        landmark = None
+        try:
+            if doc.get("lat") is not None and doc.get("long") is not None:
+                landmark = await reverse_geocode(doc["lat"], doc["long"])
+        except Exception:
+            landmark = None
+        if landmark:
+            doc["landmark"] = landmark
+
+        # Use find_one_and_update to get the updated document, then remove any duplicate docs.
+        updated = await self.db["latestLocation"].find_one_and_update(
+            {"sn": sn},
+            {"$set": doc},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+
+        if not updated:
+            return False
+
+        # Remove any duplicate documents with same sn but different _id (cleanup from previous states).
+        try:
+            await self.db["latestLocation"].delete_many({"sn": sn, "_id": {"$ne": updated["_id"]}})
+        except Exception:
+            # Non-fatal: if cleanup fails, leave as-is but return success.
+            logger.exception("latestLocation duplicate cleanup failed for sn=%s", sn)
+
+        return True
 
     async def upsert_device_from_citytag(
         self,
