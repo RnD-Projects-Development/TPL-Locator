@@ -212,7 +212,7 @@ const isBound = d => !!(d.user_id || d.assigned_user_name)
 ────────────────────────────────────────────────────────────────────────────── */
 const MENU_W = 150
 
-function ActionsDropdown({ isLight, onEdit, onUnbind }) {
+function ActionsDropdown({ isLight, onEdit, onUnbind, isAdmin }) {
   const [open, setOpen] = useState(false)
   const [pos,  setPos]  = useState({ top: 0, left: 0 })
   const btnRef  = useRef(null)
@@ -222,7 +222,7 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
     e.stopPropagation()
     if (open) { setOpen(false); return }
     const r = btnRef.current.getBoundingClientRect()
-    const menuH = 88 // 2 items + padding
+    const menuH = isAdmin ? 88 : 44 // 1 or 2 items + padding
     const openUp = r.bottom + menuH + 8 > window.innerHeight
     setPos({
       top:  openUp ? r.top - menuH - 6 : r.bottom + 6,
@@ -253,10 +253,10 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
   }, [open])
 
   const itemBase = {
-    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-    padding: '8px 12px', background: 'none', border: 'none',
-    fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left',
-    transition: 'background 0.12s',
+    display: 'flex', alignItems: 'center', gap: 6,
+    width: '100%', padding: '6px 12px', background: 'none', border: 'none',
+    fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+    textAlign: 'left'
   }
 
   return (
@@ -267,8 +267,7 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
           padding: '4px 10px', borderRadius: 10, cursor: 'pointer',
-          fontFamily: CARD_FONT, fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-          // Always on-dark (the tile is now the dark NFC-card face in both themes).
+          fontFamily: 'inherit', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
           background: open ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.08)',
           border: '1px solid rgba(255,255,255,0.12)',
           color: '#ECECEC',
@@ -300,14 +299,16 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
           >
             <Pencil style={{ width: 12, height: 12 }} /> Edit
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbind() }}
-            style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
-          >
-            <Trash2 style={{ width: 12, height: 12 }} /> Unbind
-          </button>
+          {isAdmin && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbind() }}
+              style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+            >
+              <Trash2 style={{ width: 12, height: 12 }} /> Unbind
+            </button>
+          )}
         </div>,
         document.body
       )}
@@ -861,9 +862,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
 
                   {/* Actions + chevron, bottom-right */}
                   <div style={{ position: 'absolute', zIndex: 2, right: '0.9em', bottom: '0.6em', display: 'flex', alignItems: 'center', gap: '0.5em' }}>
-                    {externalStatus === 'all' && isAdmin && isBound(d) && (
+                    {externalStatus === 'all' && isBound(d) && (
                       <ActionsDropdown
                         isLight={isLight}
+                        isAdmin={isAdmin}
                         onEdit={() => openEdit(d)}
                         onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
                       />
@@ -921,19 +923,21 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   </div>
                 </div>
 
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
-                    Assigned To
-                    {editUserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86A6A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will be reassigned</span>}
-                  </label>
-                  <UserSelect
-                    users={users}
-                    loading={usersLoading}
-                    valueId={editUserId}
-                    fallbackName={editTarget.assigned_user_name}
-                    onChange={u => setEditUserId(String(u.id))}
-                  />
-                </div>
+                {isAdmin && (
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                      Assigned To
+                      {editUserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86A6A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will be reassigned</span>}
+                    </label>
+                    <UserSelect
+                      users={users}
+                      loading={usersLoading}
+                      valueId={editUserId}
+                      fallbackName={editTarget.assigned_user_name}
+                      onChange={u => setEditUserId(String(u.id))}
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
