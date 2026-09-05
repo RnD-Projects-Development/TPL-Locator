@@ -10,7 +10,7 @@ from app.account_identifier import resolve_identifier
 from app.dependencies import get_mongo_service, require_role
 from app.models.admin import AdminInDB
 from app.services.mongodb import MongoService
-from app.user_display import public_contact
+from app.user_display import public_contact, has_real_email
 logger = logging.getLogger(__name__)
 
 
@@ -43,6 +43,7 @@ class CreateUserRequest(BaseModel):
 
 class UpdateUserRequest(BaseModel):
     name: Optional[str] = None
+    phone: Optional[str] = None
     password: Optional[str] = None
     role: Optional[str] = None
     dashboard_access: Optional[bool] = None
@@ -136,7 +137,7 @@ async def admin_create_user(
         devices = _populate_devices(updated.devices or [], device_map)
         response = {
             "id":                     str(updated.id),
-            "email":                  public_contact(updated.email, updated.phone),
+            "email":                  updated.email if has_real_email(updated.email) else None,
             "phone":                  updated.phone,
             "name":                   updated.name,
             "role":                   updated.role or "user",
@@ -204,7 +205,7 @@ async def admin_list_users(
             )
             result.append({
                 "id":                     str(user_dict.get("_id", "")),
-                "email":                  public_contact(raw_email, raw_phone),
+                "email":                  raw_email if has_real_email(raw_email) else None,
                 "phone":                  raw_phone,
                 "name":                   user_dict.get("name", ""),
                 "role":                   user_dict.get("role", "user"),
@@ -261,6 +262,18 @@ async def admin_update_user(
     update_fields = {}
     if payload.name is not None:
         update_fields["name"] = payload.name
+    if payload.phone is not None:
+        if payload.phone:
+            from app.account_identifier import normalize_phone, validate_pakistani_phone
+            normalized = normalize_phone(payload.phone)
+            if not validate_pakistani_phone(normalized):
+                raise HTTPException(status_code=400, detail="Invalid phone number (must be a valid Pakistani number)")
+            existing = await mongo.get_user_by_phone(normalized)
+            if existing and str(existing.id) != user_id:
+                raise HTTPException(status_code=400, detail="Phone already registered to another user")
+            update_fields["phone"] = normalized
+        else:
+            update_fields["phone"] = None
     if payload.password is not None:
         from app.auth_utils import hash_password
         update_fields["password"] = hash_password(payload.password)
@@ -285,7 +298,7 @@ async def admin_update_user(
     devices = _populate_devices(updated.devices or [], device_map)
     response = {
         "id":                     str(updated.id),
-        "email":                  public_contact(updated.email, updated.phone),
+        "email":                  updated.email if has_real_email(updated.email) else None,
         "phone":                  updated.phone,
         "name":                   updated.name,
         "role":                   updated.role or "user",

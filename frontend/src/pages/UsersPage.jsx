@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import AddDeviceToUserModal from '../components/AddDeviceToUserModal.jsx'
-import { displayContact, isValidIdentifier } from '../utils/userContact.js'
+import { displayContact, isValidIdentifier, isSyntheticEmail } from '../utils/userContact.js'
 import { isUserOnline, lastActiveTs, lastActiveStamp, parseTs } from '../utils/userPresence.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
@@ -835,7 +835,14 @@ function UserRow({
       {/* Email */}
       <td style={{ padding: '0.92em 1.15em' }}>
         <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
-          {contact || '—'}
+          {u.email && !isSyntheticEmail(u.email) ? u.email : '—'}
+        </span>
+      </td>
+
+      {/* Phone */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
+          {u.phone || '—'}
         </span>
       </td>
 
@@ -1102,6 +1109,7 @@ export default function UsersPage() {
   /* Edit User state */
   const [editTarget,               setEditTarget]               = useState(null)
   const [editName,                 setEditName]                 = useState('')
+  const [editPhone,                setEditPhone]                = useState('')
   const [editPassword,             setEditPassword]             = useState('')
   const [editDashboardAccess,      setEditDashboardAccess]      = useState(true)
   const [editGeofenceAccess,       setEditGeofenceAccess]       = useState(false)
@@ -1180,7 +1188,9 @@ export default function UsersPage() {
     const q = debouncedQ
     const list = users.filter(u => {
       if (!q) return true
-      return u.name?.toLowerCase().includes(q) || displayContact(u).toLowerCase().includes(q)
+      return u.name?.toLowerCase().includes(q) 
+          || displayContact(u).toLowerCase().includes(q)
+          || u.phone?.toLowerCase().includes(q)
     })
 
     return list.sort((a, b) => {
@@ -1319,6 +1329,7 @@ export default function UsersPage() {
   const openEdit  = (u) => {
     setEditTarget(u)
     setEditName(u.name || '')
+    setEditPhone(u.phone || '')
     setEditPassword('')
     setEditDashboardAccess(u.dashboard_access !== false)
     setEditGeofenceAccess(Boolean(u.geofence_access))
@@ -1335,6 +1346,7 @@ export default function UsersPage() {
       const uid = editTarget._id || editTarget.id
       const payload = {
         name: editName.trim(),
+        phone: editPhone.trim() || null,
         dashboard_access: editDashboardAccess,
         geofence_access: editGeofenceAccess,
         geofence_create_access: editGeofenceCreateAccess,
@@ -1471,7 +1483,7 @@ export default function UsersPage() {
             <table className="scalable-container" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.theadBdr}`, background: T.theadBg }}>
-                  {['User', 'Email', 'Role', 'Last Logged In', 'Devices', 'Actions'].map(col => (
+                  {['User', 'Email', 'Phone', 'Role', 'Last Logged In', 'Devices', 'Actions'].map(col => (
                     <th key={col} style={{ padding: '0.85em 1.15em', textAlign: 'left', fontSize: '0.65em', fontWeight: 700, color: T.theadTxt, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
@@ -1481,7 +1493,7 @@ export default function UsersPage() {
               <tbody>
                 {paged.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '48px 20px', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
+                    <td colSpan={7} style={{ padding: '48px 20px', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
                       {debouncedQ ? `No users matching "${debouncedQ}"` : 'No users found'}
                     </td>
                   </tr>
@@ -1631,6 +1643,11 @@ export default function UsersPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Email</label>
                   <input type="email" value={editTarget.email || ''} disabled style={{ ...inputSt, opacity: 0.55, cursor: 'not-allowed' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Phone Number</label>
+                  <input type="text" placeholder="e.g. 03001234567" name="eu-phone" autoComplete="off"
+                    value={editPhone} onChange={e => setEditPhone(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEditUser()} style={inputSt} />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Full Name <span style={{ color: '#C86068' }}>*</span></label>
