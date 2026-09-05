@@ -11,6 +11,7 @@ import { useResizablePanel } from "../hooks/useResizablePanel.js";
 import { useZoneCache } from "../context/ZoneCacheContext.jsx";
 import { deviceColor } from "../utils/zonePolygonManager.js";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
+import { useDeviceUpdates } from "../utils/deviceEvents.js";
 import "./MapViewPage.css";
 
 const MAP_SCOPE = "map";
@@ -118,6 +119,8 @@ export default function MapViewPage() {
     if (selectedSns.size === 0) return;
     refresh();
   }, [selectedSns]); // intentionally omitting refresh — selection change is the trigger
+
+  useDeviceUpdates(() => refresh());
 
 
   // When selection changes, clean up locations for deselected devices

@@ -3,6 +3,7 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
 import { registerCacheResetListener } from "../utils/clearAppCaches.js";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
+import { useDeviceUpdates } from '../utils/deviceEvents.js';
 
 const DEFAULT_LIMIT  = 20;
 const SEARCH_LIMIT   = 50;
@@ -501,6 +502,10 @@ export function SidebarDevicesProvider({ children }) {
     activateScope,
     activeScope,
   ]);
+
+  useDeviceUpdates(() => {
+    refresh({ silent: true });
+  });
 
   return (
     <SidebarDevicesContext.Provider value={value}>

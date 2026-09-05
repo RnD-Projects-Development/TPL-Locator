@@ -21,6 +21,7 @@ import TPLLoader from '../components/TPLLoader.jsx';
 import LocatingOverlay from '../components/LocatingOverlay.jsx';
 import { frameBounds } from '../utils/frameBounds.js';
 import { parseKML } from '../utils/kmlParser.js';
+import { useDeviceUpdates } from '../utils/deviceEvents.js';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -135,6 +136,8 @@ function FencePageInner() {
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
   useEffect(() => { devicesRef.current = devices; }, [devices]);
   useEffect(() => { zonesRef.current = zones; }, [zones]);
+
+  useDeviceUpdates(() => setTracksFetchKey(k => k + 1));
 
   // Stable auth headers
   const authHeaders = useCallback(() => ({

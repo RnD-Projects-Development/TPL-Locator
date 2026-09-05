@@ -23,6 +23,7 @@ import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
 import { useSearchHistory } from '../hooks/useSearchHistory.js'
 import { APP_CACHE_STORAGE_KEYS } from '../utils/clearAppCaches.js'
 import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
@@ -963,14 +964,15 @@ export default function UsersPage() {
   const { isAdmin } = useAuth()
   const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache()
 
+  useDeviceUpdates(() => {
+    silentRefresh()
+    // silentRefreshDevices() is handled globally by DeviceCacheContext
+  })
+
   useEffect(() => {
-    const id = setInterval(async () => {
-      // Sequential (users → devices) to avoid a double request spike / lag.
-      await silentRefresh()
-      await silentRefreshDevices()
-    }, 15 * 60 * 1000)
+    const id = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
     return () => clearInterval(id)
-  }, [silentRefresh, silentRefreshDevices])
+  }, [])
   const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser } = useCityTag()
   const [addDeviceTarget, setAddDeviceTarget] = useState(null)
   const unboundDevices = useMemo(() => devices.filter(d => !(d.user_id || d.assigned_user_name)), [devices])

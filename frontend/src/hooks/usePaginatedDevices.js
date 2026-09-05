@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { readPersistedPage, saveLocatorPageState } from "../utils/locatorPageState.js";
 import { useCityTag } from "./useCityTag.js";
+import { useDeviceUpdates } from "../utils/deviceEvents.js";
 
 const DEFAULT_LIMIT = 20;
 const BULK_DEVICE_LIMIT = 100;
@@ -528,6 +529,10 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
       search_scope: searchScopeRef.current,
     });
   }, [limit, page]);
+
+  useDeviceUpdates(() => {
+    refresh();
+  });
 
   return {
     devices,

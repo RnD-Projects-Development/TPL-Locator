@@ -101,11 +101,9 @@ async def _bulk_prefetch(mongo: MongoService, sns: list[str]) -> tuple[dict, dic
     latest_by_sn = {}
     pipeline = [
         {"$match": {"sn": {"$in": sns}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamp"}}},
     ]
-    async for row in mongo.locations.aggregate(pipeline):
-        latest_by_sn[row["_id"]] = {"timestamp": row["timestamp"]}
+    async for row in mongo.db["latestLocation"].aggregate(pipeline):
+        latest_by_sn[row["sn"]] = {"timestamp": row.get("timestamps")}
 
     # 3. All referenced users
     user_oids = [

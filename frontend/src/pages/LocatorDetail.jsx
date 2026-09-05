@@ -1,11 +1,12 @@
-import React, { useMemo, useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Radio, MapPin, Clock, Battery, ArrowLeft, Navigation, Route, FileText, UserCog } from 'lucide-react'
 import { useZoneCache } from '../context/ZoneCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
-import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay, googleReverseGeocode, googleGeoLabelString, insidePakistan } from '../utils/landmark.js'
+import { landmarkFromPoint, googleReverseGeocode, googleGeoLabelString, clientReverseGeocode, parseLandmarkDisplay, insidePakistan } from '../utils/landmark.js'
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
@@ -160,39 +161,42 @@ export default function LocatorDetail() {
     return () => { cancelled = true }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Silent auto-refresh every 15 min — no loaders, current view stays put.
-  // Device then location are fetched sequentially to avoid a request spike.
-  useEffect(() => {
+  const performSilentRefresh = useCallback(async (isCancelled) => {
     if (!id) return
-    let cancelled = false
-    const iv = setInterval(async () => {
-      try {
-        const d = await getDeviceBySn(id)
-        if (!cancelled && d) setLoc(mapDeviceToLoc(d))
-      } catch {}
-      if (cancelled) return
-      try {
-        const res = await getLatestLocation(id)
-        if (cancelled) return
-        const point = res?.latest ?? res ?? null
-        setLivePoint(point)
-        const stored = landmarkFromPoint(point)
-        if (stored) { setGeoLabel(stored); return }
-        const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
-        const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
-        if (ptLat == null || ptLng == null) return
-        // Gate by country so the auto-refresh only pays the worldwide (Google Maps)
-        // cost when it's actually needed — inside PK uses TPL Maps / backend.
-        if (insidePakistan(ptLat, ptLng)) {
-          try { const lm = await clientReverseGeocode(ptLat, ptLng); if (cancelled) return; if (lm) { setGeoLabel(lm); return } } catch {}
-          try { const geo = await getGeocode(ptLat, ptLng); if (cancelled) return; if (geo?.landmark) setGeoLabel(geo.landmark) } catch {}
-        } else {
-          try { const geo = await googleReverseGeocode(ptLat, ptLng, import.meta.env.VITE_GOOGLE_MAPS_KEY); if (cancelled) return; if (geo) setGeoLabel(googleGeoLabelString(geo) ?? '') } catch {}
-        }
-      } catch {}
-    }, 15 * 60 * 1000)
-    return () => { cancelled = true; clearInterval(iv) }
-  }, [id, getDeviceBySn, getLatestLocation, getGeocode]) // eslint-disable-line react-hooks/exhaustive-deps
+    try {
+      const d = await getDeviceBySn(id)
+      if (!isCancelled() && d) setLoc(mapDeviceToLoc(d))
+    } catch {}
+    if (isCancelled()) return
+    try {
+      const res = await getLatestLocation(id)
+      if (isCancelled()) return
+      const point = res?.latest ?? res ?? null
+      setLivePoint(point)
+      const stored = landmarkFromPoint(point)
+      if (stored) { setGeoLabel(stored); return }
+      const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
+      const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
+      if (ptLat == null || ptLng == null) return
+      if (insidePakistan(ptLat, ptLng)) {
+        try { const lm = await clientReverseGeocode(ptLat, ptLng); if (isCancelled()) return; if (lm) { setGeoLabel(lm); return } } catch {}
+        try { const geo = await getGeocode(ptLat, ptLng); if (isCancelled()) return; if (geo?.landmark) setGeoLabel(geo.landmark) } catch {}
+      } else {
+        try { const geo = await googleReverseGeocode(ptLat, ptLng, import.meta.env.VITE_GOOGLE_MAPS_KEY); if (isCancelled()) return; if (geo) setGeoLabel(googleGeoLabelString(geo) ?? '') } catch {}
+      }
+    } catch {}
+  }, [id, getDeviceBySn, getLatestLocation, getGeocode])
+
+  useDeviceUpdates(() => {
+    let cancelled = false;
+    performSilentRefresh(() => cancelled);
+    return () => { cancelled = true; };
+  })
+
+  useEffect(() => {
+    const iv = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
+    return () => clearInterval(iv)
+  }, [])
 
   const fenceZoneNames = useMemo(() => {
     if (!loc?.fence_zone_ids?.length) return '—'

@@ -255,16 +255,18 @@ class MongoService:
 
         pipeline = [
             {"$match": {"sn": {"$in": sns}}},
-            {"$sort": {"sn": 1, "timestamp": -1}},
-            {"$group": {"_id": "$sn", "latest": {"$first": "$$ROOT"}}},
         ]
 
         latest_by_sn: dict[str, dict] = {}
-        async for row in self.locations.aggregate(pipeline):
-            latest = row.get("latest") or {}
+        async for row in self.db["latestLocation"].aggregate(pipeline):
+            latest = dict(row)
             if latest.get("_id") is not None:
                 latest["_id"] = str(latest["_id"])
-            latest_by_sn[str(row["_id"])] = latest
+            if "timestamps" in latest and "timestamp" not in latest:
+                latest["timestamp"] = latest["timestamps"]
+            if "long" in latest and "lng" not in latest:
+                latest["lng"] = latest["long"]
+            latest_by_sn[str(latest["sn"])] = latest
         return latest_by_sn
 
     async def get_playback_points_by_sns(

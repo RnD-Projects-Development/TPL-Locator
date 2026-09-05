@@ -23,6 +23,7 @@ import {
 } from '../utils/fleetCache.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
 import { useSearchHistory } from '../hooks/useSearchHistory.js'
@@ -523,14 +524,17 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if (gridScrollRef.current) gridScrollRef.current.scrollTop = 0
   }, [deviceType, externalStatus, debQ, page])
 
+  // Listen for global updates
+  useDeviceUpdates(() => {
+    isSilentRef.current = true
+    invalidateFleetCache(false)
+    setLocalRefresh(k => k + 1)
+  })
+
   // Auto-refresh every 60s when Online filter is active — silently (no loader)
   useEffect(() => {
     if (externalStatus !== 'online') return
-    const id = setInterval(() => {
-      isSilentRef.current = true
-      invalidateFleetCache()
-      setLocalRefresh(k => k + 1)
-    }, 60_000)
+    const id = setInterval(() => emitDevicesUpdated(), 60_000)
     return () => clearInterval(id)
   }, [externalStatus])
 
@@ -538,11 +542,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   // Runs on every tab/filter; keeps the current tab, search and page in place
   // (no loader) while the fleet is refetched in the background.
   useEffect(() => {
-    const id = setInterval(() => {
-      isSilentRef.current = true
-      invalidateFleetCache()
-      setLocalRefresh(k => k + 1)
-    }, 15 * 60 * 1000)
+    const id = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
 

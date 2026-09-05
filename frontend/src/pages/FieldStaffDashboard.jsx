@@ -19,6 +19,7 @@ import {
   absenceAlert, sortAlerts, humanDuration,
   ALERT_KIND, MISSING_THRESHOLD_MS, ONLINE_THRESHOLD_MS,
 } from '../utils/zoneAlerts.js';
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js';
 import './FieldStaffDashboard.css';
 import './FieldStaffLive.css';
 
@@ -679,13 +680,16 @@ export default function FieldStaffDashboard() {
 
   // Silent refresh on REFRESH_MS — no loaders, the view stays put. Also rolls
   // the day over for a tab that's been left open past midnight.
+  useDeviceUpdates(() => {
+    if (!selectedZoneId) return;
+    const today = todayStr();
+    if (today !== dayKey) setDayKey(today);
+    else load();
+  });
+
   useEffect(() => {
     if (!selectedZoneId) return;
-    const iv = setInterval(() => {
-      const today = todayStr();
-      if (today !== dayKey) setDayKey(today);   // the effect above reloads
-      else load();
-    }, REFRESH_MS);
+    const iv = setInterval(() => emitDevicesUpdated(), REFRESH_MS);
     return () => clearInterval(iv);
   }, [selectedZoneId, dayKey, load]);
 

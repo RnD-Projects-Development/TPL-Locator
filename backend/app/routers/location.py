@@ -78,11 +78,18 @@ async def get_latest_location(
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this device")
 
         logger.info("get_latest_location querying_mongodb sn=%s", sn)
-        local_doc = await mongo.locations.find_one({"sn": sn}, sort=[("timestamp", -1)])
+        local_doc = await mongo.db["latestLocation"].find_one({"sn": sn})
         latest = None
         if local_doc:
             logger.info("get_latest_location raw_doc sn=%s fields=%s", sn, list(local_doc.keys()))
             local_doc["_id"] = str(local_doc["_id"])
+            
+            # Map latestLocation schema to standard locations schema
+            if "timestamps" in local_doc and "timestamp" not in local_doc:
+                local_doc["timestamp"] = local_doc["timestamps"]
+            if "long" in local_doc and "lng" not in local_doc:
+                local_doc["lng"] = local_doc["long"]
+                
             latest = local_doc
             logger.info("get_latest_location mongodb_hit sn=%s", sn)
         else:

@@ -469,11 +469,9 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
     if sns_set:
         pipeline = [
             {"$match": {"sn": {"$in": list(sns_set)}}},
-            {"$sort": {"timestamp": -1}},
-            {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamp"}}},
         ]
-        async for row in mongo.locations.aggregate(pipeline):
-            latest_by_sn[str(row["_id"])] = {"timestamp": row.get("timestamp")}
+        async for row in mongo.db["latestLocation"].aggregate(pipeline):
+            latest_by_sn[str(row["sn"])] = {"timestamp": row.get("timestamps")}
 
     # Prefetch users referenced by device.user_id
     user_oids: list[ObjectId] = []

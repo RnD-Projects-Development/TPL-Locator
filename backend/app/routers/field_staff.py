@@ -110,19 +110,12 @@ async def _latest_locations_for_sns(mongo: MongoService, sns: list[str]) -> dict
 
     pipeline = [
         {"$match": {"sn": {"$in": sns}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id": "$sn",
-            "timestamp": {"$first": "$timestamp"},
-            "lat": {"$first": "$lat"},
-            "lng": {"$first": "$lng"},
-        }},
     ]
-    async for row in mongo.locations.aggregate(pipeline):
-        latest_by_sn[str(row["_id"])] = {
-            "timestamp": row.get("timestamp"),
+    async for row in mongo.db["latestLocation"].aggregate(pipeline):
+        latest_by_sn[str(row["sn"])] = {
+            "timestamp": row.get("timestamps"),
             "lat": row.get("lat"),
-            "lng": row.get("lng"),
+            "lng": row.get("long"),
         }
     return latest_by_sn
 

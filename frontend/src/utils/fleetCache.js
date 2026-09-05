@@ -1,3 +1,5 @@
+import { emitDevicesUpdated } from './deviceEvents.js';
+
 const FLEET_TTL = 5 * 60 * 1000;
 
 let _fleetCache = null;
@@ -12,10 +14,13 @@ export function getFleetCache() {
   return isFleetCacheValid() ? _fleetCache : null;
 }
 
-export function invalidateFleetCache() {
+export function invalidateFleetCache(emit = true) {
   _fleetCache = null;
   _fleetFetchedAt = null;
   _fleetInflight = null;
+  if (emit) {
+    emitDevicesUpdated();
+  }
 }
 
 export async function fetchFleetDevices(getDevices, { force = false } = {}) {

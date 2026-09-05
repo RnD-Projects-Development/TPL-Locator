@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useCityTag } from '../hooks/useCityTag.js';
 import { useBindCache } from './BindCacheContext.jsx';
 import { registerCacheResetListener } from '../utils/clearAppCaches.js';
+import { useDeviceUpdates } from '../utils/deviceEvents.js';
 
 const SUMMARY_CACHE_MS = 5 * 60 * 1000; // 5 minutes — matches device list cache
 
@@ -269,6 +270,11 @@ export function HomePageCacheProvider({ children }) {
     if (!devicesRef.current.length) return;
     fetchActivity(filters.date, filters.date === todayStr(), { force: false });
   }, [filters.date, fetchActivity]);
+
+  // Listen for global device updates (e.g. from Devices page or Map polling)
+  useDeviceUpdates(() => {
+    refreshAll({ force: true, silent: true });
+  });
 
   return (
     <HomePageCacheContext.Provider value={{
