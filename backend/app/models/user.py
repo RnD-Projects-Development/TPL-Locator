@@ -14,8 +14,9 @@ class UserInDB(BaseModel):
     name: Optional[str] = ""
     phone: Optional[str] = None
     admin_id: Optional[PyObjectId] = None
+    superuser_id: Optional[PyObjectId] = None  # owning super user, if this user "fell under" one
     devices: List[PyObjectId] = Field(default_factory=list)
-    role: str = "user"  # user or admin
+    role: str = "user"  # user, admin, or superuser
     dashboard_access: bool = True
     geofence_access: bool = False
     geofence_create_access: bool = False
@@ -35,6 +36,7 @@ class UserCreate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     role: Optional[str] = "user"
+    superuser_id: Optional[str] = None
     dashboard_access: Optional[bool] = None
     geofence_access: Optional[bool] = None
     geofence_create_access: Optional[bool] = None
@@ -47,6 +49,7 @@ class UserPublic(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     admin_id: Optional[str] = None
+    superuser_id: Optional[str] = None
     devices: List[str] = []
     dashboard_access: bool = True
     geofence_access: bool = False

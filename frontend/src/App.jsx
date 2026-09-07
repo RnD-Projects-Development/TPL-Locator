@@ -37,20 +37,22 @@ function reducer(state, action) {
 // ── AppShell: reads AlertsContext for unreadCount, then provides AppCtx ───────
 // Must live inside AlertsProvider so useAlerts() is available.
 
-function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin, logout }) {
+function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin, isSuperUser, logout }) {
   const { unreadCount } = useAlerts()
+
+  const isFleetManager = isAdmin || isSuperUser
 
   const appUser = {
     name:                   user?.name    || user?.email || 'User',
-    role:                   isAdmin ? 'admin' : (user?.role || 'user'),
+    role:                   isAdmin ? 'admin' : isSuperUser ? 'superuser' : (user?.role || 'user'),
     company:                user?.company || '',
     email:                  user?.email   || '',
-    dashboard_access:       user?.dashboard_access !== false,
-    geofence_access:        Boolean(user?.geofence_access),
-    geofence_create_access: Boolean(user?.geofence_create_access),
+    dashboard_access:       isFleetManager || user?.dashboard_access !== false,
+    geofence_access:        isFleetManager || Boolean(user?.geofence_access),
+    geofence_create_access: isFleetManager || Boolean(user?.geofence_create_access),
   }
 
-  const hasDashboard = isAdmin || user?.dashboard_access !== false
+  const hasDashboard = isFleetManager || user?.dashboard_access !== false
   const defaultHome = hasDashboard ? '/dashboard' : '/devices'
 
   return (
@@ -58,6 +60,8 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
       user: appUser,
       setUser: () => logout(),
       isAdmin,
+      isSuperUser,
+      isFleetManager,
       sidebarOpen,
       setSidebarOpen,
       state,
@@ -83,8 +87,8 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
           <Route path="/map"          element={<MapViewPage />} />
           <Route path="/trajectory"   element={<Navigate to={defaultHome} replace />} />
           <Route path="/playback"     element={<PlaybackPage />} />
-          <Route path="/fence"        element={isAdmin || Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access) ? <FencePage /> : <Navigate to={defaultHome} replace />} />
-          <Route path="/users"        element={isAdmin ? <UsersPage /> : <Navigate to={defaultHome} replace />} />
+          <Route path="/fence"        element={isFleetManager || Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access) ? <FencePage /> : <Navigate to={defaultHome} replace />} />
+          <Route path="/users"        element={isFleetManager ? <UsersPage /> : <Navigate to={defaultHome} replace />} />
           <Route path="/field-staff"  element={<FieldStaffDashboard />} />
           <Route path="/alerts"       element={<Alerts />} />
           <Route path="/reports"      element={<Reports />} />
@@ -110,7 +114,7 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
 // Device loading is now done per-page via usePaginatedDevices (server-side).
 
 function AppInner() {
-  const { accessToken, user, isAdmin, logout } = useAuth()
+  const { accessToken, user, isAdmin, isSuperUser, logout } = useAuth()
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [state, dispatch] = useReducer(reducer, {
@@ -133,6 +137,7 @@ function AppInner() {
         setSidebarOpen={setSidebarOpen}
         user={user}
         isAdmin={isAdmin}
+        isSuperUser={isSuperUser}
         logout={logout}
       />
     </AlertsProvider>

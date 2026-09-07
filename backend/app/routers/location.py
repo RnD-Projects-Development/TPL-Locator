@@ -62,8 +62,16 @@ async def get_latest_location(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
 
         admin = await mongo.get_admin_by_id(user_or_admin_id)
+        superuser = None if admin else await mongo.get_superuser_by_id(user_or_admin_id)
         if admin:
             logger.info("get_latest_location started role=admin actor_id=%s sn=%s", user_or_admin_id, sn)
+        elif superuser:
+            logger.info("get_latest_location started role=superuser actor_id=%s sn=%s", user_or_admin_id, sn)
+            device = await mongo.get_device_by_sn(sn)
+            if not device:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+            if str(getattr(device, "superuser_id", "") or "") != str(user_or_admin_id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this device")
         else:
             logger.info("get_latest_location started role=user actor_id=%s sn=%s", user_or_admin_id, sn)
             user = await mongo.get_user_by_id(user_or_admin_id)

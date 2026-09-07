@@ -133,7 +133,8 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
  *   onAssign  — async (sns: string[], { name, client, category }) => void
  *   onClose   — () => void
  */
-export default function AddDeviceToUserModal({ user, devices, onAssign, onClose }) {
+export default function AddDeviceToUserModal({ user, devices, onAssign, onClose, targetRole = 'user' }) {
+  const isSuperuserTarget = targetRole === 'superuser';
   const [selectedSns, setSelectedSns] = useState(() => new Set(devices.length > 0 ? [devices[0].sn] : []));
   const [name,        setName]        = useState('');
   const [client,      setClient]      = useState('');
@@ -141,7 +142,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState('');
 
-  const userName = user.name || user.email || 'this user';
+  const userName = user.name || user.email || user.phone || (isSuperuserTarget ? 'this super user' : 'this user');
   const firstSelected = Array.from(selectedSns)[0];
   const cats = categoriesFor(isStickerSN(firstSelected) ? 'sticker' : 'locator');
 
@@ -167,7 +168,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
 
   async function handleConfirm() {
     if (selectedSns.size === 0) { setError('Select at least one device'); return; }
-    if (!category) { setError('Select a category'); return; }
+    if (!isSuperuserTarget && !category) { setError('Select a category'); return; }
     setLoading(true);
     setError('');
     try {
@@ -180,7 +181,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
     }
   }
 
-  const isDisabled = loading || devices.length === 0 || selectedSns.size === 0 || !category;
+  const isDisabled = loading || devices.length === 0 || selectedSns.size === 0 || (!isSuperuserTarget && !category);
 
   return (
     <ModalPortal>
@@ -212,7 +213,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Add Devices</div>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', marginTop: 1 }}>
-                  Assign to {userName}
+                  {isSuperuserTarget ? `Hand over to ${userName}` : `Assign to ${userName}`}
                 </div>
               </div>
             </div>
@@ -244,38 +245,47 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
               )}
             </div>
 
-            {/* User — locked */}
+            {/* Target — locked */}
             <div>
-              <label style={LABEL_STYLE}>Assign to User</label>
+              <label style={LABEL_STYLE}>{isSuperuserTarget ? 'Super User' : 'Assign to User'}</label>
               <div style={{ ...FIELD_STYLE, color: 'rgba(255,255,255,0.55)', cursor: 'default' }}>
                 {userName}
               </div>
             </div>
 
-            {/* Display Name */}
-            <div>
-              <label style={LABEL_STYLE}>Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Office Tracker" style={FIELD_STYLE}
-                onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
-            </div>
+            {isSuperuserTarget ? (
+              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.40)' }}>
+                These devices join this super user's fleet. They stay unbound until the
+                super user assigns them to one of its users.
+              </p>
+            ) : (
+              <>
+                {/* Display Name */}
+                <div>
+                  <label style={LABEL_STYLE}>Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+                  <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Office Tracker" style={FIELD_STYLE}
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
 
-            {/* Category */}
-            <div>
-              <label style={LABEL_STYLE}>Category <span style={{ color: '#C86068' }}>*</span></label>
-              <select value={category} onChange={e => setCategory(e.target.value)} style={SELECT_STYLE}>
-                <option value="" disabled style={SELECT_OPT}>Select a category…</option>
-                {cats.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
-              </select>
-            </div>
+                {/* Category */}
+                <div>
+                  <label style={LABEL_STYLE}>Category <span style={{ color: '#C86068' }}>*</span></label>
+                  <select value={category} onChange={e => setCategory(e.target.value)} style={SELECT_STYLE}>
+                    <option value="" disabled style={SELECT_OPT}>Select a category…</option>
+                    {cats.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                  </select>
+                </div>
 
-            {/* Client */}
-            <div>
-              <label style={LABEL_STYLE}>Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
-              <input value={client} onChange={e => setClient(e.target.value)} placeholder="e.g. Acme Corp" style={FIELD_STYLE}
-                onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
-            </div>
+                {/* Client */}
+                <div>
+                  <label style={LABEL_STYLE}>Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+                  <input value={client} onChange={e => setClient(e.target.value)} placeholder="e.g. Acme Corp" style={FIELD_STYLE}
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
+              </>
+            )}
 
             {/* Footer */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>

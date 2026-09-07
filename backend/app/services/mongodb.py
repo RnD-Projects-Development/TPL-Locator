@@ -130,6 +130,76 @@ class MongoService:
         from app.models.user import UserInDB
         return UserInDB(**doc)
 
+    # ---------- super user methods ----------
+    async def get_superuser_by_id(self, su_id: str):
+        from app.models.admin import SuperUserInDB
+        account = await self.get_account_by_id(su_id, role="superuser")
+        if not account:
+            return None
+        return SuperUserInDB(**account.dict())
+
+    async def get_superuser_by_email(self, email: str):
+        from app.models.admin import SuperUserInDB
+        account = await self.get_account_by_email(email, role="superuser")
+        if not account:
+            return None
+        return SuperUserInDB(**account.dict())
+
+    async def get_superuser_by_phone(self, phone: str):
+        doc = await self.accounts.find_one({"phone": phone.strip(), "role": "superuser"})
+        if not doc:
+            return None
+        from app.models.admin import AccountInDB, SuperUserInDB
+        return SuperUserInDB(**AccountInDB(**doc).dict())
+
+    async def create_superuser(
+        self,
+        email: Optional[str],
+        password: str,
+        name: Optional[str],
+        phone: Optional[str],
+        admin_id: str,
+    ):
+        from app.models.admin import AccountInDB, SuperUserInDB
+        payload = {
+            **({"email": email.strip().lower()} if email else {}),
+            "password": hash_password(password),
+            "name": name or "",
+            "phone": phone or None,
+            "role": "superuser",
+            "admin_id": ObjectId(admin_id) if admin_id else None,
+            "created_at": datetime.now(timezone.utc),
+        }
+        result = await self.accounts.insert_one(payload)
+        created = await self.accounts.find_one({"_id": result.inserted_id})
+        return SuperUserInDB(**AccountInDB(**created).dict())
+
+    async def set_device_superuser(self, sn: str, superuser_id: Optional[str]) -> bool:
+        """Set (or clear) the owning super user on a device.
+
+        When assigning to a super user, any user currently bound to the device is
+        migrated so it "falls under" that super user immediately.
+        """
+        device_doc = await self.devices.find_one({"sn": sn})
+        if not device_doc:
+            return False
+
+        su_oid = None
+        if superuser_id:
+            try:
+                su_oid = ObjectId(str(superuser_id))
+            except Exception:
+                return False
+
+        await self.devices.update_one({"sn": sn}, {"$set": {"superuser_id": su_oid}})
+
+        if su_oid and device_doc.get("user_id"):
+            await self.accounts.update_one(
+                {"_id": device_doc["user_id"], "role": "user"},
+                {"$set": {"superuser_id": su_oid}},
+            )
+        return True
+
     async def create_user(self, email: Optional[str], password: str, name: Optional[str] = None, phone: Optional[str] = None) -> 'UserInDB':
 
         from app.models.user import UserInDB
@@ -166,6 +236,27 @@ class MongoService:
             {"$set": {"user_id": None, "bound_at": None}, "$unset": {"name": "", "client": ""}},
         )
         result = await self.accounts.delete_one({"_id": oid, "role": "user"})
+        return result.deleted_count == 1
+
+    async def delete_superuser(self, su_id: str) -> bool:
+        """Delete a super user and detach (not delete) its users and devices.
+
+        Users revert to plain 'individual' users; devices revert to admin-only
+        ownership (superuser_id cleared).
+        """
+        try:
+            oid = ObjectId(su_id)
+        except Exception:
+            return False
+        await self.accounts.update_many(
+            {"superuser_id": oid, "role": "user"},
+            {"$set": {"superuser_id": None}},
+        )
+        await self.devices.update_many(
+            {"superuser_id": oid},
+            {"$set": {"superuser_id": None}},
+        )
+        result = await self.accounts.delete_one({"_id": oid, "role": "superuser"})
         return result.deleted_count == 1
 
     # ---------- device methods ----------
@@ -235,12 +326,16 @@ class MongoService:
         if not sns:
             return []
 
+        from app.models.admin import SuperUserInDB
+        from app.models.user import UserInDB
+
         query = {"sn": {"$in": sns}}
         if isinstance(account, AdminInDB):
             cursor = self.devices.find(query, {"sn": 1, "_id": 0})
+        elif isinstance(account, SuperUserInDB):
+            query["superuser_id"] = account.id
+            cursor = self.devices.find(query, {"sn": 1, "_id": 0})
         else:
-            from app.models.user import UserInDB
-
             if not isinstance(account, UserInDB):
                 return []
             query["user_id"] = account.id
@@ -309,6 +404,15 @@ class MongoService:
             {"_id": ObjectId(user_id), "role": "user"},
             {"$push": {"devices": device_doc["_id"]}}
         )
+        # "Falls under a super user" rule: binding a device that an admin has
+        # handed to a super user pulls the binding user under that super user
+        # (only if they aren't already under one).
+        device_su = device_doc.get("superuser_id")
+        if device_su:
+            await self.accounts.update_one(
+                {"_id": ObjectId(user_id), "role": "user", "superuser_id": None},
+                {"$set": {"superuser_id": device_su}},
+            )
         updated = await self.devices.find_one({"sn": sn})
         return DeviceInDB(**updated)
 

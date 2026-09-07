@@ -279,12 +279,35 @@ export function useCityTag() {
   );
 
   const adminGetUsers = useCallback(
-    async () => apiFetch("/api/admin/users", {}, accessToken, logout), [accessToken, logout]
+    async (role) => {
+      const q = role ? `?role=${encodeURIComponent(role)}` : "";
+      return apiFetch(`/api/admin/users${q}`, {}, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
+  const adminGetSuperusers = useCallback(
+    async () => apiFetch("/api/admin/superusers", {}, accessToken, logout), [accessToken, logout]
   );
 
   const adminCreateUser = useCallback(
-    async ({ identifier, password, name }) =>
-      apiFetch("/api/admin/users", { method: "POST", body: { identifier, password, name } }, accessToken, logout),
+    async ({ identifier, password, name, role, superuser_id }) => {
+      const body = { identifier, password, name };
+      if (role) body.role = role;
+      if (superuser_id) body.superuser_id = superuser_id;
+      return apiFetch("/api/admin/users", { method: "POST", body }, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
+  // Admin assigns (or clears, with superuserId === null) a device's owning super user.
+  const adminAssignDeviceSuperuser = useCallback(
+    async (sn, superuserId) =>
+      apiFetch(
+        "/api/admin/devices/assign-superuser",
+        { method: "POST", body: { sn, superuser_id: superuserId || null } },
+        accessToken, logout
+      ),
     [accessToken, logout]
   );
 
@@ -314,13 +337,15 @@ export function useCityTag() {
   );
 
   const adminUpdateUser = useCallback(
-    async (userId, { name, password, role, dashboard_access, geofence_access, geofence_create_access, fence_create_access } = {}) => {
+    async (userId, { name, phone, password, role, superuser_id, dashboard_access, geofence_access, geofence_create_access, fence_create_access } = {}) => {
       // Only include fields that were actually provided — backend treats
       // null/undefined as "leave unchanged".
       const body = {};
       if (name !== undefined)                   body.name = name;
+      if (phone !== undefined)                  body.phone = phone;
       if (password !== undefined)               body.password = password;
       if (role !== undefined)                   body.role = role;
+      if (superuser_id !== undefined)           body.superuser_id = superuser_id;
       if (dashboard_access !== undefined)       body.dashboard_access = dashboard_access;
       if (geofence_access !== undefined)        body.geofence_access = geofence_access;
       if (geofence_create_access !== undefined) body.geofence_create_access = geofence_create_access;
@@ -458,8 +483,8 @@ export function useCityTag() {
   return {
     login, requestLoginOtp, adminLogin, signup, requestPasswordReset, resetPasswordWithOtp,
     getMyProfile, updateMyProfile,
-    getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, checkDeviceAvailability, getUsers, adminGetUsers, adminCreateUser,
-    adminAssignDeviceToUser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
+    getDevices, getDevicesSummary, getDeviceBySn, getAvailableDevices, checkDeviceAvailability, getUsers, adminGetUsers, adminGetSuperusers, adminCreateUser,
+    adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminUnassignDeviceFromUser, adminDeleteUser, adminUpdateUser,
     adminUpdateDevice, updateDevice,
     bindDevice, bindDeviceByIdentifier, unbindDevice, adminUnbindDevice,
     searchDevice, getLatestLocation, getTrajectory, getPlayback, getGeocode,

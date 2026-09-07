@@ -7,7 +7,8 @@ const UserCacheContext = createContext(null);
 
 export function UserCacheProvider({ children }) {
   const { adminGetUsers } = useCityTag();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isSuperUser } = useAuth();
+  const canManageUsers = isAdmin || isSuperUser;
 
   const [users, setUsers]             = useState([]);
   const [loading, setLoading]         = useState(false);
@@ -52,10 +53,10 @@ export function UserCacheProvider({ children }) {
 
   // Prefetch as soon as admin is authenticated; clear on logout
   useEffect(() => {
-    if (user && isAdmin) fetchUsers();
+    if (user && canManageUsers) fetchUsers();
     else resetUserCache();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!user, isAdmin]);
+  }, [!!user, canManageUsers]);
 
   return (
     <UserCacheContext.Provider value={{ users, loading, error, refresh: fetchUsers, silentRefresh, lastFetched }}>

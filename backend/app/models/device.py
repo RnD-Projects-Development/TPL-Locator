@@ -12,6 +12,7 @@ class DeviceInDB(BaseModel):
     sn: str
     admin_id: Optional[PyObjectId] = None  # Optional to support legacy/test docs without admin_id
     user_id: Optional[PyObjectId] = None
+    superuser_id: Optional[PyObjectId] = None  # owning super user (set only by an admin)
     name: Optional[str] = ""
     client: Optional[str] = None
     region: Optional[str] = None

@@ -488,7 +488,8 @@ export default function Dashboard() {
   }, [])
   const navigate = useNavigate()
   const pushTrail = useTrailNav()
-  const { isAdmin } = useAuth()
+  const { isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  const isAdmin = rawIsAdmin || isSuperUser
   const { users } = useUserCache()
   const { zones } = useZoneCache()
   const chrome = useDashboardChrome()

@@ -51,6 +51,33 @@ class AdminCreate(BaseModel):
     uid: str
 
 
+class SuperUserInDB(BaseModel):
+    """
+    A "super user" account: a scoped sub-admin.
+
+    Sees every dashboard tab an admin sees, but only its own slice of data —
+    users where `superuser_id == self.id` and devices where
+    `superuser_id == self.id`. Created only by an admin. Logs in with email or
+    phone + password (like an admin) and is also allowed on the passwordless
+    app login endpoint.
+    """
+    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    email: Optional[EmailStr] = None
+    password: str
+    role: str = "superuser"
+    name: Optional[str] = ""
+    phone: Optional[str] = None
+    admin_id: Optional[PyObjectId] = None  # the admin that created this super user
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_logged_in: Optional[datetime] = None
+    last_logged_out: Optional[datetime] = None
+
+    class Config:
+        json_encoders = {ObjectId: str}
+        populate_by_name = True
+        arbitrary_types_allowed = True
+
+
 
 
 # ───────────────────────────────────────────────────────
@@ -76,6 +103,7 @@ class AccountInDB(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     admin_id: Optional[PyObjectId] = None
+    superuser_id: Optional[PyObjectId] = None  # for role="user": owning super user
     devices: List[PyObjectId] = Field(default_factory=list)
     dashboard_access: bool = True
     geofence_access: bool = False

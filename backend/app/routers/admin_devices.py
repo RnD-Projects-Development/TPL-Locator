@@ -6,8 +6,8 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from app.dependencies import get_mongo_service, require_role
-from app.models.admin import AdminInDB
+from app.dependencies import get_mongo_service, require_role, require_roles
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.services.mongodb import MongoService
 from app.routers.devices import _enrich_admin_devices
 
@@ -25,6 +25,11 @@ class AssignDeviceRequest(BaseModel):
     name: str = ""
     client: str | None = None
     category: str | None = None
+
+
+class AssignSuperuserRequest(BaseModel):
+    sn: str
+    superuser_id: str | None = None  # None / "" clears the super-user assignment
 
 
 def _fmt_dt(value) -> str | None:
@@ -138,15 +143,15 @@ def _resolve_user(raw_user_id, users_by_id: dict) -> tuple[str | None, str | Non
 
 @router.get("/devices")
 async def list_admin_devices(
-    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
+    current_actor: Annotated[object, Depends(require_roles("admin", "superuser"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
     sn: str | None = Query(default=None, description="Optional device SN filter"),
 ) -> List[Dict[str, Any]]:
-    logger.info("list_admin_devices started admin=%s sn_filter=%s", current_admin.email, sn)
+    logger.info("list_admin_devices started actor=%s sn_filter=%s", current_actor.email, sn)
     try:
-        result = await _enrich_admin_devices(current_admin, mongo)
+        result = await _enrich_admin_devices(current_actor, mongo)
     except Exception as exc:
-        logger.exception("list_admin_devices failed admin=%s", current_admin.email)
+        logger.exception("list_admin_devices failed actor=%s", current_actor.email)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error: {str(exc)}",
@@ -155,29 +160,66 @@ async def list_admin_devices(
     if sn:
         result = [d for d in result if str(d.get("sn")) == sn]
 
-    logger.info("list_admin_devices completed admin=%s result_count=%s", current_admin.email, len(result))
+    logger.info("list_admin_devices completed actor=%s result_count=%s", current_actor.email, len(result))
     return result
 
 
 @router.get("/devices/search/{sn}")
 async def search_device_for_binding(
     sn: str,
-    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
+    current_actor: Annotated[object, Depends(require_roles("admin", "superuser"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ):
-    logger.info("search_device_for_binding started admin=%s sn=%s", current_admin.email, sn)
+    logger.info("search_device_for_binding started actor=%s sn=%s", current_actor.email, sn)
+    is_su = isinstance(current_actor, SuperUserInDB)
     try:
         local_device = await mongo.devices.find_one({"sn": sn})
         if local_device:
+            # A super user may only look up devices an admin has handed to it.
+            if is_su and str(local_device.get("superuser_id") or "") != str(current_actor.id):
+                logger.info("search_device_for_binding out_of_scope actor=%s sn=%s", current_actor.email, sn)
+                return {"found": False, "source": None, "device": None}
             d = dict(local_device)
             d["_id"] = str(d["_id"])
-            logger.info("search_device_for_binding found_in_local admin=%s sn=%s", current_admin.email, sn)
+            logger.info("search_device_for_binding found_in_local actor=%s sn=%s", current_actor.email, sn)
             return {"found": True, "source": "local", "device": d}
     except Exception as err:
-        logger.warning("search_device_for_binding local_error admin=%s sn=%s error=%s", current_admin.email, sn, err)
+        logger.warning("search_device_for_binding local_error actor=%s sn=%s error=%s", current_actor.email, sn, err)
 
-    logger.info("search_device_for_binding not_found admin=%s sn=%s", current_admin.email, sn)
+    logger.info("search_device_for_binding not_found actor=%s sn=%s", current_actor.email, sn)
     return {"found": False, "source": None, "device": None}
+
+
+@router.post("/devices/assign-superuser")
+async def admin_assign_device_superuser(
+    payload: AssignSuperuserRequest,
+    current_admin: Annotated[AdminInDB, Depends(require_role("admin"))],
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """Assign (or clear) the owning super user on a device. Admin only.
+
+    Any user currently bound to the device is migrated to the new super user.
+    """
+    sn = (payload.sn or "").strip()
+    if not sn:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device SN is required")
+
+    device = await mongo.get_device_by_sn(sn)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    su_id = (payload.superuser_id or "").strip() or None
+    if su_id:
+        su = await mongo.get_superuser_by_id(su_id)
+        if not su:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown super user")
+
+    ok = await mongo.set_device_superuser(sn, su_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update device")
+
+    logger.info("admin_assign_device_superuser admin=%s sn=%s superuser_id=%s", current_admin.email, sn, su_id)
+    return {"status": "ok", "sn": sn, "superuser_id": su_id}
 
 
 @router.post("/devices")

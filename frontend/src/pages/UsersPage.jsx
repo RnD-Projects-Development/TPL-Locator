@@ -171,11 +171,14 @@ function RoleBadge({ role, isLight }) {
   const map = {
     admin:      'badge-red-500',
     superadmin: 'badge-primary',
+    superuser:  'badge-primary',
     user:       'badge-secondary',
     operator:   'badge-teal-500',
   }
   const cls = map[r] || 'badge-secondary'
-  const label = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User'
+  const label = r === 'superuser'
+    ? 'Super User'
+    : (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User')
   
   const customStyle = (isLight && cls === 'badge-secondary')
     ? { background: '#F3F4F6', color: '#4B5563', border: '1px solid #E5E7EB' }
@@ -968,7 +971,8 @@ function UserRow({
 export default function UsersPage() {
   const pushTrail = useTrailNav()
   const { users, loading, error, refresh, silentRefresh, lastFetched } = useUserCache()
-  const { isAdmin } = useAuth()
+  const { isAdmin, isSuperUser } = useAuth()
+  const canManageUsers = isAdmin || isSuperUser
   const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache()
 
   useDeviceUpdates(() => {
@@ -980,7 +984,7 @@ export default function UsersPage() {
     const id = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
-  const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser } = useCityTag()
+  const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser } = useCityTag()
   const [addDeviceTarget, setAddDeviceTarget] = useState(null)
   const unboundDevices = useMemo(() => devices.filter(d => !(d.user_id || d.assigned_user_name)), [devices])
 
@@ -1099,6 +1103,7 @@ export default function UsersPage() {
   const [newIdentifier, setNewIdentifier] = useState('')
   const [newName,       setNewName]       = useState('')
   const [newPassword,   setNewPassword]   = useState('')
+  const [newRole,       setNewRole]       = useState('user')  // 'user' | 'superuser' (admin only)
   const [createLoading, setCreateLoading] = useState(false)
   const [createError,   setCreateError]   = useState('')
 
@@ -1289,7 +1294,7 @@ export default function UsersPage() {
   }, [adminUpdateUser, silentRefresh])
 
   /* ── Create user ────────────────────────────────────────────────────────── */
-  const openCreate  = () => { setNewIdentifier(''); setNewName(''); setNewPassword(''); setCreateError(''); setShowCreate(true) }
+  const openCreate  = () => { setNewIdentifier(''); setNewName(''); setNewPassword(''); setNewRole('user'); setCreateError(''); setShowCreate(true) }
   const closeCreate = () => setShowCreate(false)
 
   const handleCreate = async () => {
@@ -1303,7 +1308,13 @@ export default function UsersPage() {
     }
     setCreateError(''); setCreateLoading(true)
     try {
-      await adminCreateUser({ identifier: newIdentifier.trim(), password: newPassword.trim(), name: newName.trim() })
+      await adminCreateUser({
+        identifier: newIdentifier.trim(),
+        password: newPassword.trim(),
+        name: newName.trim(),
+        // Only admins may create super users; the backend ignores role for a super-user actor.
+        ...(isAdmin && newRole === 'superuser' ? { role: 'superuser' } : {}),
+      })
       refresh()
       closeCreate()
     } catch (err) {
@@ -1373,13 +1384,13 @@ export default function UsersPage() {
     finally { setUnbindLoading(false) }
   }
 
-  /* ── Admin gate ─────────────────────────────────────────────────────────── */
-  if (!isAdmin) {
+  /* ── Access gate ───────────────────────────────────────────────────────── */
+  if (!canManageUsers) {
     return (
       <div style={{ ...panelStyle, padding: '64px 20px', textAlign: 'center' }}>
         <Shield style={{ width: 42, height: 42, color: '#A72C32', margin: '0 auto 14px' }} />
-        <p style={{ fontSize: 15, fontWeight: 700, color: T.txt1, margin: '0 0 8px' }}>Admin access required</p>
-        <p style={{ fontSize: 12, color: T.txt3, margin: 0 }}>Only admins can view the user list.</p>
+        <p style={{ fontSize: 15, fontWeight: 700, color: T.txt1, margin: '0 0 8px' }}>Access required</p>
+        <p style={{ fontSize: 12, color: T.txt3, margin: 0 }}>Only admins and super users can view the user list.</p>
       </div>
     )
   }
@@ -1504,7 +1515,7 @@ export default function UsersPage() {
                     return (
                       <UserRow
                         key={uid || i}
-                        u={u} idx={i} isAdmin={isAdmin}
+                        u={u} idx={i} isAdmin={canManageUsers}
                         onDelete={setDeleteTarget} onEdit={openEdit}
                         onAddDevice={setAddDeviceTarget}
                         onTogglePermission={handleTogglePermission}
@@ -1605,6 +1616,24 @@ export default function UsersPage() {
                   <input type="password" placeholder="Minimum 8 characters" name="cu-password" autoComplete="new-password"
                     value={newPassword} onChange={e => setNewPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreate()} style={inputSt} />
                 </div>
+                {isAdmin && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Role</label>
+                    <select
+                      value={newRole}
+                      onChange={e => setNewRole(e.target.value)}
+                      style={{ ...inputSt, background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5', appearance: 'auto' }}
+                    >
+                      <option value="user" style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>User</option>
+                      <option value="superuser" style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>Super User</option>
+                    </select>
+                    {newRole === 'superuser' && (
+                      <span style={{ fontSize: 11, color: T.txt3 }}>
+                        A super user manages its own users and the devices you assign to it.
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px', borderTop: `1px solid ${T.bdrLight}` }}>
                 <button onClick={closeCreate} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: T.cancelBg, border: `1px solid ${T.cancelBdr}`, color: T.cancelTxt }}>Cancel</button>
@@ -1811,12 +1840,21 @@ export default function UsersPage() {
       {addDeviceTarget && (
         <AddDeviceToUserModal
           user={addDeviceTarget}
+          targetRole={addDeviceTarget.role || 'user'}
           devices={unboundDevices}
           onAssign={async (sns, opts) => {
-            const userId = addDeviceTarget._id ?? addDeviceTarget.id
+            const targetId = addDeviceTarget._id ?? addDeviceTarget.id
             const snList = Array.isArray(sns) ? sns : [sns]
-            for (const sn of snList) {
-              await adminAssignDeviceToUser(userId, sn, opts)
+            if ((addDeviceTarget.role || 'user') === 'superuser') {
+              // Hand the devices to the super user's fleet — they are not bound
+              // to an end user here.
+              for (const sn of snList) {
+                await adminAssignDeviceSuperuser(sn, targetId)
+              }
+            } else {
+              for (const sn of snList) {
+                await adminAssignDeviceToUser(targetId, sn, opts)
+              }
             }
             await silentRefresh()
             await silentRefreshDevices()
@@ -1832,7 +1870,7 @@ export default function UsersPage() {
           devices={resolveUserDevices(drawerUser)}
           open={Boolean(drawerUser)}
           onClose={() => setDrawerUser(null)}
-          isAdmin={isAdmin}
+          isAdmin={canManageUsers}
           onUnbindDevice={(d) => {
             setDrawerUser(null)
             setUnbindTarget(d)

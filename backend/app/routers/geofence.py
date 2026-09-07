@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from bson import ObjectId
 
 from app.dependencies import get_current_account, get_mongo_service
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 from app.services.geofence import compute_device_zone_status, compute_zone_events
@@ -26,20 +26,26 @@ def _to_oid(v):
         return None
 
 
+def _is_su(account) -> bool:
+    return isinstance(account, SuperUserInDB)
+
+
 async def _admin_scope_oid(account, mongo: MongoService) -> Optional[ObjectId]:
     """The admin_id whose zones/devices this account may see."""
     if isinstance(account, AdminInDB):
         return _to_oid(account.id)
     if getattr(account, "admin_id", None):
         return _to_oid(account.admin_id)
-    dev = await mongo.devices.find_one({"user_id": _to_oid(account.id)}, {"admin_id": 1})
+    scope_key = "superuser_id" if _is_su(account) else "user_id"
+    dev = await mongo.devices.find_one({scope_key: _to_oid(account.id)}, {"admin_id": 1})
     if dev and dev.get("admin_id"):
         return _to_oid(dev["admin_id"])
     return None
 
 
 async def _user_own_sns(account, mongo: MongoService) -> set:
-    docs = await mongo.devices.find({"user_id": _to_oid(account.id)}, {"sn": 1}).to_list(1000)
+    scope_key = "superuser_id" if _is_su(account) else "user_id"
+    docs = await mongo.devices.find({scope_key: _to_oid(account.id)}, {"sn": 1}).to_list(5000)
     return {d["sn"] for d in docs if d.get("sn")}
 
 
@@ -89,9 +95,10 @@ async def _resolve_zone(zone_id: str, account, mongo: MongoService):
     sns = doc.get("device_sns") or []
     if not isinstance(account, AdminInDB):
         own = await _user_own_sns(account, mongo)
-        is_user_zone = (doc.get("user_id") == _to_oid(account.id))
+        own_key = "superuser_id" if _is_su(account) else "user_id"
+        is_own_zone = (doc.get(own_key) == _to_oid(account.id))
         matching_sns = [s for s in sns if s in own]
-        if not is_user_zone and not matching_sns:
+        if not is_own_zone and not matching_sns:
             return None
         sns = matching_sns
 
@@ -99,7 +106,7 @@ async def _resolve_zone(zone_id: str, account, mongo: MongoService):
 
 
 def _check_geofence_access(account):
-    if isinstance(account, AdminInDB):
+    if isinstance(account, (AdminInDB, SuperUserInDB)):
         return
     if not (getattr(account, "geofence_access", False) or getattr(account, "geofence_create_access", False) or getattr(account, "fence_create_access", False)):
         raise HTTPException(

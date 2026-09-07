@@ -428,8 +428,11 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel, statusTabsNode }) {
   const location = useLocation()
   const pushTrail = useTrailNav()
-  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, getCategories } = useCityTag()
-  const { user, isAdmin } = useAuth()
+  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminGetSuperusers, getCategories } = useCityTag()
+  const { user, isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  // A super user manages a fleet exactly like an admin — the backend scopes the
+  // data to its own devices/users — so treat it as an admin throughout this page.
+  const isAdmin = rawIsAdmin || isSuperUser
   const { users, loading: usersLoading } = useUserCache()
   const [categories, setCategories] = useState([]);
     useEffect(() => {
@@ -465,6 +468,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const [editClient,   setEditClient]   = useState('')
   const [editCategory, setEditCategory] = useState('')
   const [editUserId,   setEditUserId]   = useState('')
+  const [editSuperuserId, setEditSuperuserId] = useState('')  // real-admin only
+  const [superusers,   setSuperusers]   = useState([])
   const [editLoading,  setEditLoading]  = useState(false)
   const [editError,    setEditError]    = useState('')
 
@@ -595,12 +600,21 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     }
   }
 
+  // Only a real admin (not a super user) can hand devices to super users.
+  useEffect(() => {
+    if (!rawIsAdmin) return
+    let alive = true
+    adminGetSuperusers().then(rows => { if (alive) setSuperusers(Array.isArray(rows) ? rows : []) }).catch(() => {})
+    return () => { alive = false }
+  }, [rawIsAdmin, adminGetSuperusers])
+
   const openEdit = (d) => {
     setEditError('')
     setEditName(d.name || '')
     setEditClient(d.client || '')
     setEditCategory(d.category || '')
     setEditUserId(d.assigned_user_id ? String(d.assigned_user_id) : '')
+    setEditSuperuserId(d.superuser_id ? String(d.superuser_id) : '')
     setEditTarget(d)
   }
 
@@ -617,7 +631,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   )
   const editUserChanged = !!editTarget && !!editUserId &&
     String(editUserId) !== String(editTarget.assigned_user_id || '')
-  const editHasChanges = editDetailsChanged || editUserChanged
+  const editSuperuserChanged = !!editTarget && rawIsAdmin &&
+    String(editSuperuserId || '') !== String(editTarget.superuser_id || '')
+  const editHasChanges = editDetailsChanged || editUserChanged || editSuperuserChanged
 
   const handleEditSave = async () => {
     if (!editTarget || editLoading || !editHasChanges) return
@@ -630,6 +646,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           client:   editClient.trim(),
           category: editCategory || undefined,
         })
+      }
+      if (editSuperuserChanged) {
+        await adminAssignDeviceSuperuser(editTarget.sn, editSuperuserId || null)
       }
       if (editUserChanged) {
         // Admin reassignment — backend releases the device from its current
@@ -939,6 +958,21 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   </div>
                 )}
 
+                {rawIsAdmin && (
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                      Owning Super User <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span>
+                      {editSuperuserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86A6A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will change</span>}
+                    </label>
+                    <select value={editSuperuserId} onChange={e => setEditSuperuserId(e.target.value)} style={SELECT_STYLE}>
+                      <option value="" style={SELECT_OPT}>— None —</option>
+                      {superusers.map(su => (
+                        <option key={su.id} value={su.id} style={SELECT_OPT}>{su.name || su.email || su.phone || su.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
                     Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span>
@@ -1082,7 +1116,8 @@ export default function Devices() {
     palette: { mode: isLight ? 'light' : 'dark', primary: { main: '#A72C32', contrastText: '#FFFFFF' } },
   }), [isLight])
 
-  const { isAdmin } = useAuth()
+  const { isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  const isAdmin = rawIsAdmin || isSuperUser
   const chrome = useDashboardChrome()
   const { bindDevice, adminAssignDeviceToUser, checkDeviceAvailability, getDevices, getLatestLocationsBatch, getCategories } = useCityTag()
   const { devices: cacheDevices } = useDeviceCache()

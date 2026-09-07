@@ -5,14 +5,23 @@ from typing import Optional, Union
 from fastapi import HTTPException, status
 
 from app.account_identifier import normalize_phone
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 
 logger = logging.getLogger(__name__)
 
-def _is_admin(account: Union[AdminInDB, UserInDB]) -> bool:
+def _is_admin(account) -> bool:
     return isinstance(account, AdminInDB)
+
+
+def _is_superuser(account) -> bool:
+    return isinstance(account, SuperUserInDB)
+
+
+def _can_bind_for_others(account) -> bool:
+    """Admins and super users may bind/unbind on behalf of a target user."""
+    return _is_admin(account) or _is_superuser(account)
 
 
 async def _resolve_target_user(
@@ -52,10 +61,10 @@ async def _resolve_target_user(
             )
         return target_user
 
-    if _is_admin(current_account):
+    if _can_bind_for_others(current_account):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Admin must provide user_id or email for target user",
+            detail="Must provide user_id or email for target user",
         )
 
     # Regular user: self-target
@@ -86,17 +95,32 @@ async def bind_device_service(
 
     target_user = await _resolve_target_user(current_account, mongo, identifier=identifier, user_id=user_id)
 
-    # Non-admin cannot bind on behalf of others
-    if not _is_admin(current_account) and str(target_user.id) != str(current_account.id):
+    # Non-admin/non-superuser cannot bind on behalf of others
+    if not _can_bind_for_others(current_account) and str(target_user.id) != str(current_account.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign device to another user")
 
     # Single-company deployment: every admin login shares one fleet and user pool,
     # so any admin may bind any registered user (mirrors admin_list_users, which
     # now returns all users). Cross-admin ownership is intentionally NOT enforced.
 
+    # A super user is scoped to its own slice: it may only bind users that fall
+    # under it, and only devices an admin has handed to it.
+    if _is_superuser(current_account):
+        if str(getattr(target_user, "superuser_id", "") or "") != str(current_account.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This user is not managed by you",
+            )
+
     device = await mongo.get_device_by_sn(sn)
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device does not exist. Please ask your admin to add it first.")
+
+    if _is_superuser(current_account) and str(getattr(device, "superuser_id", "") or "") != str(current_account.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This device is not assigned to you. Ask an admin to hand it over first.",
+        )
 
     if device.user_id and str(device.user_id) != str(target_user.id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Device already assigned to another user")
@@ -126,8 +150,8 @@ async def bind_device_service(
         update_fields["bound_at"] = datetime.now(timezone.utc)
         await mongo.devices.update_one({"sn": sn}, {"$set": update_fields})
 
-    # Auto-link regular user to device admin if needed
-    if not _is_admin(current_account) and not current_account.admin_id and device.admin_id:
+    # Auto-link regular user to device admin if needed (self-bind path only)
+    if not _can_bind_for_others(current_account) and not current_account.admin_id and device.admin_id:
         await mongo.update_user_admin(str(current_account.id), str(device.admin_id))
 
     updated = await mongo.devices.find_one({"sn": sn})
@@ -178,6 +202,12 @@ async def unbind_device_service(
 
         if not target_user and device.admin_id and str(device.admin_id) != str(current_account.id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot unassign devices outside your administration")
+
+    elif _is_superuser(current_account):
+        if str(getattr(device, "superuser_id", "") or "") != str(current_account.id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This device is not assigned to you")
+        if target_user and str(device.user_id) != str(target_user.id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This device is not assigned to the specified user")
 
     else:
         if str(device.user_id) != str(current_account.id):

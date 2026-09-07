@@ -54,7 +54,8 @@ export default function StickerDetail() {
   const backTo = useBackTarget('/devices?tab=all')
   const { zones }            = useZoneCache()
   const { getLatestLocation, getDeviceBySn, getGeocode, adminAssignDeviceToUser } = useCityTag()
-  const { isAdmin }          = useAuth()
+  const { isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  const isAdmin = rawIsAdmin || isSuperUser
   const { users }            = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)

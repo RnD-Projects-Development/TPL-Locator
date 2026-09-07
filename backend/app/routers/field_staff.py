@@ -6,8 +6,8 @@ from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from bson import ObjectId
 
-from app.dependencies import get_mongo_service, require_role
-from app.models.admin import AdminInDB
+from app.dependencies import get_mongo_service, require_role, require_roles
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.services.mongodb import MongoService
 
 router = APIRouter(prefix="/api/field-staff", tags=["field_staff"])
@@ -56,8 +56,8 @@ def _text_regex(term: str) -> dict:
     return {"$regex": re.escape(term.strip()), "$options": "i"}
 
 
-async def _build_admin_device_query(mongo: MongoService, admin_oid: ObjectId, search: str | None) -> dict:
-    query: dict = {"admin_id": admin_oid}
+async def _build_admin_device_query(mongo: MongoService, base: dict, search: str | None) -> dict:
+    query: dict = dict(base)
     term = (search or "").strip()
     if not term:
         return query
@@ -214,7 +214,7 @@ def _paged_payload(items: list[dict], page: int, limit: int, total: int, online_
 
 @router.get("/live-devices")
 async def get_live_devices(
-    admin: Annotated[AdminInDB, Depends(require_role("admin"))],
+    actor: Annotated[object, Depends(require_roles("admin", "superuser"))],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
@@ -228,12 +228,15 @@ async def get_live_devices(
     Use search to find devices beyond the first page; optional last_seen date filters.
     """
     logger.info(
-        "get_live_devices started admin=%s page=%s limit=%s search=%s",
-        admin.email, page, limit, bool(search),
+        "get_live_devices started actor=%s page=%s limit=%s search=%s",
+        actor.email, page, limit, bool(search),
     )
 
-    admin_oid = _to_oid(admin.id)
-    query = await _build_admin_device_query(mongo, admin_oid, search)
+    if isinstance(actor, SuperUserInDB):
+        base = {"superuser_id": _to_oid(actor.id)}
+    else:
+        base = {"admin_id": _to_oid(actor.id)}
+    query = await _build_admin_device_query(mongo, base, search)
     if zone_id and zone_id.strip():
         zid = zone_id.strip()
         query = {
@@ -290,7 +293,7 @@ async def get_live_devices(
     online_count = sum(1 for sn in all_sns if _is_online(fleet_latest.get(sn, {}).get("timestamp")))
 
     logger.info(
-        "get_live_devices completed admin=%s page=%s returned=%s total=%s",
-        admin.email, page, len(page_rows), total,
+        "get_live_devices completed actor=%s page=%s returned=%s total=%s",
+        actor.email, page, len(page_rows), total,
     )
     return _paged_payload(_strip_internal(page_rows), page, limit, total, online_count)

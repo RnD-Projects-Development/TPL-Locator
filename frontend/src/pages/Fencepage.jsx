@@ -98,7 +98,8 @@ class ErrorBoundary extends Component {
 // ─── Main page ────────────────────────────────────────────────────────────────
 function FencePageInner() {
   const { devices, refresh, silentRefresh } = useDeviceCache();
-  const { accessToken, isAdmin, user } = useAuth();
+  const { accessToken, isAdmin: rawIsAdmin, isSuperUser, user } = useAuth();
+  const isAdmin = rawIsAdmin || isSuperUser;
   const { zones, refreshZones, zonesLoading } = useZoneCache();
   const canManageFence = isAdmin || Boolean(user?.geofence_create_access);
 

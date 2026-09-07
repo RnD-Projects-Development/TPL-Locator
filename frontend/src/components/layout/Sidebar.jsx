@@ -5,16 +5,16 @@ import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
   LayoutDashboard, Map,
   FileText, Layers,
-  LogOut, PlayCircle, Shield, UserCog,
+  LogOut, PlayCircle, Shield, UserCog, Users,
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
 
-function getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess) {
+function getNav(isFleetManager, hasGeofenceAccess, hasDashboardAccess) {
   const sections = [
     {
       section: 'OVERVIEW', links: [
-        ...(isAdmin || hasDashboardAccess ? [{ to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
+        ...(isFleetManager || hasDashboardAccess ? [{ to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
       ]
     },
     {
@@ -26,12 +26,13 @@ function getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess) {
       section: 'INTELLIGENCE', links: [
         { to: '/map', icon: Map, label: 'Map View' },
         { to: '/playback', icon: PlayCircle, label: 'Playback' },
-        ...(isAdmin || hasGeofenceAccess ? [{ to: '/fence', icon: Shield, label: 'Fence' }] : []),
+        ...(isFleetManager || hasGeofenceAccess ? [{ to: '/fence', icon: Shield, label: 'Fence' }] : []),
+        ...(isFleetManager ? [{ to: '/field-staff', icon: Users, label: 'Field Staff' }] : []),
       ]
     },
     {
       section: 'REPORTS & ADMIN', links: [
-        ...(isAdmin ? [{ to: '/users', icon: UserCog, label: 'Users' }] : []),
+        ...(isFleetManager ? [{ to: '/users', icon: UserCog, label: 'Users' }] : []),
         { to: '/reports', icon: FileText, label: 'Reports' },
       ]
     },
@@ -40,13 +41,14 @@ function getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess) {
 }
 
 export default function Sidebar() {
-  const { user, setUser, isAdmin, sidebarOpen, setSidebarOpen, unreadAlerts } = useApp()
+  const { user, setUser, isAdmin, isFleetManager, sidebarOpen, setSidebarOpen, unreadAlerts } = useApp()
   const { alerts } = useAlerts()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const fleetManager = isFleetManager || isAdmin
   const hasGeofenceAccess = Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access)
   const hasDashboardAccess = Boolean(user?.dashboard_access !== false)
-  const nav = getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess)
+  const nav = getNav(fleetManager, hasGeofenceAccess, hasDashboardAccess)
 
   const confirmLogout = () => {
     setShowLogoutConfirm(false)
@@ -175,7 +177,7 @@ export default function Sidebar() {
               pointerEvents: sidebarOpen ? 'auto' : 'none',
             }}>
               <div className="text-gray-200 text-xs font-semibold truncate">{user?.name}</div>
-              <div className="text-gray-500 text-[10px] capitalize">{user?.role}</div>
+              <div className="text-gray-500 text-[10px] capitalize">{user?.role === 'superuser' ? 'Super User' : user?.role}</div>
             </div>
             <button onClick={() => setShowLogoutConfirm(true)} title="Log out"
               className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors flex-shrink-0">

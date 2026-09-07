@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.dependencies import get_current_account, get_mongo_service
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 from app.services.device_binding import bind_device_service, unbind_device_service
@@ -101,6 +101,25 @@ def _to_oid(value) -> ObjectId | None:
         return None
 
 
+def _is_fleet_account(account) -> bool:
+    """True for accounts that manage a fleet (admin or super user), not a plain user."""
+    return isinstance(account, (AdminInDB, SuperUserInDB))
+
+
+def _fleet_base_query(account) -> dict:
+    """Base mongo filter over `devices` for an admin / super user fleet view."""
+    if isinstance(account, SuperUserInDB):
+        return {"superuser_id": _to_oid(account.id)}
+    return {"admin_id": _to_oid(account.id)}
+
+
+def _owns_device_doc(account, doc: dict) -> bool:
+    """Whether a fleet account owns a raw device doc."""
+    if isinstance(account, SuperUserInDB):
+        return str(doc.get("superuser_id") or "") == str(account.id)
+    return str(doc.get("admin_id") or "") == str(account.id)
+
+
 async def _load_latest_location_map(mongo: MongoService, sns: list[str]) -> dict[str, datetime | None]:
     if not sns:
         return {}
@@ -141,6 +160,7 @@ def _device_row(
         "assigned_user_name": assigned_user_name,
         "assigned_user_id": assigned_user_id,
         "assignedUser": assigned_user_name,
+        "superuser_id": str(doc.get("superuser_id")) if doc.get("superuser_id") else None,
         "dataRetrievalTime": _fmt_dt(latest_timestamp) if latest_timestamp else None,
         "bindTime": _fmt_dt(doc.get("bound_at")),
         "region": doc.get("region") or None,
@@ -218,12 +238,12 @@ def _doc_matches_sn_name_search(doc: dict, term: str) -> bool:
 
 async def _build_admin_device_query(
     mongo: MongoService,
-    admin_oid: ObjectId,
+    base: dict,
     search: str | None,
     *,
     sn_name_only: bool = False,
 ) -> dict:
-    query: dict = {"admin_id": admin_oid}
+    query: dict = dict(base)
     term = (search or "").strip()
     if not term:
         return query
@@ -381,8 +401,7 @@ async def _list_devices_page(
         ]
         return _paged_response(items, page, limit, total)
 
-    admin_oid = _to_oid(account.id)
-    query = await _build_admin_device_query(mongo, admin_oid, term, sn_name_only=sn_name_only)
+    query = await _build_admin_device_query(mongo, _fleet_base_query(account), term, sn_name_only=sn_name_only)
     query = _apply_device_type_filter(query, device_type)
     query = await _apply_status_filter_to_query(mongo, query, status_filter)
 
@@ -446,18 +465,20 @@ async def _list_devices_page(
     return _paged_response(items, page, limit, total)
 
 
-async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[dict]:
+async def _enrich_admin_devices(account, mongo: MongoService) -> List[dict]:
     """
-    Build an admin-facing device list purely from Mongo.
+    Build an admin / super user facing device list purely from Mongo.
 
     This keeps GET /api/devices stable even if CityTag is down, because it only relies on:
     - mongo.devices (binding/name/client/region/user assignment)
     - mongo.locations (latest timestamp -> status + dataRetrievalTime)
     - mongo.accounts (assigned user display name, filtered by role="user")
-    """
-    logger.info("enrich_admin_devices started admin=%s", admin.email)
 
-    docs = await mongo.devices.find({"admin_id": admin.id}).to_list(None)
+    `account` is an AdminInDB or SuperUserInDB; the fleet scope is derived from it.
+    """
+    logger.info("enrich_admin_devices started account=%s", account.email)
+
+    docs = await mongo.devices.find(_fleet_base_query(account)).to_list(None)
     if not docs:
         return []
 
@@ -532,6 +553,7 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
             "assigned_user_id": assigned_user_id,
             # Frontend legacy alias (used by dashboard pages).
             "assignedUser": assigned_user_name,
+            "superuser_id": str(doc.get("superuser_id")) if doc.get("superuser_id") else None,
             "dataRetrievalTime": data_retrieval_time,
             "bindTime": _fmt_dt(doc.get("bound_at")),
             "region": doc.get("region") or None,
@@ -545,7 +567,7 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
             "first_seen": doc.get("first_seen") or None,
         })
 
-    logger.info("enrich_admin_devices completed admin=%s result_count=%s", admin.email, len(result))
+    logger.info("enrich_admin_devices completed account=%s result_count=%s", account.email, len(result))
     return result
 
 
@@ -680,16 +702,16 @@ async def list_available_devices(
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ) -> List[dict]:
     """
-    Return unbound devices the current admin can bind (dropdown source for
-    the admin bind modal). Admin-only: regular users bind by typing an exact
-    SN (see GET /devices/{sn}/check) rather than browsing a full device list,
-    so this endpoint would otherwise let a user enumerate every unbound
-    device in the system.
+    Return unbound devices the current admin / super user can bind (dropdown
+    source for the bind modal). Fleet accounts only: regular users bind by
+    typing an exact SN (see GET /devices/{sn}/check) rather than browsing a full
+    device list, so this endpoint would otherwise let a user enumerate every
+    unbound device in the system.
     """
-    if not isinstance(account, AdminInDB):
+    if not _is_fleet_account(account):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    query = {"admin_id": account.id, "user_id": None}
+    query = {**_fleet_base_query(account), "user_id": None}
     docs = await mongo.devices.find(query).to_list(None)
 
     return [
@@ -766,9 +788,8 @@ async def get_devices_summary(
             {"_id": {"$in": ids}}, {"sn": 1, "bound_at": 1, "user_id": 1},
         ).to_list(len(ids))
     else:
-        admin_oid = _to_oid(account.id)
         docs = await mongo.devices.find(
-            {"admin_id": admin_oid}, {"sn": 1, "bound_at": 1, "user_id": 1},
+            _fleet_base_query(account), {"sn": 1, "bound_at": 1, "user_id": 1},
         ).to_list(None)
 
     sns = [str(d.get("sn")) for d in docs if d.get("sn")]
@@ -841,9 +862,8 @@ async def get_device_by_sn(
     if isinstance(account, UserInDB):
         if _to_oid(doc.get("_id")) not in (account.devices or []):
             raise HTTPException(status_code=403, detail="Device not assigned to you")
-    else:
-        if str(doc.get("admin_id")) != str(account.id):
-            raise HTTPException(status_code=403, detail="Device not owned by this admin")
+    elif not _owns_device_doc(account, doc):
+        raise HTTPException(status_code=403, detail="Device not in your fleet")
 
     latest_ts_map = await _load_latest_location_map(mongo, [sn])
     latest_ts = latest_ts_map.get(sn)
@@ -900,9 +920,10 @@ async def _update_device_for_account(
     payload: UpdateDeviceRequest,
     mongo: MongoService,
 ):
-    is_admin = isinstance(current_account, AdminInDB)
+    is_fleet = _is_fleet_account(current_account)
+    is_admin = is_fleet  # region / fence-zone edits: allowed for admins and super users
 
-    if not is_admin and any([
+    if not is_fleet and any([
         payload.region is not None,
         payload.zone is not None,
         payload.add_zone is not None,
@@ -910,15 +931,18 @@ async def _update_device_for_account(
     ]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admins only may update region or fence zone fields",
+            detail="Only admins or super users may update region or fence zone fields",
         )
 
     device = await mongo.get_device_by_sn(sn)
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
-    if is_admin:
-        if str(device.admin_id) != str(current_account.id):
+    if is_fleet:
+        if isinstance(current_account, SuperUserInDB):
+            if str(device.superuser_id or "") != str(current_account.id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not in your fleet")
+        elif str(device.admin_id) != str(current_account.id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not owned by this admin")
     else:
         if not device.user_id or str(device.user_id) != str(current_account.id):
