@@ -17,11 +17,11 @@ jobs:
         working-directory: ./frontend
 
       - name: Run frontend tests
-        run: npm test -- --watchAll=false
+        run: npm run test:run
         working-directory: ./frontend
 
       - name: Build frontend
-        run: npm run build
+        run: npm run build:main
         working-directory: ./frontend
 
       # ---------- BACKEND (FastAPI) ----------
@@ -47,7 +47,7 @@ jobs:
 
       - name: Deploy frontend build
         run: |
-          robocopy .\frontend\build C:\apps\TPL-Locator\frontend /MIR
+          robocopy .\frontend\dist C:\apps\TPL-Locator\frontend\dist /MIR
           if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }
 
       - name: Deploy backend
@@ -65,6 +65,4 @@ jobs:
         run: nssm start TPL-Backend
 
       - name: Reload Nginx
-        run: |
-          cd C:\nginx
-          .\nginx.exe -s reload
+        run: nssm restart NginxService
