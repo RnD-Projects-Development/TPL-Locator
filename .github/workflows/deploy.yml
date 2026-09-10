@@ -37,7 +37,7 @@ jobs:
         working-directory: ./backend
 
       - name: Run backend tests
-        run: .\venv\Scripts\pytest
+        run: .\venv\Scripts\python.exe -m pytest
         working-directory: ./backend
 
       # ---------- DEPLOY ----------
