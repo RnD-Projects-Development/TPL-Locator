@@ -1,0 +1,70 @@
+name: UAT CI/CD Pipeline
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  build-test-deploy:
+    runs-on: [self-hosted, Windows]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ---------- FRONTEND (React) ----------
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Run frontend tests
+        run: npm test -- --watchAll=false
+        working-directory: ./frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+
+      # ---------- BACKEND (FastAPI) ----------
+      - name: Create/verify Python venv
+        run: |
+          if (!(Test-Path ".\venv")) {
+            python -m venv venv
+          }
+        working-directory: ./backend
+
+      - name: Install backend deps
+        run: .\venv\Scripts\pip install -r requirements.txt
+        working-directory: ./backend
+
+      - name: Run backend tests
+        run: .\venv\Scripts\pytest
+        working-directory: ./backend
+
+      # ---------- DEPLOY ----------
+      - name: Stop backend service
+        run: nssm stop TPL-Backend
+        continue-on-error: true
+
+      - name: Deploy frontend build
+        run: |
+          robocopy .\frontend\build C:\apps\TPL-Locator\frontend /MIR
+          if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }
+
+      - name: Deploy backend
+        run: |
+          robocopy .\backend C:\apps\TPL-Locator\backend /MIR /XD venv __pycache__ .pytest_cache
+          if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }
+
+      - name: Install backend deps on deploy path
+        run: |
+          cd C:\apps\TPL-Locator\backend
+          if (!(Test-Path ".\venv")) { python -m venv venv }
+          .\venv\Scripts\pip install -r requirements.txt
+
+      - name: Start backend service
+        run: nssm start TPL-Backend
+
+      - name: Reload Nginx
+        run: |
+          cd C:\nginx
+          .\nginx.exe -s reload
