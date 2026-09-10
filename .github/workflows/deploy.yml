@@ -28,7 +28,7 @@ jobs:
       - name: Create/verify Python venv
         run: |
           if (!(Test-Path ".\venv")) {
-            python -m venv venv
+            & "C:\Users\rd.ws\AppData\Local\Programs\Python\Python312\python.exe" -m venv venv
           }
         working-directory: ./backend
 
