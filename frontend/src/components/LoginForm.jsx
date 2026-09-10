@@ -204,7 +204,7 @@ export default function LoginForm() {
 
         {isLogin && (
           <div>
-            <label className="auth-label">Email or Phone Number</label>
+            <label className="auth-label">THIS IS CICD STAGING ENVIRONMENT</label>
             <input
               className="auth-input"
               style={identifierError ? { borderColor: "#ef4444" } : {}}
