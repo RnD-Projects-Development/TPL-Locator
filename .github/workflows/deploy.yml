@@ -47,12 +47,12 @@ jobs:
 
       - name: Deploy frontend build
         run: |
-          robocopy .\frontend\dist C:\apps\TPL-Locator\frontend\dist /MIR
+          robocopy .\frontend\dist C:\apps\TPL-Locator\frontend\dist /MIR /R:3 /W:5
           if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }
 
       - name: Deploy backend
         run: |
-          robocopy .\backend C:\apps\TPL-Locator\backend /MIR /XD venv __pycache__ .pytest_cache
+          robocopy .\backend C:\apps\TPL-Locator\backend /MIR /XD venv __pycache__ .pytest_cache /R:3 /W:5
           if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }
 
       - name: Install backend deps on deploy path
