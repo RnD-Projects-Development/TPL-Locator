@@ -5,6 +5,7 @@ const FLEET_TTL = 5 * 60 * 1000;
 let _fleetCache = null;
 let _fleetFetchedAt = null;
 let _fleetInflight = null;
+let _fleetGeneration = 0;
 
 export function isFleetCacheValid() {
   return Boolean(_fleetCache && _fleetFetchedAt && Date.now() - _fleetFetchedAt < FLEET_TTL);
@@ -15,6 +16,7 @@ export function getFleetCache() {
 }
 
 export function invalidateFleetCache(emit = true) {
+  _fleetGeneration += 1;
   _fleetCache = null;
   _fleetFetchedAt = null;
   _fleetInflight = null;
@@ -33,6 +35,8 @@ export async function fetchFleetDevices(getDevices, { force = false } = {}) {
   if (!force && _fleetInflight) {
     return _fleetInflight;
   }
+
+  const generation = ++_fleetGeneration;
 
   _fleetInflight = (async () => {
     const FETCH_LIMIT = 200;
@@ -56,15 +60,19 @@ export async function fetchFleetDevices(getDevices, { force = false } = {}) {
       return true;
     });
 
-    _fleetCache = all;
-    _fleetFetchedAt = Date.now();
+    if (generation === _fleetGeneration) {
+      _fleetCache = all;
+      _fleetFetchedAt = Date.now();
+    }
     return all;
   })();
 
   try {
     return await _fleetInflight;
   } finally {
-    _fleetInflight = null;
+    if (generation === _fleetGeneration) {
+      _fleetInflight = null;
+    }
   }
 }
 

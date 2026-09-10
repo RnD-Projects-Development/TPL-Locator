@@ -13,7 +13,7 @@ from app.dependencies import get_current_account, get_mongo_service
 from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
-from app.services.geofence import compute_device_zone_status, compute_zone_events
+from app.services.geofence import compute_device_zone_status, compute_zone_events, detect_admin_zone_events
 
 router = APIRouter(prefix="/api/geofence", tags=["geofence"])
 logger = logging.getLogger(__name__)
@@ -213,6 +213,42 @@ async def get_geofence_status(
 
     logger.info("[geofence] status actor=%s zones=%d pairs=%d", account.email, len(zones), len(pairs))
     return {"zones": zones, "zone_names": zone_names}
+
+
+# ── GET /api/geofence/activity ────────────────────────────────────────────────
+
+@router.get("/activity")
+async def get_geofence_activity(
+    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    mongo:   Annotated[MongoService, Depends(get_mongo_service)],
+    since:   Optional[datetime] = Query(default=None, description="Start time for crossing events"),
+    limit:   int = Query(default=50, ge=1, le=200),
+):
+    """
+    Returns real-time ENTER/EXIT boundary crossing events for ANY device across
+    ALL zones belonging to the admin, regardless of whether devices are assigned.
+    """
+    _check_geofence_access(account)
+    admin_oid = await _admin_scope_oid(account, mongo)
+    if not admin_oid:
+        return {"events": [], "server_time": datetime.now().isoformat()}
+
+    now = datetime.now()
+    if since is None:
+        since = now - timedelta(minutes=15)
+
+    events = await detect_admin_zone_events(
+        mongo=mongo,
+        admin_oid=admin_oid,
+        since=since,
+        end=now,
+        limit=limit,
+    )
+
+    return {
+        "events": events,
+        "server_time": now.isoformat(),
+    }
 
 
 # ── GET /api/geofence/report/{zone_id} ───────────────────────────────────────

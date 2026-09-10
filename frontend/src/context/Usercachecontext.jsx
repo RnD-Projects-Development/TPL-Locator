@@ -14,17 +14,25 @@ export function UserCacheProvider({ children }) {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState("");
   const [lastFetched, setLastFetched] = useState(null);
+  const usersRef = useRef([]);
+  const lastFetchedRef = useRef(null);
 
   const adminGetUsersRef = useRef(adminGetUsers);
   useEffect(() => { adminGetUsersRef.current = adminGetUsers; }, [adminGetUsers]);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (force = false) => {
+    if (!force && usersRef.current.length > 0 && lastFetchedRef.current && (Date.now() - lastFetchedRef.current < 120_000)) {
+      return;
+    }
     setLoading(true);
     setError("");
     try {
       const data = await adminGetUsersRef.current();
-      setUsers(Array.isArray(data) ? data : []);
-      setLastFetched(Date.now());
+      const list = Array.isArray(data) ? data : [];
+      usersRef.current = list;
+      lastFetchedRef.current = Date.now();
+      setUsers(list);
+      setLastFetched(lastFetchedRef.current);
     } catch (err) {
       setError(err.message || "Failed to load users");
     } finally {
@@ -37,12 +45,17 @@ export function UserCacheProvider({ children }) {
   const silentRefresh = useCallback(async () => {
     try {
       const data = await adminGetUsersRef.current();
-      setUsers(Array.isArray(data) ? data : []);
-      setLastFetched(Date.now());
+      const list = Array.isArray(data) ? data : [];
+      usersRef.current = list;
+      lastFetchedRef.current = Date.now();
+      setUsers(list);
+      setLastFetched(lastFetchedRef.current);
     } catch {}
   }, []);
 
   const resetUserCache = useCallback(() => {
+    usersRef.current = [];
+    lastFetchedRef.current = null;
     setUsers([]);
     setLoading(false);
     setError("");

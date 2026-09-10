@@ -7,7 +7,7 @@ import jwt
 
 from app.dependencies import get_current_account, get_mongo_service, get_settings
 from app.services.geocode import reverse_geocode
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 
@@ -119,7 +119,7 @@ async def get_latest_location(
 @router.post("/location/latest-batch")
 async def get_latest_locations_batch(
     payload: BatchLocationRequest,
-    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    account: Annotated[Union[AdminInDB, SuperUserInDB, UserInDB], Depends(get_current_account)],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ) -> Dict[str, Any]:
     """Return the latest location for multiple SNs in one request."""

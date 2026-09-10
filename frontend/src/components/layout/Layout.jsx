@@ -5,6 +5,7 @@ import Header from './Header.jsx'
 import { HomePageCacheProvider } from '../../context/HomePageCacheContext.jsx'
 import { BindCacheProvider } from '../../context/BindCacheContext.jsx'
 import { DashboardChromeProvider } from '../../context/DashboardChromeContext.jsx'
+import GlobalZoneAlerts from '../alerts/GlobalZoneAlerts.jsx'
 import '../../styles/light-theme.css'
 
 export const ThemeContext = React.createContext(null)
@@ -62,6 +63,7 @@ export default function Layout({ children }) {
                 </ThemeContext.Provider>
               </main>
             </div>
+            <GlobalZoneAlerts />
           </div>
         </DashboardChromeProvider>
       </HomePageCacheProvider>

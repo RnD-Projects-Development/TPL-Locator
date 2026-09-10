@@ -35,6 +35,10 @@ def _get_device_status(latest_timestamp) -> str:
     """Determine if device is online or offline based on latest location timestamp."""
     if not latest_timestamp:
         return "offline"
+    if isinstance(latest_timestamp, dict):
+        latest_timestamp = latest_timestamp.get("timestamp") or latest_timestamp.get("timestamps")
+    if not latest_timestamp:
+        return "offline"
     if isinstance(latest_timestamp, str):
         try:
             latest_timestamp = datetime.fromisoformat(latest_timestamp.replace("Z", "+00:00"))
@@ -73,6 +77,10 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
     # client — stored on the device doc at bind time
     client = doc.get("client") or None
 
+    landmark = (latest_loc.get("landmark") if latest_loc else None) or doc.get("landmark") or doc.get("lastLocation")
+    lat = latest_loc.get("lat") if latest_loc else doc.get("lat")
+    lng = (latest_loc.get("long") if latest_loc.get("long") is not None else latest_loc.get("lng")) if latest_loc else doc.get("lng")
+
     return {
         "sn":                 device_sn,
         "name":               doc.get("name", ""),
@@ -85,6 +93,10 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
         # Frontend legacy alias (used by dashboard pages).
         "assignedUser":      assigned_user_name,
         "dataRetrievalTime":  data_retrieval_time,
+        "landmark":           landmark,
+        "lastLocation":       landmark,
+        "lat":                lat,
+        "lng":                lng,
         "bindTime":           _fmt_dt(doc.get("bound_at")),
         "local_id":           str(doc.get("_id")),
     }
@@ -120,28 +132,44 @@ def _owns_device_doc(account, doc: dict) -> bool:
     return str(doc.get("admin_id") or "") == str(account.id)
 
 
-async def _load_latest_location_map(mongo: MongoService, sns: list[str]) -> dict[str, datetime | None]:
+async def _load_latest_location_map(mongo: MongoService, sns: list[str]) -> dict[str, dict]:
     if not sns:
         return {}
 
-    latest_by_sn: dict[str, datetime | None] = {}
+    latest_by_sn: dict[str, dict] = {}
     pipeline = [
         {"$match": {"sn": {"$in": sns}}},
         {"$sort": {"timestamps": -1}},
-        {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamps"}}},
+        {"$group": {
+            "_id": "$sn",
+            "timestamp": {"$first": "$timestamps"},
+            "landmark": {"$first": "$landmark"},
+            "lat": {"$first": "$lat"},
+            "lng": {"$first": "$long"},
+        }},
     ]
     async for row in mongo.db["latestLocation"].aggregate(pipeline):
-        latest_by_sn[str(row["_id"])] = row.get("timestamp")
+        latest_by_sn[str(row["_id"])] = {
+            "timestamp": row.get("timestamp"),
+            "landmark": row.get("landmark"),
+            "lat": row.get("lat"),
+            "lng": row.get("lng"),
+        }
     return latest_by_sn
 
 
 def _device_row(
     doc: dict,
-    latest_timestamp: datetime | None,
+    latest_loc: dict | datetime | None,
     *,
     assigned_user_id: str | None = None,
     assigned_user_name: str | None = None,
 ) -> dict:
+    loc_dict = latest_loc if isinstance(latest_loc, dict) else ({"timestamp": latest_loc} if isinstance(latest_loc, (datetime, str)) else {})
+    latest_timestamp = loc_dict.get("timestamp")
+    landmark = loc_dict.get("landmark") or doc.get("landmark") or doc.get("lastLocation") or None
+    lat = loc_dict.get("lat") if loc_dict.get("lat") is not None else doc.get("lat")
+    lng = loc_dict.get("lng") if loc_dict.get("lng") is not None else doc.get("lng")
     device_sn = doc.get("sn")
     device_name = doc.get("name", "") or ""
     assigned_name = (
@@ -162,6 +190,10 @@ def _device_row(
         "assignedUser": assigned_user_name,
         "superuser_id": str(doc.get("superuser_id")) if doc.get("superuser_id") else None,
         "dataRetrievalTime": _fmt_dt(latest_timestamp) if latest_timestamp else None,
+        "landmark": landmark,
+        "lastLocation": landmark,
+        "lat": lat,
+        "lng": lng,
         "bindTime": _fmt_dt(doc.get("bound_at")),
         "region": doc.get("region") or None,
         "zone": doc.get("zone") or None,
@@ -492,7 +524,12 @@ async def _enrich_admin_devices(account, mongo: MongoService) -> List[dict]:
             {"$match": {"sn": {"$in": list(sns_set)}}},
         ]
         async for row in mongo.db["latestLocation"].aggregate(pipeline):
-            latest_by_sn[str(row["sn"])] = {"timestamp": row.get("timestamps")}
+            latest_by_sn[str(row["sn"])] = {
+                "timestamp": row.get("timestamps"),
+                "landmark": row.get("landmark"),
+                "lat": row.get("lat"),
+                "lng": row.get("long"),
+            }
 
     # Prefetch users referenced by device.user_id
     user_oids: list[ObjectId] = []
@@ -525,9 +562,13 @@ async def _enrich_admin_devices(account, mongo: MongoService) -> List[dict]:
         if not device_sn:
             continue
 
-        latest_ts = latest_by_sn.get(str(device_sn), {}).get("timestamp") if latest_by_sn else None
+        loc_info = latest_by_sn.get(str(device_sn), {}) if latest_by_sn else {}
+        latest_ts = loc_info.get("timestamp")
         data_retrieval_time = _fmt_dt(latest_ts) if latest_ts else None
         device_status = _get_device_status(latest_ts) if latest_ts else "offline"
+        landmark = loc_info.get("landmark") or doc.get("landmark") or doc.get("lastLocation") or None
+        lat = loc_info.get("lat") if loc_info.get("lat") is not None else doc.get("lat")
+        lng = loc_info.get("lng") if loc_info.get("lng") is not None else doc.get("lng")
 
         assigned_user_id, assigned_user_name = resolve_user_display(doc.get("user_id"))
 
@@ -555,6 +596,10 @@ async def _enrich_admin_devices(account, mongo: MongoService) -> List[dict]:
             "assignedUser": assigned_user_name,
             "superuser_id": str(doc.get("superuser_id")) if doc.get("superuser_id") else None,
             "dataRetrievalTime": data_retrieval_time,
+            "landmark": landmark,
+            "lastLocation": landmark,
+            "lat": lat,
+            "lng": lng,
             "bindTime": _fmt_dt(doc.get("bound_at")),
             "region": doc.get("region") or None,
             "zone":   doc.get("zone")   or None,
