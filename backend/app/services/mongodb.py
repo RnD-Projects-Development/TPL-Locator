@@ -64,6 +64,40 @@ class MongoService:
     def categories(self):
         return self.db["categories"]
 
+    @property
+    def pricing(self):
+        """Single-document collection — one configurable price for the whole deployment."""
+        return self.db["pricing"]
+
+    _PRICING_DOC_ID = "current"
+
+    async def get_pricing(self) -> dict:
+        """Return the configured price, or the default (0 USD) if never set."""
+        doc = await self.pricing.find_one({"_id": self._PRICING_DOC_ID})
+        if not doc:
+            return {"price": 0.0, "currency": "USD", "updated_at": None, "updated_by": None}
+        return {
+            "price": doc.get("price", 0.0),
+            "currency": doc.get("currency", "USD"),
+            "updated_at": doc.get("updated_at"),
+            "updated_by": str(doc["updated_by"]) if doc.get("updated_by") else None,
+        }
+
+    async def set_pricing(self, price: float, currency: str, updated_by: Optional[str]) -> dict:
+        """Upsert the single price document. Admin-only at the router level."""
+        now = datetime.now(timezone.utc)
+        await self.pricing.update_one(
+            {"_id": self._PRICING_DOC_ID},
+            {"$set": {
+                "price": price,
+                "currency": currency,
+                "updated_at": now,
+                "updated_by": ObjectId(updated_by) if updated_by else None,
+            }},
+            upsert=True,
+        )
+        return await self.get_pricing()
+
     async def get_account_by_email(self, email: str, role: Optional[str] = None):
         """Get account by email. If role is specified, filter by role."""
         from app.models.admin import AccountInDB

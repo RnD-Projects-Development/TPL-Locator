@@ -14,6 +14,7 @@ from app.routers.sync import router as sync_router
 from app.services.auto_sync import start_auto_sync_tasks
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.routers.categories import router as categories_router
+from app.routers.price import router as price_router
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(history_router)
     app.include_router(sync_router)
     app.include_router(categories_router)
+    app.include_router(price_router)
     Instrumentator().instrument(app).expose(app)
 
     from app.routers.field_staff import router as field_staff_router
