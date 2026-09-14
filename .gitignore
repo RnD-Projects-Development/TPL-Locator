@@ -24,3 +24,4 @@ coverage/.claude/
 .claude/
 frontend/.claude/
 backend/app/data/tracksolid_token.json
+dist-test
