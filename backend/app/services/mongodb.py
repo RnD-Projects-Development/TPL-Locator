@@ -191,12 +191,24 @@ class MongoService:
             except Exception:
                 return False
 
-        await self.devices.update_one({"sn": sn}, {"$set": {"superuser_id": su_oid}})
-
-        if su_oid and device_doc.get("user_id"):
-            await self.accounts.update_one(
-                {"_id": device_doc["user_id"], "role": "user"},
-                {"$set": {"superuser_id": su_oid}},
+        if su_oid:
+            await self.devices.update_one({"sn": sn}, {"$set": {"superuser_id": su_oid}})
+            if device_doc.get("user_id"):
+                await self.accounts.update_one(
+                    {"_id": device_doc["user_id"], "role": "user", "superuser_id": None},
+                    {"$set": {"superuser_id": su_oid}},
+                )
+        else:
+            # Clearing super user: also remove binding from any user under that super user,
+            # and revert device custom name/client back to vendor default.
+            if device_doc.get("user_id"):
+                await self.accounts.update_one(
+                    {"_id": device_doc["user_id"], "role": "user"},
+                    {"$pull": {"devices": device_doc["_id"]}},
+                )
+            await self.devices.update_one(
+                {"sn": sn},
+                {"$set": {"superuser_id": None, "user_id": None, "bound_at": None}, "$unset": {"name": "", "client": ""}},
             )
         return True
 
@@ -361,6 +373,10 @@ class MongoService:
                 latest["timestamp"] = latest["timestamps"]
             if "long" in latest and "lng" not in latest:
                 latest["lng"] = latest["long"]
+            if isinstance(latest.get("timestamps"), datetime):
+                latest["timestamps"] = latest["timestamps"].isoformat()
+            if isinstance(latest.get("timestamp"), datetime):
+                latest["timestamp"] = latest["timestamp"].isoformat()
             latest_by_sn[str(latest["sn"])] = latest
         return latest_by_sn
 

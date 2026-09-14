@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect, useContext, useCallback, useMemo } from 'react'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { createPortal } from 'react-dom'
-import { useSearchParams, useLocation } from 'react-router-dom'
-import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil } from 'lucide-react'
+import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil, UserMinus, Clock, MapPin } from 'lucide-react'
+import { parseLandmarkDisplay } from '../utils/landmark.js'
+import { peekGeocode, resolveGeocode } from '../utils/geocodeCache.js'
 import MissingDevices from './MissingDevices.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -191,17 +193,40 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
   )
 }
 
-function fmtLastSeen(device) {
-  const raw = device.dataRetrievalTime ?? device.last_seen ?? device.lastSeen ?? null
+function fmtLastSeen(device, locInfo) {
+  const raw = locInfo?.timestamps ?? locInfo?.timestamp ?? device.dataRetrievalTime ?? device.last_seen ?? device.lastSeen ?? null
   if (!raw) return null
   try {
     const d = new Date(raw)
     if (isNaN(d.getTime())) return null
-    return d.toLocaleString(undefined, {
-      month: 'short', day: '2-digit',
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
     })
   } catch { return null }
+}
+
+function formatDeviceAddress(device, locInfo) {
+  const rawLandmark = locInfo?.landmark || device.landmark || device.lastLocation || locInfo?.address || device.address
+  if (rawLandmark && rawLandmark !== '—') {
+    const parsed = parseLandmarkDisplay(rawLandmark)
+    if (parsed) {
+      return [parsed.primary, parsed.secondary].filter(Boolean).join(', ')
+    }
+    return String(rawLandmark).replace(/\s*—\s*/g, ', ')
+  }
+
+  const lat = locInfo?.lat ?? locInfo?.latitude ?? device.lat
+  const lng = locInfo?.lng ?? locInfo?.lon ?? locInfo?.long ?? locInfo?.longitude ?? device.lng
+  if (lat != null && lng != null && !isNaN(Number(lat)) && !isNaN(Number(lng))) {
+    const cached = peekGeocode({ lat, lng })
+    if (cached) {
+      return [cached.primary, cached.secondary].filter(Boolean).join(', ')
+    }
+    return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
+  }
+
+  return 'No position data'
 }
 
 function isStickerSN(sn) { return /^\d+$/.test(String(sn ?? '')) }
@@ -211,9 +236,9 @@ const isBound = d => !!(d.user_id || d.assigned_user_name)
    ActionsDropdown — "Actions ▼" trigger + portal-rendered menu.
    Portaled to document.body so it is never clipped by the grid's overflow:hidden.
 ────────────────────────────────────────────────────────────────────────────── */
-const MENU_W = 150
+const MENU_W = 185
 
-function ActionsDropdown({ isLight, onEdit, onUnbind, isAdmin }) {
+function ActionsDropdown({ isLight, onEdit, onUnbind, onUnbindSuperuser, isAdmin, rawIsAdmin, isBoundDevice, hasSuperuser }) {
   const [open, setOpen] = useState(false)
   const [pos,  setPos]  = useState({ top: 0, left: 0 })
   const btnRef  = useRef(null)
@@ -223,7 +248,10 @@ function ActionsDropdown({ isLight, onEdit, onUnbind, isAdmin }) {
     e.stopPropagation()
     if (open) { setOpen(false); return }
     const r = btnRef.current.getBoundingClientRect()
-    const menuH = isAdmin ? 88 : 44 // 1 or 2 items + padding
+    let itemCount = 1 // Edit is always present
+    if (isAdmin && isBoundDevice) itemCount++
+    if (rawIsAdmin && hasSuperuser) itemCount++
+    const menuH = itemCount * 36 + 8
     const openUp = r.bottom + menuH + 8 > window.innerHeight
     setPos({
       top:  openUp ? r.top - menuH - 6 : r.bottom + 6,
@@ -300,14 +328,24 @@ function ActionsDropdown({ isLight, onEdit, onUnbind, isAdmin }) {
           >
             <Pencil style={{ width: 12, height: 12 }} /> Edit
           </button>
-          {isAdmin && (
+          {isAdmin && isBoundDevice && (
             <button
               onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbind() }}
               style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
             >
-              <Trash2 style={{ width: 12, height: 12 }} /> Unbind
+              <Trash2 style={{ width: 12, height: 12 }} /> {rawIsAdmin && hasSuperuser ? 'Unbind User' : 'Unbind'}
+            </button>
+          )}
+          {rawIsAdmin && hasSuperuser && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbindSuperuser?.() }}
+              style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+            >
+              <UserMinus style={{ width: 12, height: 12 }} /> Remove from Super User
             </button>
           )}
         </div>,
@@ -428,13 +466,14 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel, statusTabsNode }) {
   const location = useLocation()
   const pushTrail = useTrailNav()
-  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminGetSuperusers, getCategories } = useCityTag()
+  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminGetSuperusers, getCategories, getGeocode, getLatestLocationsBatch } = useCityTag()
   const { user, isAdmin: rawIsAdmin, isSuperUser } = useAuth()
   // A super user manages a fleet exactly like an admin — the backend scopes the
   // data to its own devices/users — so treat it as an admin throughout this page.
   const isAdmin = rawIsAdmin || isSuperUser
   const { users, loading: usersLoading } = useUserCache()
-  const [categories, setCategories] = useState([]);
+  const [categories, setCategories] = useState([])
+  const [locationMap, setLocationMap] = useState({})
     useEffect(() => {
       let cancelled = false;
       getCategories()
@@ -461,6 +500,11 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const [unbindTarget,  setUnbindTarget]  = useState(null)
   const [unbindLoading, setUnbindLoading] = useState(false)
   const [unbindError,   setUnbindError]   = useState('')
+
+  // Superuser unbind state
+  const [unbindSuperuserTarget,  setUnbindSuperuserTarget]  = useState(null)
+  const [unbindSuperuserLoading, setUnbindSuperuserLoading] = useState(false)
+  const [unbindSuperuserError,   setUnbindSuperuserError]   = useState('')
 
   // Edit state — reuses the bind-modal form layout, writes via PUT /api/devices/{sn}
   const [editTarget,   setEditTarget]   = useState(null)
@@ -600,6 +644,25 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     }
   }
 
+  const handleUnbindSuperuser = async () => {
+    if (!unbindSuperuserTarget || unbindSuperuserLoading) return
+    setUnbindSuperuserError('')
+    setUnbindSuperuserLoading(true)
+    try {
+      await adminAssignDeviceSuperuser(unbindSuperuserTarget.sn, null)
+      invalidateFleetCache()
+      const targetSn = unbindSuperuserTarget.sn
+      setUnbindSuperuserTarget(null)
+      setPage(1)
+      setLocalRefresh(k => k + 1)
+      showToast(`Device ${targetSn} removed from super user`)
+    } catch (err) {
+      setUnbindSuperuserError(err?.message || 'Failed to remove device from super user.')
+    } finally {
+      setUnbindSuperuserLoading(false)
+    }
+  }
+
   // Only a real admin (not a super user) can hand devices to super users.
   useEffect(() => {
     if (!rawIsAdmin) return
@@ -719,6 +782,37 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const hasPrev     = safePage > 1
   const hasNext     = safePage < totalPages
 
+  // Batch fetch location details (coordinates & landmarks) for current visible page
+  useEffect(() => {
+    if (!pageDevices.length || !getLatestLocationsBatch) return
+    let cancelled = false
+    const sns = pageDevices.map(d => d.sn).filter(Boolean)
+    getLatestLocationsBatch(sns).then(res => {
+      if (cancelled) return
+      const map = res?.locations ?? res ?? {}
+      setLocationMap(prev => ({ ...prev, ...map }))
+
+      // For points with coordinates but without landmark, resolve in background
+      Object.entries(map).forEach(([sn, loc]) => {
+        const lat = loc?.lat ?? loc?.latitude
+        const lng = loc?.lng ?? loc?.long ?? loc?.lon
+        if (!loc?.landmark && lat != null && lng != null) {
+          resolveGeocode({ lat, lng }, getGeocode).then(geo => {
+            if (!cancelled && geo) {
+              const label = [geo.primary, geo.secondary].filter(Boolean).join(', ')
+              setLocationMap(prev => ({
+                ...prev,
+                [sn]: { ...prev[sn], ...loc, landmark: label }
+              }))
+            }
+          }).catch(() => {})
+        }
+      })
+    }).catch(() => {})
+
+    return () => { cancelled = true }
+  }, [pageDevices, getLatestLocationsBatch, getGeocode])
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
@@ -794,7 +888,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           flex: 1, minHeight: 0, overflow: 'auto',
           display: 'grid',
           gridTemplateColumns: 'repeat(4, minmax(14.3em, 1fr))',
-          gridTemplateRows: 'repeat(4, minmax(6.3em, 1fr))',
+          gridTemplateRows: 'repeat(4, minmax(7.2em, 1fr))',
           gap: '0.7em',
         }}>
           {pageDevices.length === 0 ? (
@@ -812,7 +906,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               const dotColor   = isActive ? '#23D160' : '#DC2626'
               const dotGlow    = isActive ? 'rgba(35,209,96,0.55)' : 'rgba(220,38,38,0.50)'
               const name       = deviceDisplayName(d)
-              const lastSeen   = fmtLastSeen(d)
+              const locInfo    = locationMap[d.sn]
+              const lastSeen   = fmtLastSeen(d, locInfo)
+              const address    = formatDeviceAddress(d, locInfo)
               return (
                 <div
                   key={d.sn}
@@ -855,38 +951,54 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                     position: 'absolute', inset: 0, zIndex: 1,
                     display: 'flex', alignItems: 'stretch', minWidth: 0,
                   }}>
-                  <div aria-hidden="true" style={{ height: '100%', aspectRatio: '1052 / 1481', flexShrink: 0 }} />
-                  <div style={{
-                    flex: 1, minWidth: 0, margin: '0.55em 1em 2.1em 0.85em',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.22em',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
-                      <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
-                      <span style={{ fontFamily: CARD_FONT, fontSize: '0.95em', fontWeight: 700, color: '#F7F7F7', letterSpacing: '0.005em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                    </div>
-                    <div style={{ fontFamily: CARD_FONT, fontSize: '0.7em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {d.sn}
-                    </div>
-                    {lastSeen ? (
-                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Last seen: {lastSeen}
+                    <div aria-hidden="true" style={{ height: '100%', aspectRatio: '1052 / 1481', flexShrink: 0 }} />
+                    <div style={{
+                      flex: 1, minWidth: 0, margin: '0.6em 1em 0.6em 0.85em',
+                      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.3em',
+                    }}>
+                      {/* 1. Status dot + Device Name */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
+                        <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
+                        <span style={{ fontFamily: CARD_FONT, fontSize: '0.96em', fontWeight: 700, color: '#F7F7F7', letterSpacing: '0.005em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {name}
+                        </span>
                       </div>
-                    ) : (
-                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.40)', fontStyle: 'italic' }}>
-                        No last report
+
+                      {/* 2. Serial Number */}
+                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.74em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {d.sn}
                       </div>
-                    )}
-                  </div>
+
+                      {/* 3. Clock icon + Timestamp */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45em', minWidth: 0, fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.85)' }}>
+                        <Clock strokeWidth={1.8} style={{ width: '1.15em', height: '1.15em', color: 'rgba(255,255,255,0.75)', flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {lastSeen || 'No last report'}
+                        </span>
+                      </div>
+
+                      {/* 4. MapPin icon + Location */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45em', minWidth: 0, paddingRight: isAdmin ? '7.5em' : '2.5em', fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.80)' }}>
+                        <MapPin strokeWidth={1.8} style={{ width: '1.15em', height: '1.15em', color: 'rgba(255,255,255,0.75)', flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={address}>
+                          {address}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Actions + chevron, bottom-right */}
                   <div style={{ position: 'absolute', zIndex: 2, right: '0.9em', bottom: '0.6em', display: 'flex', alignItems: 'center', gap: '0.5em' }}>
-                    {externalStatus === 'all' && isBound(d) && (
+                    {isAdmin && (
                       <ActionsDropdown
                         isLight={isLight}
                         isAdmin={isAdmin}
+                        rawIsAdmin={rawIsAdmin}
+                        isBoundDevice={isBound(d)}
+                        hasSuperuser={!!(d.superuser_id || d.superuser_name)}
                         onEdit={() => openEdit(d)}
                         onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
+                        onUnbindSuperuser={() => { setUnbindSuperuserError(''); setUnbindSuperuserTarget(d) }}
                       />
                     )}
                     <ChevronRight data-chev strokeWidth={1.5} style={{ width: '1.05em', height: '1.05em', color: 'rgba(255,255,255,0.35)', transition: 'color 0.2s ease' }} />
@@ -1056,6 +1168,49 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                 <button onClick={handleUnbind} disabled={unbindLoading}
                   style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: unbindLoading ? 'wait' : 'pointer', background: '#A72C32', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: unbindLoading ? 0.7 : 1 }}>
                   {unbindLoading ? 'Unbinding…' : 'Unbind'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {/* Remove from Super User confirmation modal */}
+      {unbindSuperuserTarget && (
+        <ModalPortal>
+          <div onClick={() => { setUnbindSuperuserTarget(null); setUnbindSuperuserError('') }} style={modalOverlay}>
+            <div onClick={e => e.stopPropagation()} style={{ ...modalPanel, width: '100%', maxWidth: 400, padding: 24, marginTop: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(220,38,38,0.14)', border: '1px solid rgba(220,38,38,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Trash2 style={{ width: 16, height: 16, color: '#DC2626' }} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Remove from Super User</div>
+                </div>
+                <button onClick={() => { setUnbindSuperuserTarget(null); setUnbindSuperuserError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4, display: 'flex' }}>
+                  <X style={{ width: 18, height: 18 }} />
+                </button>
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 20, lineHeight: 1.6 }}>
+                Remove device <strong style={{ color: '#FFFFFF' }}>{deviceDisplayName(unbindSuperuserTarget)}</strong> ({unbindSuperuserTarget.sn}) from super user
+                {unbindSuperuserTarget.superuser_name ? <> <strong style={{ color: '#FFFFFF' }}>{unbindSuperuserTarget.superuser_name}</strong></> : null}?
+                <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.40)' }}>
+                  This will return the device to the general admin pool and unbind it from any assigned user.
+                </div>
+              </div>
+              {unbindSuperuserError && (
+                <div style={{ fontSize: 12, color: '#fca5a5', background: 'rgba(220,38,38,0.10)', border: '1px solid rgba(220,38,38,0.22)', borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
+                  {unbindSuperuserError}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button onClick={() => { setUnbindSuperuserTarget(null); setUnbindSuperuserError('') }}
+                  style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                  Cancel
+                </button>
+                <button onClick={handleUnbindSuperuser} disabled={unbindSuperuserLoading}
+                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: unbindSuperuserLoading ? 'wait' : 'pointer', background: '#A72C32', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: unbindSuperuserLoading ? 0.7 : 1 }}>
+                  {unbindSuperuserLoading ? 'Removing…' : 'Remove from Super User'}
                 </button>
               </div>
             </div>

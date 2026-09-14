@@ -91,6 +91,8 @@ function setModuleCached(key, snapshot) {
   moduleCache.set(key, { snapshot, fetchedAt: Date.now() });
 }
 
+let _paginatedGeneration = 0;
+
 function getValidBulkEntry(search, status, deviceType, searchScope = null) {
   const key = filtersKey(search, status, deviceType, searchScope);
   const entry = bulkDeviceCache.get(key);
@@ -115,6 +117,7 @@ function clearCachesForFilters(search, status, deviceType, searchScope = null) {
 
 /** Call after bind/unbind/edit so list pages refetch. */
 export function invalidatePaginatedCache() {
+  _paginatedGeneration += 1;
   pageDataCache.clear();
   inflightRequests.clear();
   bulkDeviceCache.clear();
@@ -144,6 +147,8 @@ export function prefetchPaginatedDevicesBulk(
   const inflightKey = `bulk:${key}`;
   if (inflightRequests.has(inflightKey)) return;
 
+  const generation = _paginatedGeneration;
+
   const request = (async () => {
     const payload = await getDevices({
       page: 1,
@@ -159,14 +164,18 @@ export function prefetchPaginatedDevicesBulk(
       total: Number(payload?.total ?? list.length) || list.length,
       fetchedAt: Date.now(),
     };
-    bulkDeviceCache.set(key, entry);
-    seedPageCacheFromBulk(entry, searchTerm, statusFilter, devType, DEFAULT_LIMIT, scope);
+    if (generation === _paginatedGeneration) {
+      bulkDeviceCache.set(key, entry);
+      seedPageCacheFromBulk(entry, searchTerm, statusFilter, devType, DEFAULT_LIMIT, scope);
+    }
     return entry;
   })();
 
   inflightRequests.set(inflightKey, request);
   void request.finally(() => {
-    inflightRequests.delete(inflightKey);
+    if (generation === _paginatedGeneration) {
+      inflightRequests.delete(inflightKey);
+    }
   });
 }
 
@@ -307,6 +316,8 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
       return inflightRequests.get(inflightKey);
     }
 
+    const generation = _paginatedGeneration;
+
     const request = (async () => {
       const payload = await getDevicesRef.current({
         page: 1,
@@ -322,8 +333,10 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
         total: Number(payload?.total ?? list.length) || list.length,
         fetchedAt: Date.now(),
       };
-      bulkDeviceCache.set(key, entry);
-      seedPageCacheFromBulk(entry, searchTerm, statusFilter, devType, initialLimit, scope);
+      if (generation === _paginatedGeneration) {
+        bulkDeviceCache.set(key, entry);
+        seedPageCacheFromBulk(entry, searchTerm, statusFilter, devType, initialLimit, scope);
+      }
       return entry;
     })();
 
@@ -331,7 +344,9 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
     try {
       return await request;
     } finally {
-      inflightRequests.delete(inflightKey);
+      if (generation === _paginatedGeneration) {
+        inflightRequests.delete(inflightKey);
+      }
     }
   }, [initialLimit, user]);
 
@@ -392,6 +407,8 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
       return inflightRequests.get(cacheKey);
     }
 
+    const generationId = _paginatedGeneration;
+
     const request = (async () => {
       if (!silent && mountedRef.current) {
         setLoading(true);
@@ -407,8 +424,12 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
         search_scope: scope,
       });
       const snapshot = normalizePageResponse(payload, safePage, safeLimit);
-      pageDataCache.set(cacheKey, snapshot);
-      setModuleCached(cacheKey, snapshot);
+
+      if (generationId === _paginatedGeneration) {
+        pageDataCache.set(cacheKey, snapshot);
+        setModuleCached(cacheKey, snapshot);
+      }
+
       if (generation === loadGenerationRef.current) {
         applySnapshot(snapshot, !silent);
       }
@@ -438,7 +459,9 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
       }
       throw err;
     } finally {
-      inflightRequests.delete(cacheKey);
+      if (generationId === _paginatedGeneration) {
+        inflightRequests.delete(cacheKey);
+      }
       if (!silent && mountedRef.current) {
         setLoading(false);
       }

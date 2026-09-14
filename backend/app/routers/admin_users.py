@@ -97,7 +97,7 @@ async def _load_device_map(mongo: MongoService, device_ids: list) -> dict[str, d
         return {}
 
     device_map: dict[str, dict] = {}
-    async for device_doc in mongo.devices.find({"_id": {"$in": unique_oids}}):
+    async for device_doc in mongo.devices.find({"_id": {"$in": unique_oids}}, {"sn": 1, "name": 1}):
         device_map[str(device_doc["_id"])] = device_doc
     return device_map
 
@@ -226,14 +226,25 @@ async def admin_list_users(
         else:
             # Admin default: every user AND every super user.
             query = {"role": {"$in": ["user", "superuser"]}}
-        users_cursor = mongo.accounts.find(query)
+
+        account_projection = {
+            "email": 1, "phone": 1, "name": 1, "role": 1,
+            "admin_id": 1, "superuser_id": 1, "devices": 1,
+            "last_logged_in": 1, "last_logged_out": 1,
+            "geofence_create_access": 1, "fence_create_access": 1,
+            "created_at": 1,
+        }
+        users_cursor = mongo.accounts.find(query, account_projection)
         user_dicts = await users_cursor.to_list(None)
 
         # Resolve super user display names for the `superuser_name` column.
         su_ids = {u.get("superuser_id") for u in user_dicts if u.get("superuser_id")}
         su_names: dict[str, str] = {}
         if su_ids:
-            async for su_doc in mongo.accounts.find({"_id": {"$in": list(su_ids)}, "role": "superuser"}):
+            async for su_doc in mongo.accounts.find(
+                {"_id": {"$in": list(su_ids)}, "role": "superuser"},
+                {"name": 1, "email": 1, "phone": 1}
+            ):
                 su_names[str(su_doc["_id"])] = (su_doc.get("name") or su_doc.get("email") or su_doc.get("phone") or "")
 
         all_device_ids = []
@@ -246,8 +257,33 @@ async def admin_list_users(
         su_row_ids = [u["_id"] for u in user_dicts if u.get("role") == "superuser"]
         su_devices_map: dict[str, list] = {}
         if su_row_ids:
-            async for dev in mongo.devices.find({"superuser_id": {"$in": su_row_ids}}):
+            async for dev in mongo.devices.find(
+                {"superuser_id": {"$in": su_row_ids}},
+                {"sn": 1, "name": 1, "superuser_id": 1}
+            ):
                 su_devices_map.setdefault(str(dev.get("superuser_id")), []).append(dev)
+
+        # Resolve plain users under each super user
+        su_users_map: dict[str, list] = {}
+        if su_row_ids:
+            for u in user_dicts:
+                if u.get("role") == "user" and u.get("superuser_id"):
+                    s_id = str(u.get("superuser_id"))
+                    su_last_in = u.get("last_logged_in")
+                    su_last_out = u.get("last_logged_out")
+                    u_online = isinstance(su_last_in, datetime) and (
+                        not isinstance(su_last_out, datetime) or su_last_in > su_last_out
+                    )
+                    u_raw_email = u.get("email", "")
+                    su_users_map.setdefault(s_id, []).append({
+                        "id": str(u["_id"]),
+                        "name": u.get("name", ""),
+                        "email": u_raw_email if has_real_email(u_raw_email) else None,
+                        "phone": u.get("phone"),
+                        "devices_count": len(u.get("devices", [])),
+                        "last_logged_in": _dt_iso(su_last_in) if isinstance(su_last_in, datetime) else None,
+                        "is_online": u_online,
+                    })
 
         result = []
         for user_dict in user_dicts:
@@ -286,6 +322,7 @@ async def admin_list_users(
             )
             row_role = user_dict.get("role", "user")
             su_oid = user_dict.get("superuser_id")
+            assigned_users = su_users_map.get(str(user_dict["_id"]), []) if row_role == "superuser" else []
             result.append({
                 "id":                     str(user_dict.get("_id", "")),
                 "email":                  raw_email if has_real_email(raw_email) else None,
@@ -296,6 +333,8 @@ async def admin_list_users(
                 "superuser_id":           str(su_oid) if su_oid else None,
                 "superuser_name":         su_names.get(str(su_oid)) if su_oid else None,
                 "devices":                devices,
+                "assigned_users":         assigned_users,
+                "user_count":             len(assigned_users),
                 "dashboard_access":       bool(user_dict.get("dashboard_access", True)) if row_role == "user" else True,
                 "geofence_access":        bool(user_dict.get("geofence_access", False)) if row_role == "user" else True,
                 "geofence_create_access": create_access if row_role == "user" else True,
@@ -419,14 +458,48 @@ async def admin_update_user(
         from app.auth_utils import hash_password
         update_fields["password"] = hash_password(payload.password)
 
-    # Role / super-user assignment: admin only, and only for plain users.
-    if not su_actor and target_role == "user":
+    # Role / super-user assignment: admin only
+    if not su_actor:
         if payload.role is not None and payload.role in ("user", "superuser"):
-            update_fields["role"] = payload.role
-        if payload.superuser_id is not None:
+            if payload.role != target_role:
+                update_fields["role"] = payload.role
+                if payload.role == "superuser":
+                    # Promoting to superuser: clear any parent superuser_id
+                    update_fields["superuser_id"] = None
+                    if not target.get("admin_id"):
+                        update_fields["admin_id"] = _to_oid(current_actor.id)
+                    # Migrate user's existing bound devices to this superuser's fleet
+                    user_oid = _to_oid(user_id)
+                    if user_oid:
+                        await mongo.devices.update_many(
+                            {"user_id": user_oid},
+                            {"$set": {"superuser_id": user_oid}}
+                        )
+                elif payload.role == "user":
+                    # Demoting superuser back to user: detach fleet devices and users
+                    user_oid = _to_oid(user_id)
+                    if user_oid:
+                        await mongo.devices.update_many(
+                            {"superuser_id": user_oid},
+                            {"$set": {"superuser_id": None}}
+                        )
+                        await mongo.accounts.update_many(
+                            {"superuser_id": user_oid, "role": "user"},
+                            {"$set": {"superuser_id": None}}
+                        )
+
+        # Super user assignment (only for plain users):
+        effective_role = update_fields.get("role", target_role)
+        if effective_role == "user" and payload.superuser_id is not None:
             if payload.superuser_id == "":
                 update_fields["superuser_id"] = None
             else:
+                existing_su = target.get("superuser_id")
+                if existing_su and str(existing_su) != str(payload.superuser_id):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="This user is already assigned to a super user and cannot be reassigned to another super user.",
+                    )
                 owning_su = await mongo.get_superuser_by_id(payload.superuser_id)
                 if not owning_su:
                     raise HTTPException(status_code=400, detail="Unknown super user")

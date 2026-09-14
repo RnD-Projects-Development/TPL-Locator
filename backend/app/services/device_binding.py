@@ -122,6 +122,14 @@ async def bind_device_service(
             detail="This device is not assigned to you. Ask an admin to hand it over first.",
         )
 
+    dev_su = getattr(device, "superuser_id", None)
+    user_su = getattr(target_user, "superuser_id", None)
+    if dev_su and user_su and str(dev_su) != str(user_su):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot assign device: device belongs to a different super user than the user.",
+        )
+
     if device.user_id and str(device.user_id) != str(target_user.id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Device already assigned to another user")
 

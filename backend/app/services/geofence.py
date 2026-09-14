@@ -1,11 +1,13 @@
 # backend/app/services/geofence.py
 from __future__ import annotations
 
+import asyncio
+import math
 from datetime import datetime
 from typing import Dict, List, Optional
 
 
-# ── Ray-casting point-in-polygon ──────────────────────────────────────────────
+# ── Ray-casting point-in-polygon & Circle distance ────────────────────────────
 
 def point_in_polygon(lat: float, lng: float, polygon: List[Dict]) -> bool:
     """
@@ -25,6 +27,23 @@ def point_in_polygon(lat: float, lng: float, polygon: List[Dict]) -> bool:
     return inside
 
 
+def point_in_circle(lat: float, lng: float, center: Dict, radius_m: float) -> bool:
+    """Haversine distance <= radius."""
+    try:
+        c_lat = float(center.get("lat", 0))
+        c_lng = float(center.get("lng", 0))
+        R = 6371000.0  # Earth radius in meters
+        phi1 = math.radians(lat)
+        phi2 = math.radians(c_lat)
+        delta_phi = math.radians(c_lat - lat)
+        delta_lambda = math.radians(c_lng - lng)
+        a = math.sin(delta_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return (R * c) <= float(radius_m)
+    except Exception:
+        return False
+
+
 def _is_multi_polygon(polygon_data) -> bool:
     """True when polygon_data is a list-of-lists (multi-polygon like uc_216)."""
     return (
@@ -39,6 +58,20 @@ def point_in_zone(lat: float, lng: float, polygon_data) -> bool:
     if _is_multi_polygon(polygon_data):
         return any(point_in_polygon(lat, lng, ring) for ring in polygon_data)
     return point_in_polygon(lat, lng, polygon_data)
+
+
+def is_point_in_zone_doc(lat: float, lng: float, zone_doc: Dict) -> bool:
+    """Evaluates whether (lat, lng) is inside a zone document (polygon, multi-polygon, or circle)."""
+    shape = zone_doc.get("shape")
+    if shape == "circle":
+        center = zone_doc.get("center")
+        radius = zone_doc.get("radius")
+        if center and radius is not None:
+            return point_in_circle(lat, lng, center, radius)
+    coords = zone_doc.get("coordinates")
+    if coords:
+        return point_in_zone(lat, lng, coords)
+    return False
 
 
 # ── Status computation ────────────────────────────────────────────────────────
@@ -167,3 +200,142 @@ def _fmt(ts) -> Optional[str]:
     if isinstance(ts, datetime):
         return ts.isoformat()
     return str(ts)
+
+
+# ── Multi-device, Multi-zone Activity Detector ────────────────────────────────
+
+async def detect_admin_zone_events(
+    mongo,
+    admin_oid,
+    since: datetime,
+    end: Optional[datetime] = None,
+    limit: int = 100,
+) -> List[Dict]:
+    """
+    Detects ENTER / EXIT boundary crossings across ALL devices and ALL zones
+    belonging to the given admin within [since, end].
+    Even if a device is not explicitly assigned to a zone, crossings will trigger.
+    """
+    if since is not None and getattr(since, "tzinfo", None) is not None:
+        since = since.replace(tzinfo=None)
+    if end is not None and getattr(end, "tzinfo", None) is not None:
+        end = end.replace(tzinfo=None)
+
+    # 1. Fetch all zones owned by this admin
+    zones: List[Dict] = []
+    async for z in mongo.zones.find({"admin_id": admin_oid}):
+        if z.get("coordinates") or (z.get("shape") == "circle" and z.get("center") and z.get("radius")):
+            zones.append({
+                "id": str(z["_id"]),
+                "name": z.get("name") or str(z["_id"]),
+                "doc": z,
+            })
+
+    if not zones:
+        return []
+
+    # 2. Query location points in the time window
+    query: Dict = {"timestamp": {"$gte": since}}
+    if end is not None:
+        query["timestamp"]["$lte"] = end
+
+    cursor = (
+        mongo.locations
+        .find(query, {"sn": 1, "lat": 1, "lng": 1, "timestamp": 1, "_id": 0})
+        .sort([("sn", 1), ("timestamp", 1)])
+        .limit(5000)
+    )
+    points_in_window = await cursor.to_list(length=5000)
+    if not points_in_window:
+        return []
+
+    # Group points by sn
+    from collections import defaultdict
+    pts_by_sn = defaultdict(list)
+    for p in points_in_window:
+        sn = p.get("sn")
+        if sn and p.get("lat") is not None and p.get("lng") is not None and p.get("timestamp"):
+            pts_by_sn[sn].append(p)
+
+    if not pts_by_sn:
+        return []
+
+    all_sns = list(pts_by_sn.keys())
+
+    # Fetch friendly names from devices collection
+    dev_cursor = mongo.devices.find(
+        {"sn": {"$in": all_sns}},
+        {"sn": 1, "name": 1, "assigned_name": 1, "assigned_user_name": 1}
+    )
+    name_by_sn = {}
+    async for d in dev_cursor:
+        name_by_sn[d["sn"]] = d.get("name") or d.get("assigned_name") or d.get("assigned_user_name") or d["sn"]
+
+    # For each sn, find the immediate prior point before `since`
+    prior_point_tasks = [
+        mongo.locations.find_one(
+            {"sn": sn, "timestamp": {"$lt": since}},
+            {"lat": 1, "lng": 1, "timestamp": 1, "_id": 0},
+            sort=[("timestamp", -1)]
+        )
+        for sn in all_sns
+    ]
+    prior_results = await asyncio.gather(*prior_point_tasks, return_exceptions=True)
+    prior_by_sn = {
+        sn: pt for sn, pt in zip(all_sns, prior_results)
+        if isinstance(pt, dict) and pt.get("lat") is not None
+    }
+
+    events: List[Dict] = []
+
+    for sn, pts in pts_by_sn.items():
+        dev_name = name_by_sn.get(sn, sn)
+        prior_pt = prior_by_sn.get(sn)
+
+        for z in zones:
+            z_id = z["id"]
+            z_name = z["name"]
+            z_doc = z["doc"]
+
+            was_inside = None
+            if prior_pt:
+                was_inside = is_point_in_zone_doc(prior_pt["lat"], prior_pt["lng"], z_doc)
+
+            for pt in pts:
+                now_inside = is_point_in_zone_doc(pt["lat"], pt["lng"], z_doc)
+                if was_inside is None:
+                    was_inside = now_inside
+                    continue
+
+                if not was_inside and now_inside:
+                    ts_str = _fmt(pt["timestamp"])
+                    ts_compact = (ts_str or "").replace("-", "").replace(":", "").replace("T", "").replace(".", "")[:14]
+                    events.append({
+                        "id": f"GEO-{sn}-{z_id}-ENTER-{ts_compact}",
+                        "type": "ENTER",
+                        "sn": sn,
+                        "deviceName": dev_name,
+                        "zoneId": z_id,
+                        "zoneName": z_name,
+                        "timestamp": ts_str,
+                        "lat": pt["lat"],
+                        "lng": pt["lng"],
+                    })
+                elif was_inside and not now_inside:
+                    ts_str = _fmt(pt["timestamp"])
+                    ts_compact = (ts_str or "").replace("-", "").replace(":", "").replace("T", "").replace(".", "")[:14]
+                    events.append({
+                        "id": f"GEO-{sn}-{z_id}-EXIT-{ts_compact}",
+                        "type": "EXIT",
+                        "sn": sn,
+                        "deviceName": dev_name,
+                        "zoneId": z_id,
+                        "zoneName": z_name,
+                        "timestamp": ts_str,
+                        "lat": pt["lat"],
+                        "lng": pt["lng"],
+                    })
+                was_inside = now_inside
+
+    events.sort(key=lambda e: e["timestamp"] or "", reverse=True)
+    return events[:limit]
