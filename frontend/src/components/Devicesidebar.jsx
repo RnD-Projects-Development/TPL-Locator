@@ -1,6 +1,7 @@
 import React from "react";
 import tplLogo from "../assets/tpl.png";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
+import { getDeviceCardDisplay } from "../utils/deviceCardDisplay.js";
 import "./DeviceSidebar.css";
 
 /* ── Detect device type the same way as Locators/Stickers pages ─────────── */
@@ -36,7 +37,7 @@ function formatDateTime(value) {
   } catch { return null; }
 }
 
-function DeviceRow({ device, selectedSn, onSelect }) {
+function DeviceRow({ device, selectedSn, onSelect, searchTerm = "" }) {
   const sn           = device.sn ?? "unknown";
   const status       = device.status ?? "offline";
   const client       = device.client ?? null;
@@ -46,6 +47,8 @@ function DeviceRow({ device, selectedSn, onSelect }) {
   const isBound      = !!assignedUser;
   const isSelected   = sn === selectedSn;
   const sticker      = isSticker(sn);
+
+  const card = getDeviceCardDisplay(device, searchTerm);
 
   return (
     <button
@@ -58,13 +61,20 @@ function DeviceRow({ device, selectedSn, onSelect }) {
       </div>
 
       <div className="dsb-info">
-        <div className="dsb-sn">{assignedUser || sn}</div>
-        {assignedUser && (
-          <div className="dsb-client" style={{ fontFamily: "monospace", fontSize: '0.625em', opacity: 0.6 }}>
-            {sn}
+        <div className="dsb-sn" title={card.primaryTitle}>{card.primaryTitle}</div>
+        {card.subTitle && (
+          <div className="dsb-client" style={{ fontFamily: (card.matchedField === "name" && !card.userName) || card.matchedField === "sn" ? "monospace" : "inherit", fontSize: '0.625em', opacity: 0.75 }}>
+            {card.subTitle}
           </div>
         )}
-        {client && <div className="dsb-client">{client}</div>}
+        {card.extraSub && card.extraSub !== card.subTitle && (
+          <div className="dsb-user" style={{ fontFamily: "monospace", fontSize: '0.5625em', opacity: 0.6 }}>
+            {card.extraSub}
+          </div>
+        )}
+        {card.matchedField !== "client" && client && (
+          <div className="dsb-client" style={{ fontSize: '0.5625em' }}>{client}</div>
+        )}
         {!isBound && (
           <div style={{ fontSize: '0.5625em', color: "#52525b", marginTop: '0.125em', fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             Unbound
@@ -226,7 +236,7 @@ export default function DeviceSidebar({ selectedSn, onSelect, scope = "trajector
           <>
             <div className="dsb-section-label">Recent</div>
             {recentOnly.map((d) => (
-              <DeviceRow key={`recent-${d.sn}`} device={d} selectedSn={selectedSn} onSelect={handleSelect} />
+              <DeviceRow key={`recent-${d.sn}`} device={d} selectedSn={selectedSn} onSelect={handleSelect} searchTerm={searchTerm} />
             ))}
             <div className="dsb-section-label">Devices</div>
           </>
@@ -236,7 +246,7 @@ export default function DeviceSidebar({ selectedSn, onSelect, scope = "trajector
           ? displayDevices
           : defaultDevices
         ).map((d) => (
-          <DeviceRow key={d.sn} device={d} selectedSn={selectedSn} onSelect={handleSelect} />
+          <DeviceRow key={d.sn} device={d} selectedSn={selectedSn} onSelect={handleSelect} searchTerm={searchTerm} />
         ))}
       </div>
 

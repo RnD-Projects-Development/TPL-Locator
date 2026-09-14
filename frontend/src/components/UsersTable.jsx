@@ -3,8 +3,9 @@ import tplLogo from "../assets/tpl.png";
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useUserCache } from "../context/Usercachecontext.jsx";
 import { displayContact } from "../utils/userContact.js";
-import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
 import { displayContact } from "../utils/userContact.js";
+import { useDeviceCache } from "../context/DeviceCacheContext.jsx";
+import { invalidateFleetCache } from "../utils/fleetCache.js";
 import "./DevicesTable.css";
 
 const TPLLoader = ({ label = "Loading users…" }) => (
@@ -26,8 +27,8 @@ const TPLLoader = ({ label = "Loading users…" }) => (
 
 export default function UsersTable() {
   const { adminUnassignDeviceFromUser, adminDeleteUser, adminAssignDeviceToUser, adminUpdateUser } = useCityTag();
-  const { users, loading, refresh: refreshUsers } = useUserCache();
-  const { devices, refresh: refreshDevices } = useDeviceCache();
+  const { users, loading, refresh: refreshUsers, silentRefresh: silentRefreshUsers } = useUserCache();
+  const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache();
 
   const [selectedUser, setSelectedUser]   = useState(null);
   const [deleteTarget, setDeleteTarget]   = useState(null);
@@ -108,8 +109,9 @@ export default function UsersTable() {
           devices: (prev.devices || []).filter((d) => d.sn !== sn),
         }));
       }
-      refreshUsers();
-      refreshDevices();
+      invalidateFleetCache();
+      await silentRefreshUsers?.();
+      await silentRefreshDevices?.();
     } catch (err) {
       setActionError(err.message || "Failed to unassign device");
     } finally {
@@ -139,8 +141,9 @@ export default function UsersTable() {
       setAssignSuccess(`Device ${sn} assigned successfully.`);
       setSearchSN("");
       setAssignName("");
-      refreshUsers();
-      refreshDevices();
+      invalidateFleetCache();
+      await silentRefreshUsers?.();
+      await silentRefreshDevices?.();
     } catch (err) {
       setAssignError(err.message || "Failed to assign device.");
     } finally {

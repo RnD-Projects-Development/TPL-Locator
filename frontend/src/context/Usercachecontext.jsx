@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
 import { registerCacheResetListener } from "../utils/clearAppCaches.js";
+import { useDeviceUpdates } from "../utils/deviceEvents.js";
 
 const UserCacheContext = createContext(null);
 
@@ -63,6 +64,12 @@ export function UserCacheProvider({ children }) {
   }, []);
 
   useEffect(() => registerCacheResetListener(resetUserCache), [resetUserCache]);
+
+  useDeviceUpdates(() => {
+    if (user && canManageUsers) {
+      silentRefresh();
+    }
+  });
 
   // Prefetch as soon as admin is authenticated; clear on logout
   useEffect(() => {

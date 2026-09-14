@@ -22,6 +22,7 @@ import LocatingOverlay from '../components/LocatingOverlay.jsx';
 import { frameBounds } from '../utils/frameBounds.js';
 import { parseKML } from '../utils/kmlParser.js';
 import { useDeviceUpdates } from '../utils/deviceEvents.js';
+import { invalidateFleetCache } from '../utils/fleetCache.js';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -412,7 +413,8 @@ function FencePageInner() {
 
       onProgress?.(list.length);
 
-      // Force-refresh device cache silently
+      // Force-refresh device cache silently across the entire application
+      invalidateFleetCache();
       await silentRefresh();
       setTracksFetchKey((k) => k + 1);
       return { failures };
@@ -440,6 +442,7 @@ function FencePageInner() {
 
     setAssignments((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
     setDeviceTracks((prev) => prev.filter((t) => t.sn !== sn));
+    invalidateFleetCache();
     await silentRefresh();
   }
 

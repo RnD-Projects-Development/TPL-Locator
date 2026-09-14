@@ -5,6 +5,7 @@ import Badge from '../components/common/Badge.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js'
 
 const RECENT_KEY = 'tpl_recent_searches'
 const MAX_RECENT  = 8
@@ -62,12 +63,19 @@ export default function Search() {
     const lastSeen    = d.dataRetrievalTime || null
     const hoursAgo    = lastSeen ? (Date.now() - new Date(lastSeen).getTime()) / 3600000 : 99
     const isStickerSN = /^\d+$/.test(String(d.sn ?? ''))
-    const displayName = d.assigned_user_name || d.name || d.sn || '—'
+    const card        = getDeviceCardDisplay(d, debouncedQuery)
     return {
+      raw:          d,
       id:           d.sn || d.local_id,
-      userName:     isStickerSN ? null       : displayName,
-      cargoName:    isStickerSN ? displayName : null,
+      primaryTitle: card.primaryTitle,
+      subTitle:     card.subTitle,
+      extraSub:     card.extraSub,
+      matchedField: card.matchedField,
+      userName:     d.assigned_user_name || d.assignedUser || '',
+      deviceName:   d.name || d.assigned_name || '',
+      cargoName:    card.primaryTitle,
       category:     d.category || '',
+      client:       d.client || '',
       lastLocation: d.lastLocation || '',
       hoursAgo,
       battery:      typeof d.battery === 'number' ? d.battery : null,
@@ -79,14 +87,18 @@ export default function Search() {
     }
   })
 
-  // ── Name-only matching ──────────────────────────────────────────────────────
-  // Search engine behaviour: match strictly on the device NAME, not location /
-  // category / id. The hook fetches a candidate set; we narrow to name matches.
-  const nameOf = d => (d.userName || d.cargoName || '').toString()
-
+  // ── Matching across all searchable fields ───────────────────────────────────
   const dq = debouncedQuery.toLowerCase()
   const byName = dq
-    ? mappedDocs.filter(d => nameOf(d).toLowerCase().includes(dq))
+    ? mappedDocs.filter(d => {
+        const card = getDeviceCardDisplay(d.raw, dq)
+        return card.matchedField !== null ||
+          d.id.toLowerCase().includes(dq) ||
+          d.deviceName.toLowerCase().includes(dq) ||
+          d.userName.toLowerCase().includes(dq) ||
+          d.client.toLowerCase().includes(dq) ||
+          d.category.toLowerCase().includes(dq)
+      })
     : []
 
   const searchResults = byName
@@ -97,10 +109,25 @@ export default function Search() {
   // ── Live name suggestions (autocomplete) — updates on every keystroke ─────────
   const liveQ = query.trim().toLowerCase()
   const suggestions = liveQ
-    ? [...mappedDocs]
-        .filter(d => nameOf(d).toLowerCase().includes(liveQ))
+    ? mappedDocs
+        .map(d => {
+          const card = getDeviceCardDisplay(d.raw, liveQ)
+          return {
+            ...d,
+            suggestTitle: card.primaryTitle,
+            suggestSub: card.subTitle || d.id,
+          }
+        })
+        .filter(d => {
+          const t = d.suggestTitle.toLowerCase()
+          return t.includes(liveQ) ||
+            d.id.toLowerCase().includes(liveQ) ||
+            d.deviceName.toLowerCase().includes(liveQ) ||
+            d.userName.toLowerCase().includes(liveQ) ||
+            d.client.toLowerCase().includes(liveQ)
+        })
         .sort((a, b) => {
-          const na = nameOf(a).toLowerCase(), nb = nameOf(b).toLowerCase()
+          const na = a.suggestTitle.toLowerCase(), nb = b.suggestTitle.toLowerCase()
           const pa = na.startsWith(liveQ) ? 0 : 1, pb = nb.startsWith(liveQ) ? 0 : 1
           return pa - pb || na.localeCompare(nb)
         })
@@ -255,7 +282,7 @@ export default function Search() {
           }}>
             {suggestions.map(d => {
               const isLocator = d.type === 'locator'
-              const name = nameOf(d)
+              const name = d.suggestTitle || d.primaryTitle
               return (
                 <button
                   key={d.id}
@@ -284,7 +311,9 @@ export default function Search() {
                     <div style={{ fontSize: '13px', fontWeight: 600, color: T.txt1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {highlightMatch(name, liveQ, T.accent)}
                     </div>
-                    <div style={{ fontSize: '11px', color: T.txt3, fontFamily: 'monospace' }}>{d.id}</div>
+                    <div style={{ fontSize: '11px', color: T.txt3, fontFamily: 'monospace' }}>
+                      {d.suggestSub && d.suggestSub !== name ? d.suggestSub : d.id}
+                    </div>
                   </div>
                   <ChevronRight style={{ width: '14px', height: '14px', color: T.txt3, flexShrink: 0 }} />
                 </button>
@@ -430,9 +459,11 @@ export default function Search() {
                     </div>
                     <div style={{ overflow: 'hidden' }}>
                       <div style={{ fontSize: '13px', fontWeight: 600, color: T.txt1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {isLocator ? d.userName : d.cargoName}
+                        {d.primaryTitle}
                       </div>
-                      <div style={{ fontSize: '11px', color: T.txt3, fontFamily: 'monospace' }}>{d.id}</div>
+                      <div style={{ fontSize: '11px', color: T.txt3, fontFamily: 'monospace' }}>
+                        {d.subTitle && d.subTitle !== d.primaryTitle ? `${d.id} • ${d.subTitle}` : d.id}
+                      </div>
                     </div>
                     <div style={{
                       fontSize: '10px', fontWeight: 700, padding: '3px 8px', borderRadius: '20px',
@@ -491,11 +522,21 @@ export default function Search() {
                         <Radio style={{ width: '16px', height: '16px', color: T.accent }} />
                       </div>
                       <div>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: T.txt1 }}>{l.userName}</div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: T.txt1 }}>{l.primaryTitle}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                           <span style={{ fontFamily: 'monospace', fontSize: '11px', color: T.accent, fontWeight: 600 }}>{l.id}</span>
-                          <span style={{ color: T.txt3, fontSize: '10px' }}>·</span>
-                          <span style={{ fontSize: '11px', color: T.txt2 }}>{l.category}</span>
+                          {l.subTitle && l.subTitle !== l.id && (
+                            <>
+                              <span style={{ color: T.txt3, fontSize: '10px' }}>·</span>
+                              <span style={{ fontSize: '11px', color: T.txt2 }}>{l.subTitle}</span>
+                            </>
+                          )}
+                          {l.category && (
+                            <>
+                              <span style={{ color: T.txt3, fontSize: '10px' }}>·</span>
+                              <span style={{ fontSize: '11px', color: T.txt2 }}>{l.category}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -542,9 +583,15 @@ export default function Search() {
                         <Tag style={{ width: '16px', height: '16px', color: T.stickerClr }} />
                       </div>
                       <div>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: T.txt1 }}>{s.cargoName}</div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: T.txt1 }}>{s.primaryTitle}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                           <span style={{ fontFamily: 'monospace', fontSize: '11px', color: T.stickerClr, fontWeight: 600 }}>{s.id}</span>
+                          {s.subTitle && s.subTitle !== s.id && (
+                            <>
+                              <span style={{ color: T.txt3, fontSize: '10px' }}>·</span>
+                              <span style={{ fontSize: '11px', color: T.txt2 }}>{s.subTitle}</span>
+                            </>
+                          )}
                           {s.shipmentId && (
                             <>
                               <span style={{ color: T.txt3, fontSize: '10px' }}>·</span>

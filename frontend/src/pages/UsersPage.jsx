@@ -24,6 +24,7 @@ import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
 import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
+import { invalidateFleetCache } from '../utils/fleetCache.js'
 import { useSearchHistory } from '../hooks/useSearchHistory.js'
 import { APP_CACHE_STORAGE_KEYS } from '../utils/clearAppCaches.js'
 import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
@@ -1411,6 +1412,13 @@ export default function UsersPage() {
   const [debouncedQ, setDQ]         = useState((savedUsersView?.q || '').trim().toLowerCase())
   const [page,       setPage]       = useState(savedUsersView?.page || 1)
   const [drawerUser, setDrawerUser] = useState(null)
+  // Keep drawerUser in sync when users cache updates
+  useEffect(() => {
+    if (drawerUser) {
+      const refreshed = users.find(u => (u._id || u.id) === (drawerUser._id || drawerUser.id))
+      if (refreshed) setDrawerUser(refreshed)
+    }
+  }, [users])
   const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
   const tableContainerRef = useRef(null)
@@ -1627,8 +1635,8 @@ export default function UsersPage() {
         const nextVal = !currentVal
         await adminUpdateUser(uid, { [permKey]: nextVal })
       }
-      await refresh()
       await silentRefresh()
+      emitDevicesUpdated()
     } catch (err) {
       console.error(`Failed to toggle ${permKey}:`, err)
     } finally {
@@ -1638,7 +1646,7 @@ export default function UsersPage() {
         return next
       })
     }
-  }, [adminUpdateUser, refresh, silentRefresh])
+  }, [adminUpdateUser, silentRefresh])
 
   /* ── Unassign user from super user ────────────────────────────────────────── */
   const handleUnassignUserFromSuperuser = useCallback(async (userToUnassign) => {
@@ -1646,12 +1654,12 @@ export default function UsersPage() {
     if (!uid) return
     try {
       await adminUpdateUser(uid, { superuser_id: '' })
-      await refresh()
       await silentRefresh()
+      emitDevicesUpdated()
     } catch (err) {
       console.error('Failed to unassign user from superuser:', err)
     }
-  }, [adminUpdateUser, refresh, silentRefresh])
+  }, [adminUpdateUser, silentRefresh])
 
   /* ── Create user ────────────────────────────────────────────────────────── */
   const openCreate  = () => {
@@ -1737,7 +1745,8 @@ export default function UsersPage() {
         payload.superuser_id = editSuperuserId || ''
       }
       await adminUpdateUser(uid, payload)
-      refresh()
+      await silentRefresh()
+      emitDevicesUpdated()
       setEditTarget(null)
     } catch (err) {
       setEditError(err.message || 'Failed to update user')
@@ -1755,8 +1764,9 @@ export default function UsersPage() {
         await unbindDevice(unbindTarget.sn)
       }
       setUnbindTarget(null)
-      silentRefresh?.()
-      refreshDevices?.()
+      invalidateFleetCache()
+      await silentRefresh?.()
+      await silentRefreshDevices?.()
     } catch (err) {
       console.error('Failed to unbind device:', err)
       alert(err.message || 'Failed to unbind device')
@@ -2324,6 +2334,7 @@ export default function UsersPage() {
                 await adminAssignDeviceToUser(targetId, sn, opts)
               }
             }
+            invalidateFleetCache()
             await silentRefresh()
             await silentRefreshDevices()
           }}
@@ -2346,7 +2357,6 @@ export default function UsersPage() {
               isSuperuserFleet: isSu,
               superuserName: drawerUser?.name || displayContact(drawerUser),
             })
-            setDrawerUser(null)
           }}
           pushTrail={pushTrail}
           isLight={isLight}

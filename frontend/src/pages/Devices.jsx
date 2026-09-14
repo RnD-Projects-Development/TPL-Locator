@@ -16,6 +16,7 @@ import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useDashboardChrome } from '../context/DashboardChromeContext.jsx'
 import { deviceDisplayName } from '../utils/deviceDisplayName.js'
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js'
 import { BIND_CATS, STICKER_CATS } from '../utils/deviceCategories.js'
 import {
   fetchFleetDevices,
@@ -612,7 +613,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
       invalidateFleetCache()
     }
 
-    const silent = isSilentRef.current
+    const silent = isSilentRef.current || allDevices.length > 0
     isSilentRef.current = false
     if (!silent) setFetching(true)
     ;(async () => {
@@ -633,6 +634,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     setUnbindLoading(true)
     try {
       await unbindDevice(unbindTarget.sn)
+      setAllDevices(prev => prev.map(d => d.sn === unbindTarget.sn ? { ...d, user_id: null, assigned_user_name: null, assigned_user_id: null, assignedUser: null } : d))
+      isSilentRef.current = true
       invalidateFleetCache()
       setUnbindTarget(null)
       setPage(1)
@@ -650,6 +653,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     setUnbindSuperuserLoading(true)
     try {
       await adminAssignDeviceSuperuser(unbindSuperuserTarget.sn, null)
+      setAllDevices(prev => prev.map(d => d.sn === unbindSuperuserTarget.sn ? { ...d, superuser_id: null, superuser_name: null } : d))
+      isSilentRef.current = true
       invalidateFleetCache()
       const targetSn = unbindSuperuserTarget.sn
       setUnbindSuperuserTarget(null)
@@ -718,6 +723,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         // user and binds it to the new one in a single request.
         await adminAssignDeviceToUser(editUserId, editTarget.sn)
       }
+      isSilentRef.current = true
       invalidateFleetCache()
       const newUser = users.find(u => String(u.id) === String(editUserId))
       setEditTarget(null)
@@ -753,9 +759,13 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if (debQ) {
       const q = debQ.toLowerCase()
       list = list.filter(d => {
-        const name = deviceDisplayName(d).toLowerCase()
-        const sn   = String(d.sn ?? '').toLowerCase()
-        return name.includes(q) || sn.includes(q)
+        const name   = (d.name || d.assigned_name || '').toLowerCase()
+        const disp   = deviceDisplayName(d).toLowerCase()
+        const sn     = String(d.sn ?? '').toLowerCase()
+        const user   = String(d.assigned_user_name || d.user_name || '').toLowerCase()
+        const client = String(d.client || '').toLowerCase()
+        const cat    = String(d.category || '').toLowerCase()
+        return name.includes(q) || disp.includes(q) || sn.includes(q) || user.includes(q) || client.includes(q) || cat.includes(q)
       })
     }
 
@@ -905,7 +915,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               const isActive   = d.status === 'online'
               const dotColor   = isActive ? '#23D160' : '#DC2626'
               const dotGlow    = isActive ? 'rgba(35,209,96,0.55)' : 'rgba(220,38,38,0.50)'
-              const name       = deviceDisplayName(d)
+              const card       = getDeviceCardDisplay(d, debQ)
+              const name       = card.primaryTitle
               const locInfo    = locationMap[d.sn]
               const lastSeen   = fmtLastSeen(d, locInfo)
               const address    = formatDeviceAddress(d, locInfo)
@@ -964,9 +975,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                         </span>
                       </div>
 
-                      {/* 2. Serial Number */}
-                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.74em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {d.sn}
+                      {/* 2. Serial Number / Secondary */}
+                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.74em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.4em' }}>
+                        <span>{card.subTitle || d.sn}</span>
+                        {card.extraSub && <span>• {card.extraSub}</span>}
                       </div>
 
                       {/* 3. Clock icon + Timestamp */}

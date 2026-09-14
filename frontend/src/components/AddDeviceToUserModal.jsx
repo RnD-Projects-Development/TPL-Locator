@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import ModalPortal from './common/ModalPortal.jsx';
 import { categoriesFor } from '../utils/deviceCategories.js';
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js';
 
 const isStickerSN = (sn) => /^\d+$/.test(String(sn ?? ''));
 
@@ -24,7 +25,17 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
   const matches = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return items;
-    return items.filter((it) => labelOf(it).toLowerCase().includes(term));
+    return items.filter((it) => {
+      const card = getDeviceCardDisplay(it, q);
+      return (
+        card.matchedField !== null ||
+        (it.sn || '').toLowerCase().includes(term) ||
+        (it.name || it.assigned_name || '').toLowerCase().includes(term) ||
+        (it.client || '').toLowerCase().includes(term) ||
+        (it.category || '').toLowerCase().includes(term) ||
+        (labelOf ? labelOf(it).toLowerCase().includes(term) : false)
+      );
+    });
   }, [items, q, labelOf]);
 
   const matchKeys = matches.map(keyOf);
@@ -83,6 +94,7 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
           matches.map((it) => {
             const key = keyOf(it);
             const on = selected.has(key);
+            const card = getDeviceCardDisplay(it, q);
             return (
               <label
                 key={key}
@@ -102,14 +114,17 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
                   onChange={() => onToggle(key)}
                   style={{ accentColor: '#A72C32', width: 14, height: 14, flexShrink: 0, cursor: 'pointer' }}
                 />
-                <span style={{ fontFamily: 'monospace', fontWeight: 600, flexShrink: 0 }}>
-                  {it.sn}
-                </span>
-                {(it.name && it.name !== it.sn) && (
-                  <span style={{ color: 'rgba(255,255,255,0.60)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {it.name}
+                <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                    {card.primaryTitle}
                   </span>
-                )}
+                  {card.subTitle && (
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontFamily: 'monospace' }}>{card.subTitle}</span>
+                      {card.extraSub && <span>• {card.extraSub}</span>}
+                    </span>
+                  )}
+                </div>
                 {it.client && (
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {it.client}

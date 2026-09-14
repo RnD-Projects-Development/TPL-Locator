@@ -242,7 +242,7 @@ function RecentActivityPanel({ activityRows, totalActive }) {
     if (!isSearching) return activeRows.slice(0, 6)
     const q = search.toLowerCase()
     return activityRows
-      .filter(r => r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q))
+      .filter(r => r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q) || (r.name || '').toLowerCase().includes(q))
       .slice(0, 6)
   }, [activityRows, activeRows, search, isSearching])
 

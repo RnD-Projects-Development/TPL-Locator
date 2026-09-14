@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { landmarkFromPoint, googleReverseGeocode, googleGeoLabelString, clientReverseGeocode, parseLandmarkDisplay, insidePakistan } from '../utils/landmark.js'
 import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
+import { invalidateFleetCache } from '../utils/fleetCache.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
@@ -359,6 +360,7 @@ export default function LocatorDetail() {
             if (name)   opts.name = name
             if (client) opts.client = client
             await adminAssignDeviceToUser(userId, id, opts)
+            invalidateFleetCache()
             const d = await getDeviceBySn(id)
             if (d) setLoc(prev => ({
               ...prev,
