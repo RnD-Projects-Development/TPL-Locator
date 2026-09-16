@@ -20,7 +20,6 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
         (it.name || it.assigned_name || '').toLowerCase().includes(term) ||
         (it.assigned_user_name || it.assignedUser || it.user_name || '').toLowerCase().includes(term) ||
         (it.client || '').toLowerCase().includes(term) ||
-        (it.category || '').toLowerCase().includes(term) ||
         (labelOf ? labelOf(it).toLowerCase().includes(term) : false)
       );
     });

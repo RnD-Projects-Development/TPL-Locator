@@ -84,11 +84,11 @@ export default function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-2 px-2">
+        <nav className="flex-1 overflow-hidden py-1 px-2">
           {nav.map(({ section, links }) => (
-            <div key={section} className="mb-3">
-              <div className="px-2 py-1.5 text-[11px] font-bold text-gray-600 tracking-widest uppercase overflow-hidden" style={{
-                maxHeight: sidebarOpen ? 32 : 0,
+            <div key={section} className="mb-1.5">
+              <div className="px-2 py-1 text-[10px] font-bold text-gray-600 tracking-widest uppercase overflow-hidden" style={{
+                maxHeight: sidebarOpen ? 26 : 0,
                 opacity: sidebarOpen ? 1 : 0,
                 transform: sidebarOpen ? 'translateX(0)' : 'translateX(-6px)',
                 transition: sidebarOpen
@@ -103,8 +103,8 @@ export default function Sidebar() {
                   <NavLink key={to} to={to} title={!sidebarOpen ? label : undefined}
                     onClick={() => setSidebarOpen(false)}
                     className={({ isActive }) =>
-                      `relative w-full mb-1 block ${isActive ? 'text-[#C44E54]' : 'text-white'}`}
-                    style={{ height: 46 }}
+                      `relative w-full mb-0.5 block ${isActive ? 'text-[#C44E54]' : 'text-white'}`}
+                    style={{ height: 38 }}
                   >
                     {({ isActive }) => (
                       <>
@@ -118,8 +118,8 @@ export default function Sidebar() {
                             : 'opacity 200ms ease 150ms',
                           pointerEvents: sidebarOpen ? 'none' : 'auto',
                         }}>
-                          <div className={`w-[38px] h-[38px] rounded-xl flex items-center justify-center ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}>
-                            <Icon className="w-5 h-5 flex-shrink-0" />
+                          <div className={`w-[34px] h-[34px] rounded-lg flex items-center justify-center ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}>
+                            <Icon className="w-4 h-4 flex-shrink-0" />
                           </div>
                           {count > 0 && (
                             <span className="absolute top-1 right-1 w-2 h-2 bg-[#A72C32] rounded-full" />
@@ -137,7 +137,7 @@ export default function Sidebar() {
                             : 'opacity 100ms ease 0ms',
                           pointerEvents: sidebarOpen ? 'auto' : 'none',
                         }}>
-                          <div className={`absolute inset-0 rounded-xl ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}
+                          <div className={`absolute inset-0 rounded-lg ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}
                             style={{ transition: 'background 0.15s' }} />
                           <Icon className="w-[18px] h-[18px] flex-shrink-0 relative z-10" />
                           <span style={{

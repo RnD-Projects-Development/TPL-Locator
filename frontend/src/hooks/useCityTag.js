@@ -370,10 +370,10 @@ export function useCityTag() {
   );
 
   const updateDevice = useCallback(
-    async (sn, { name, client, category } = {}) =>
+    async (sn, { name, client, category, price, currency } = {}) =>
       apiFetch(
         `/api/devices/${encodeURIComponent(sn)}`,
-        { method: "PUT", body: { name, client, category } },
+        { method: "PUT", body: { name, client, category, price, currency } },
         accessToken, logout
       ),
     [accessToken, logout]
@@ -480,6 +480,52 @@ export function useCityTag() {
     [accessToken, logout]
   );
 
+  const getPricing = useCallback(
+    async () => apiFetch("/api/price", {}, accessToken, logout),
+    [accessToken, logout]
+  );
+
+  const getDevicesPricing = useCallback(
+    async (search) => {
+      const q = search ? `?search=${encodeURIComponent(search)}` : "";
+      return apiFetch(`/api/price/devices${q}`, {}, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
+  const createPricing = useCallback(
+    async ({ price, currency = "PKR", device_sn = null, apply_to_all = false }) =>
+      apiFetch(
+        "/api/price",
+        { method: "POST", body: { price, currency, device_sn, apply_to_all } },
+        accessToken,
+        logout
+      ),
+    [accessToken, logout]
+  );
+
+  const updatePricing = useCallback(
+    async ({ price, currency = "PKR", device_sn = null, apply_to_all = false }) =>
+      apiFetch(
+        "/api/price",
+        { method: "PUT", body: { price, currency, device_sn, apply_to_all } },
+        accessToken,
+        logout
+      ),
+    [accessToken, logout]
+  );
+
+  const updateDevicePricing = useCallback(
+    async (sn, price, currency = "PKR") =>
+      apiFetch(
+        `/api/price/devices/${encodeURIComponent(sn)}`,
+        { method: "PUT", body: { price, currency } },
+        accessToken,
+        logout
+      ),
+    [accessToken, logout]
+  );
+
   return {
     login, requestLoginOtp, adminLogin, signup, requestPasswordReset, resetPasswordWithOtp,
     getMyProfile, updateMyProfile,
@@ -491,5 +537,8 @@ export function useCityTag() {
     getLatestLocationsBatch, getPlaybackBatch,
     getFieldStaffLiveDevices,
     getCategories, createCategory,
+    getPricing, getDevicesPricing, createPricing, updatePricing, updateDevicePricing,
   };
 }
+
+export default useCityTag;

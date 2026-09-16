@@ -411,9 +411,13 @@ async def _sync_zoqin(
                 by_sn = device_registry.index_by_sn(devices_list)
 
             label = row.get("deviceName") or row.get("name") or sn
+            mac = row.get("mac") or None
+            citytag_dev: dict = {"sn": sn, "assigned_name": label}
+            if mac:
+                citytag_dev["mac"] = str(mac).strip()
             await mongo.upsert_device_from_citytag(
                 admin_id=tpl_admin_id,
-                citytag_device={"sn": sn, "assigned_name": label},
+                citytag_device=citytag_dev,
             )
 
             try:

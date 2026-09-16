@@ -8,17 +8,22 @@ let _fleetInflight = null;
 let _fleetGeneration = 0;
 
 export function isFleetCacheValid() {
-  return Boolean(_fleetCache && _fleetFetchedAt && Date.now() - _fleetFetchedAt < FLEET_TTL);
+  return Boolean(_fleetCache && _fleetFetchedAt);
 }
 
 export function getFleetCache() {
   return isFleetCacheValid() ? _fleetCache : null;
 }
 
-export function invalidateFleetCache(emit = true) {
+export function clearFleetCache() {
   _fleetGeneration += 1;
   _fleetCache = null;
   _fleetFetchedAt = null;
+  _fleetInflight = null;
+}
+
+export function invalidateFleetCache(emit = true) {
+  _fleetGeneration += 1;
   _fleetInflight = null;
   if (emit) {
     emitDevicesUpdated();

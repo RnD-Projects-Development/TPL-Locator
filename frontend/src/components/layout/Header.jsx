@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ChevronRight, Bell, Moon, Sun, BatteryLow, WifiOff, MapPin, ArrowRight, CheckCheck, LogOut, Settings, FileDown, Loader } from 'lucide-react'
+import { ChevronRight, Bell, Moon, Sun, BatteryLow, WifiOff, MapPin, ArrowRight, CheckCheck, LogOut, Settings, FileDown, Loader, Tag } from 'lucide-react'
 import DashboardSwitcher from '../common/DashboardSwitcher.jsx'
 import PillTabSwitcher from '../common/PillTabSwitcher.jsx'
 import { useAlerts } from '../../context/AlertsContext.jsx'
@@ -10,6 +10,7 @@ import { useDashboardChrome } from '../../context/DashboardChromeContext.jsx'
 import { useProfileCache } from '../../context/ProfileCacheContext.jsx'
 import Switch from '../Switch.jsx'
 import ModalPortal from '../common/ModalPortal.jsx'
+import PricingModal from '../pricing/PricingModal.jsx'
 import { useCityTag } from '../../hooks/useCityTag.js'
 import { buildCrumbs } from '../../utils/breadcrumbs.js'
 import AddEmailBanner from '../AddEmailBanner.jsx'
@@ -58,7 +59,7 @@ export default function Header({ pageTheme, setPageTheme }) {
   // `user` here is App.jsx's derived appUser — only {name, role, company, email}.
   // Fine for display, but never feed it back into auth state: it has no id/devices.
   const { user } = useApp()
-  const { updateProfile, logout, updateUser, accessToken, role } = useAuth()
+  const { updateProfile, logout, updateUser, accessToken, role, isAdmin } = useAuth()
   const { updateMyProfile } = useCityTag()
   const {
     profile: cachedProfile,
@@ -78,6 +79,7 @@ export default function Header({ pageTheme, setPageTheme }) {
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [showProfileMenu,   setShowProfileMenu]   = useState(false)
+  const [showPricing,       setShowPricing]       = useState(false)
   const profileMenuRef = useRef(null)
 
   useEffect(() => {
@@ -563,6 +565,21 @@ export default function Header({ pageTheme, setPageTheme }) {
                 Profile Settings
               </button>
 
+              {/* Pricing Settings (Admin) */}
+              {isAdmin && (
+                <button
+                  onClick={() => { setShowProfileMenu(false); setShowPricing(true) }}
+                  style={{ width: '100%', padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 12,
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: 500,
+                    borderBottom: '1px solid rgba(255,255,255,0.07)', transition: 'background 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                  <Tag style={{ width: 18, height: 18, flexShrink: 0, color: 'rgba(255,255,255,0.45)' }} />
+                  Pricing
+                </button>
+              )}
+
               {/* Theme toggle */}
               <div style={{ padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 12,
                 borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
@@ -869,6 +886,15 @@ export default function Header({ pageTheme, setPageTheme }) {
             </div>
           </div>
         </ModalPortal>
+      )}
+
+      {/* Pricing modal */}
+      {showPricing && (
+        <PricingModal
+          isOpen={showPricing}
+          onClose={() => setShowPricing(false)}
+          pageTheme={pageTheme}
+        />
       )}
     </>
   )

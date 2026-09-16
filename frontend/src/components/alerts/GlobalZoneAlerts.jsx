@@ -9,7 +9,8 @@ const TOAST_EXIT_MS = 200
 const POLL_INTERVAL_MS = 12_000
 
 export default function GlobalZoneAlerts() {
-  const { accessToken, isAdmin } = useAuth()
+  const { accessToken, isAdmin, isFleetManager } = useAuth()
+  const canAlert = isAdmin || isFleetManager
   const alertsCtx = useAlerts()
 
   const [queue, setQueue] = useState([])
@@ -19,9 +20,16 @@ export default function GlobalZoneAlerts() {
   const lastServerTimeRef = useRef(null)
   const timerRef = useRef(null)
 
+  // Ask for web-notification permission if not yet decided
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+  }, [])
+
   // Poll for real-time zone activity across ALL devices and ALL zones
   const pollActivity = useCallback(async () => {
-    if (!accessToken || !isAdmin) return
+    if (!accessToken || !canAlert) return
 
     try {
       let url = '/api/geofence/activity'
@@ -60,8 +68,21 @@ export default function GlobalZoneAlerts() {
         // Play bell notification tone
         playBellNotification()
 
-        // Append to toast queue
+        // Append to toast queue (on-screen banner)
         setQueue(prev => [...prev, ...freshEvents])
+
+        // If in another tab or browser minimized, fire native desktop notification
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          freshEvents.slice(0, 3).forEach(ev => {
+            const isEnter = ev.type === 'ENTER'
+            try {
+              new Notification(`TPL Trakker — Zone ${isEnter ? 'Entry' : 'Exit'}`, {
+                body: `${ev.deviceName || ev.sn} ${isEnter ? 'entered' : 'exited'} "${ev.zoneName}"`,
+                tag: ev.id,
+              })
+            } catch {}
+          })
+        }
 
         // Trigger background refresh of general alerts badge in header
         alertsCtx?.refresh?.()
@@ -69,17 +90,17 @@ export default function GlobalZoneAlerts() {
     } catch (err) {
       // Background poll failure is non-fatal
     }
-  }, [accessToken, isAdmin, alertsCtx])
+  }, [accessToken, canAlert, alertsCtx])
 
   useEffect(() => {
-    if (!accessToken || !isAdmin) return
+    if (!accessToken || !canAlert) return
 
     // Initial poll
     pollActivity()
 
     const interval = setInterval(pollActivity, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [accessToken, isAdmin, pollActivity])
+  }, [accessToken, canAlert, pollActivity])
 
   // Dismiss current alert
   const handleDismiss = useCallback((target) => {

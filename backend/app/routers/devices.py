@@ -81,6 +81,10 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
     lat = latest_loc.get("lat") if latest_loc else doc.get("lat")
     lng = (latest_loc.get("long") if latest_loc.get("long") is not None else latest_loc.get("lng")) if latest_loc else doc.get("lng")
 
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
+
     return {
         "sn":                 device_sn,
         "name":               doc.get("name", ""),
@@ -99,6 +103,9 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
         "lng":                lng,
         "bindTime":           _fmt_dt(doc.get("bound_at")),
         "local_id":           str(doc.get("_id")),
+        "mac":                doc.get("mac") or None,
+        "price":              price_val,
+        "currency":           curr_val,
     }
 
 
@@ -164,6 +171,8 @@ def _device_row(
     *,
     assigned_user_id: str | None = None,
     assigned_user_name: str | None = None,
+    price: float = 0.0,
+    currency: str = "PKR",
 ) -> dict:
     loc_dict = latest_loc if isinstance(latest_loc, dict) else ({"timestamp": latest_loc} if isinstance(latest_loc, (datetime, str)) else {})
     latest_timestamp = loc_dict.get("timestamp")
@@ -202,6 +211,9 @@ def _device_row(
         "datapoint_count": doc.get("datapoint_count", 0),
         "last_seen": doc.get("last_seen") or doc.get("lastSeen") or None,
         "first_seen": doc.get("first_seen") or None,
+        "mac": doc.get("mac") or None,
+        "price": price,
+        "currency": currency,
     }
 
 
@@ -242,7 +254,6 @@ def _doc_matches_search(doc: dict, term: str, *, extra: str = "") -> bool:
                 str(doc.get("sn") or ""),
                 str(doc.get("name") or ""),
                 str(doc.get("client") or ""),
-                str(doc.get("category") or ""),
                 str(doc.get("assigned_name") or ""),
                 extra,
             ],
@@ -288,7 +299,6 @@ async def _build_admin_device_query(
     if not sn_name_only:
         or_clauses.extend([
             {"client": regex},
-            {"category": regex},
             {"assigned_name": regex},
         ])
         user_ids: list[ObjectId] = []
@@ -366,6 +376,10 @@ async def _list_devices_page(
     term = (search or "").strip()
     sn_name_only = search_scope == "sn_name"
     user_label = ""
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
+
     if isinstance(account, UserInDB) and not sn_name_only:
         user_label = " ".join(filter(None, [account.name or "", account.email or ""]))
 
@@ -428,6 +442,8 @@ async def _list_devices_page(
                 latest_by_sn.get(str(doc.get("sn"))),
                 assigned_user_id=str(account.id),
                 assigned_user_name=user_name,
+                price=price_val,
+                currency=curr_val,
             )
             for doc in page_docs
         ]
@@ -491,6 +507,8 @@ async def _list_devices_page(
                 latest_by_sn.get(str(doc.get("sn"))),
                 assigned_user_id=assigned_user_id,
                 assigned_user_name=assigned_user_name,
+                price=price_val,
+                currency=curr_val,
             )
         )
 
@@ -509,6 +527,9 @@ async def _enrich_admin_devices(account, mongo: MongoService) -> List[dict]:
     `account` is an AdminInDB or SuperUserInDB; the fleet scope is derived from it.
     """
     logger.info("enrich_admin_devices started account=%s", account.email)
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
 
     docs = await mongo.devices.find(_fleet_base_query(account)).to_list(None)
     if not docs:
@@ -610,6 +631,9 @@ async def _enrich_admin_devices(account, mongo: MongoService) -> List[dict]:
             "datapoint_count": doc.get("datapoint_count", 0),
             "last_seen": doc.get("last_seen") or doc.get("lastSeen") or None,
             "first_seen": doc.get("first_seen") or None,
+            "mac": doc.get("mac") or None,
+            "price": price_val,
+            "currency": curr_val,
         })
 
     logger.info("enrich_admin_devices completed account=%s result_count=%s", account.email, len(result))
@@ -692,6 +716,8 @@ class UpdateDeviceRequest(BaseModel):
     zone: Optional[str] = None
     add_zone: Optional[str] = None
     remove_zone: Optional[str] = None
+    price: Optional[float] = None
+    currency: Optional[str] = None
 
 
 @router.post("/devices")
@@ -924,11 +950,17 @@ async def get_device_by_sn(
             assigned_user_name = raw_name or (email.split("@")[0] if "@" in email else email) or None
             assigned_user_id = str(user_oid)
 
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
+
     return _device_row(
         doc,
         latest_ts,
         assigned_user_id=assigned_user_id,
         assigned_user_name=assigned_user_name,
+        price=price_val,
+        currency=curr_val,
     )
 
 
@@ -1019,16 +1051,20 @@ async def _update_device_for_account(
                 await mongo.devices.update_one({"sn": sn}, {"$pull": {"fence_zone_ids": zone_val}})
 
     refreshed = await mongo.get_device_by_sn(sn)
+    dev_obj = refreshed or updated
+    pricing = await mongo.get_pricing()
     return {
         "status": "ok",
         "device": {
-            "id": str((refreshed or updated).id),
-            "sn": (refreshed or updated).sn,
-            "name": (refreshed or updated).name,
-            "client": (refreshed or updated).client,
-            "region": (refreshed or updated).region,
-            "category": (refreshed or updated).category,
-            "zone": (refreshed or updated).zone,
+            "id": str(dev_obj.id),
+            "sn": dev_obj.sn,
+            "name": dev_obj.name,
+            "client": dev_obj.client,
+            "region": dev_obj.region,
+            "category": dev_obj.category,
+            "zone": dev_obj.zone,
+            "price": pricing.get("price", 0.0),
+            "currency": pricing.get("currency", "PKR"),
         },
     }
 

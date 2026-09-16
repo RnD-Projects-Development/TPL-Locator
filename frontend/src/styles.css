@@ -512,8 +512,21 @@ input[type="time"] {
 /* ── Proportional Scaling Architecture ── */
 .scalable-container {
   /* Master scale definition based on viewport height and width for balance */
-  /* Keeps font size visible (min 11px) and uses a higher vh multiplier for clarity */
-  font-size: clamp(11px, min(1.4vw, 1.9vh), 16px);
+  font-size: clamp(10.5px, min(1.35vw, 1.8vh), 16px);
+}
+
+/* ── Devices Responsive Card Grid ── */
+.devices-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* ── Global Badges ── */

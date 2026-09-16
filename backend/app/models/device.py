@@ -22,6 +22,8 @@ class DeviceInDB(BaseModel):
     zone: Optional[str] = None             # legacy single-zone field (kept for backward compat)
     fence_zone_ids: Optional[List[str]] = Field(default_factory=list)  # many-to-many zone ids (Mongo zone _id hex)
     category: Optional[str] = None         # device category e.g. "car", "wallet", "bag"
+    price: Optional[float] = None          # device price
+    currency: Optional[str] = "PKR"        # device price currency (default PKR)
 
     class Config:
         json_encoders = {ObjectId: str}

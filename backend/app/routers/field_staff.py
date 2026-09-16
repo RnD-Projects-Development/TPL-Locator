@@ -67,7 +67,6 @@ async def _build_admin_device_query(mongo: MongoService, base: dict, search: str
         {"sn": regex},
         {"name": regex},
         {"client": regex},
-        {"category": regex},
         {"assigned_name": regex},
         {"region": regex},
         {"location": regex},

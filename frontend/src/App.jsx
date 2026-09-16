@@ -8,6 +8,8 @@ import { ProfileCacheProvider } from './context/ProfileCacheContext.jsx'
 import { AlertsProvider, useAlerts } from './context/AlertsContext.jsx'
 import { FieldStaffCacheProvider } from './context/FieldStaffCacheContext.jsx'
 import { SidebarDevicesProvider } from './context/SidebarDevicesContext.jsx'
+import { HomePageCacheProvider } from './context/HomePageCacheContext.jsx'
+import { BindCacheProvider } from './context/BindCacheContext.jsx'
 import Login from './pages/Login.jsx'
 import Layout from './components/layout/Layout.jsx'
 import AppCachePrefetch from './components/AppCachePrefetch.jsx'
@@ -68,6 +70,8 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
       dispatch,
       unreadAlerts: unreadCount,
     }}>
+      <BindCacheProvider>
+      <HomePageCacheProvider>
       <DeviceCacheProvider>
       <UserCacheProvider>
       <ProfileCacheProvider>
@@ -106,6 +110,8 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
       </ProfileCacheProvider>
       </UserCacheProvider>
       </DeviceCacheProvider>
+      </HomePageCacheProvider>
+      </BindCacheProvider>
     </AppCtx.Provider>
   )
 }

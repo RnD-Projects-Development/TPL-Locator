@@ -1693,6 +1693,7 @@ export default function UsersPage() {
         ...(isAdmin && newRole === 'user' && newSuperuserId ? { superuser_id: newSuperuserId } : {}),
       })
       refresh()
+      emitDevicesUpdated()
       closeCreate()
     } catch (err) {
       setCreateError(err.message || 'Failed to create user')
@@ -1708,6 +1709,7 @@ export default function UsersPage() {
     try {
       await adminDeleteUser(deleteTarget._id || deleteTarget.id)
       refresh()
+      emitDevicesUpdated()
       setDeleteTarget(null)
     } catch {}
     finally { setDeleteLoading(false) }

@@ -73,7 +73,8 @@ def create_app() -> FastAPI:
     app.include_router(history_router)
     app.include_router(sync_router)
     app.include_router(categories_router)
-    app.include_router(price_router)
+    app.include_router(price_router, prefix="/api/price")
+    app.include_router(price_router, prefix="/api/pricing")
     Instrumentator().instrument(app).expose(app)
 
     from app.routers.field_staff import router as field_staff_router

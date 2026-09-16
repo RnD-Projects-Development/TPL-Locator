@@ -32,7 +32,6 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
         (it.sn || '').toLowerCase().includes(term) ||
         (it.name || it.assigned_name || '').toLowerCase().includes(term) ||
         (it.client || '').toLowerCase().includes(term) ||
-        (it.category || '').toLowerCase().includes(term) ||
         (labelOf ? labelOf(it).toLowerCase().includes(term) : false)
       );
     });

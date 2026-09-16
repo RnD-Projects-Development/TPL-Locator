@@ -3,6 +3,7 @@ import { useCityTag } from '../hooks/useCityTag.js';
 import { useBindCache } from './BindCacheContext.jsx';
 import { registerCacheResetListener } from '../utils/clearAppCaches.js';
 import { useDeviceUpdates } from '../utils/deviceEvents.js';
+import { fetchFleetDevices, getFleetCache, isFleetCacheValid } from '../utils/fleetCache.js';
 
 const SUMMARY_CACHE_MS = 5 * 60 * 1000; // 5 minutes — matches device list cache
 
@@ -98,36 +99,25 @@ export function HomePageCacheProvider({ children }) {
 
   const fetchDevices = useCallback(async ({ force = false, silent = false } = {}) => {
     const cacheKey = 'devices';
-    const cacheAgeMs = Date.now() - deviceCacheRef.current.fetchedAt;
-    if (!force && deviceCacheRef.current.key === cacheKey && cacheAgeMs < 5 * 60 * 1000 && deviceCacheRef.current.data.length) {
+    if (!force && deviceCacheRef.current.key === cacheKey && deviceCacheRef.current.data.length) {
       setDevices(deviceCacheRef.current.data);
       updateFromDevices(deviceCacheRef.current.data);
       return deviceCacheRef.current.data;
     }
 
+    if (!force && isFleetCacheValid()) {
+      const fleet = getFleetCache() || [];
+      if (fleet.length > 0) {
+        setDevices(fleet);
+        updateFromDevices(fleet);
+        deviceCacheRef.current = { key: cacheKey, fetchedAt: Date.now(), data: fleet };
+        return fleet;
+      }
+    }
+
     if (!silent) setDevLoading(true);
     try {
-      // Backend hard-caps `limit` at 500 per request, so page through the rest
-      // to load the whole fleet — dashboard counts (unassigned, per-user, top
-      // devices) must reflect ALL devices, not just the first page.
-      const PAGE = 500;
-      const MAX_PAGES = 6; // safety bound: up to 3000 devices
-      const first = await getDevices({ page: 1, limit: PAGE });
-      let list = Array.isArray(first) ? first : (first?.devices ?? []);
-      const total = Number(first?.total) || list.length;
-      const pages = Math.min(MAX_PAGES, Math.ceil(total / PAGE));
-      
-      if (pages > 1) {
-        const promises = [];
-        for (let p = 2; p <= pages; p += 1) {
-          promises.push(getDevices({ page: p, limit: PAGE }));
-        }
-        const results = await Promise.all(promises);
-        for (const res of results) {
-          const more = Array.isArray(res) ? res : (res?.devices ?? []);
-          list = list.concat(more);
-        }
-      }
+      const list = await fetchFleetDevices(getDevices, { force });
       setDevices(list);
       updateFromDevices(list);
       deviceCacheRef.current = { key: cacheKey, fetchedAt: Date.now(), data: list };
@@ -140,11 +130,9 @@ export function HomePageCacheProvider({ children }) {
   }, [getDevices, updateFromDevices]);
 
   const fetchSummary = useCallback(async ({ force = false, silent = false } = {}) => {
-    const cacheAgeMs = Date.now() - summaryCacheRef.current.fetchedAt;
     if (
       !force &&
-      summaryCacheRef.current.fetchedAt > 0 &&
-      cacheAgeMs < SUMMARY_CACHE_MS
+      summaryCacheRef.current.fetchedAt > 0
     ) {
       setSummary(summaryCacheRef.current.data);
       return summaryCacheRef.current.data;
@@ -169,7 +157,7 @@ export function HomePageCacheProvider({ children }) {
 
   // ── Fetch devices once on mount ───────────────────────────────────────────
   useEffect(() => {
-    void refreshAll({ force: true });
+    void refreshAll({ force: false, silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -184,7 +172,7 @@ export function HomePageCacheProvider({ children }) {
 
     const sig = deviceSignature(devs);
     const cache = locationCacheRef.current;
-    const isFresh = cache.key === sig && (Date.now() - cache.fetchedAt) < 60_000;
+    const isFresh = cache.key === sig && cache.data && Object.keys(cache.data).length > 0;
     if (!force && isFresh) {
       setLocations(cache.data);
       return cache.data;
@@ -212,8 +200,7 @@ export function HomePageCacheProvider({ children }) {
 
     const sig = `${deviceSignature(devs)}|${dateStr}|${live ? 'live' : 'hist'}`;
     const cache = activityCacheRef.current.get(sig);
-    const ttl = live ? 60_000 : Number.POSITIVE_INFINITY;
-    const cacheFresh = cache && (ttl === Number.POSITIVE_INFINITY || (Date.now() - cache.fetchedAt) < ttl);
+    const cacheFresh = Boolean(cache?.data);
     if (!force && cacheFresh) {
       setActivityData(cache.data);
       return cache.data;
@@ -270,6 +257,14 @@ export function HomePageCacheProvider({ children }) {
     if (!devicesRef.current.length) return;
     fetchActivity(filters.date, filters.date === todayStr(), { force: false });
   }, [filters.date, fetchActivity]);
+
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    const id = setInterval(() => {
+      refreshAll({ force: true, silent: true });
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [refreshAll]);
 
   // Listen for global device updates (e.g. from Devices page or Map polling)
   useDeviceUpdates(() => {

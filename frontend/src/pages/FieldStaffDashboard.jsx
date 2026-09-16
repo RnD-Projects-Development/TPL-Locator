@@ -25,7 +25,7 @@ import './FieldStaffLive.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
 
-const REFRESH_MS = 10 * 60 * 1000;   // silent live refresh
+const REFRESH_MS = 15 * 60 * 1000;   // silent live refresh
 const TOAST_EXIT_MS = 200;           // must match the .fsd-toast exit animation
 const MISSING_HOURS = Math.round(MISSING_THRESHOLD_MS / 3_600_000);
 

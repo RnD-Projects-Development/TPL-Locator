@@ -33,9 +33,9 @@ export default function PillTabSwitcher({ tabs, activeKey, onSelect }) {
         position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
-        height: 36,
-        padding: '3px',
-        borderRadius: 8,
+        height: 44,
+        padding: '4px',
+        borderRadius: 10,
         background: 'rgba(255,255,255,0.04)',
         border: '1px solid #2a2a2a',
         flexShrink: 0,
@@ -46,11 +46,11 @@ export default function PillTabSwitcher({ tabs, activeKey, onSelect }) {
         <div
           style={{
             position: 'absolute',
-            top: 3,
+            top: 4,
             left: pill.left,
             width: pill.width,
-            height: 'calc(100% - 6px)',
-            borderRadius: 6,
+            height: 'calc(100% - 8px)',
+            borderRadius: 8,
             background: '#A72C32',
             border: '1px solid rgba(255,255,255,0.10)',
             transition: ready
@@ -75,15 +75,15 @@ export default function PillTabSwitcher({ tabs, activeKey, onSelect }) {
               zIndex: 1,
               display: 'flex',
               alignItems: 'center',
-              gap: 7,
-              padding: '0 13px',
+              gap: 8,
+              padding: '0 16px',
               height: '100%',
-              borderRadius: 6,
+              borderRadius: 8,
               border: 'none',
               background: 'transparent',
               cursor: 'pointer',
               color: isActive ? '#FFFFFF' : '#94a3b8',
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: isActive ? 600 : 500,
               whiteSpace: 'nowrap',
               letterSpacing: '0.01em',
@@ -92,7 +92,7 @@ export default function PillTabSwitcher({ tabs, activeKey, onSelect }) {
             onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = '#FFFFFF' }}
             onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#94a3b8' }}
           >
-            {Icon && <Icon style={{ width: 14, height: 14, flexShrink: 0 }} />}
+            {Icon && <Icon style={{ width: 17, height: 17, flexShrink: 0 }} />}
             {tab.label}
           </button>
         )

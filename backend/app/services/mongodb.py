@@ -70,33 +70,103 @@ class MongoService:
         return self.db["pricing"]
 
     _PRICING_DOC_ID = "current"
+    _cached_pricing: Optional[dict] = None
+    _cached_pricing_ts: float = 0.0
 
     async def get_pricing(self) -> dict:
-        """Return the configured price, or the default (0 USD) if never set."""
+        """Return the configured universal price, or the default (0 PKR) if never set. Cached in-memory for zero latency."""
+        import time
+        now_ts = time.time()
+        if self._cached_pricing is not None and (now_ts - self._cached_pricing_ts) < 60.0:
+            return self._cached_pricing
+
         doc = await self.pricing.find_one({"_id": self._PRICING_DOC_ID})
         if not doc:
-            return {"price": 0.0, "currency": "USD", "updated_at": None, "updated_by": None}
-        return {
-            "price": doc.get("price", 0.0),
-            "currency": doc.get("currency", "USD"),
-            "updated_at": doc.get("updated_at"),
-            "updated_by": str(doc["updated_by"]) if doc.get("updated_by") else None,
-        }
+            data = {"price": 0.0, "currency": "PKR", "updated_at": None, "updated_by": None}
+        else:
+            data = {
+                "price": float(doc.get("price", 0.0) or 0.0),
+                "currency": doc.get("currency", "PKR") or "PKR",
+                "updated_at": doc.get("updated_at"),
+                "updated_by": str(doc["updated_by"]) if doc.get("updated_by") else None,
+            }
+        self._cached_pricing = data
+        self._cached_pricing_ts = now_ts
+        return data
 
-    async def set_pricing(self, price: float, currency: str, updated_by: Optional[str]) -> dict:
-        """Upsert the single price document. Admin-only at the router level."""
+    async def set_pricing(self, price: float, currency: str = "PKR", updated_by: Optional[str] = None) -> dict:
+        """Upsert the single price document. Instant O(1) operation."""
+        import time
         now = datetime.now(timezone.utc)
+        curr = (currency or "PKR").strip().upper()
+        p_val = float(price)
         await self.pricing.update_one(
             {"_id": self._PRICING_DOC_ID},
             {"$set": {
-                "price": price,
-                "currency": currency,
+                "price": p_val,
+                "currency": curr,
                 "updated_at": now,
                 "updated_by": ObjectId(updated_by) if updated_by else None,
             }},
             upsert=True,
         )
-        return await self.get_pricing()
+        data = {
+            "price": p_val,
+            "currency": curr,
+            "updated_at": now,
+            "updated_by": updated_by,
+        }
+        self._cached_pricing = data
+        self._cached_pricing_ts = time.time()
+        return data
+
+    async def set_device_pricing(self, sn: str, price: float, currency: str = "PKR", updated_by: Optional[str] = None) -> Optional[dict]:
+        """Price is universal for all devices. Updates universal pricing and returns device info."""
+        await self.set_pricing(price, currency, updated_by=updated_by)
+        doc = await self.devices.find_one({"sn": sn})
+        return {
+            "sn": sn,
+            "name": (doc.get("name") if doc else None) or sn,
+            "price": float(price),
+            "currency": (currency or "PKR").strip().upper(),
+            "client": doc.get("client") if doc else None,
+        }
+
+    async def set_all_devices_pricing(self, price: float, currency: str = "PKR", updated_by: Optional[str] = None) -> dict:
+        """Set price and currency across all devices instantly via universal pricing config."""
+        res = await self.set_pricing(price, currency, updated_by=updated_by)
+        return {
+            "price": res["price"],
+            "currency": res["currency"],
+            "matched_count": 1,
+            "modified_count": 1,
+            "updated_at": res["updated_at"],
+        }
+
+    async def get_devices_pricing(self, search: Optional[str] = None, limit: int = 1000) -> list[dict]:
+        """Return list of devices with their current price and currency."""
+        query = {}
+        if search:
+            q = search.strip()
+            query = {
+                "$or": [
+                    {"sn": {"$regex": q, "$options": "i"}},
+                    {"name": {"$regex": q, "$options": "i"}},
+                    {"client": {"$regex": q, "$options": "i"}},
+                ]
+            }
+        cursor = self.devices.find(query).limit(limit)
+        items = []
+        async for doc in cursor:
+            items.append({
+                "sn": doc.get("sn"),
+                "name": doc.get("name") or doc.get("assigned_name") or doc.get("sn"),
+                "client": doc.get("client"),
+                "category": doc.get("category"),
+                "price": doc.get("price"),
+                "currency": doc.get("currency", "PKR"),
+            })
+        return items
 
     async def get_account_by_email(self, email: str, role: Optional[str] = None):
         """Get account by email. If role is specified, filter by role."""

@@ -21,7 +21,7 @@ import TPLLoader from '../components/TPLLoader.jsx';
 import LocatingOverlay from '../components/LocatingOverlay.jsx';
 import { frameBounds } from '../utils/frameBounds.js';
 import { parseKML } from '../utils/kmlParser.js';
-import { useDeviceUpdates } from '../utils/deviceEvents.js';
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js';
 import { invalidateFleetCache } from '../utils/fleetCache.js';
 import './FencePage.css';
 
@@ -467,6 +467,7 @@ function FencePageInner() {
       setEditingZone(null);
       refreshZones();
       refresh();
+      emitDevicesUpdated();
     } finally {
       setIsSaving(false);
     }
@@ -481,6 +482,7 @@ function FencePageInner() {
     if (selectedZoneId === zone_id) setSelectedZoneId(null);
     refreshZones();
     refresh();
+    emitDevicesUpdated();
   }
 
   function handleEditZone(zone) {
@@ -520,6 +522,7 @@ function FencePageInner() {
 
       await refreshZones();
       await refresh();
+      emitDevicesUpdated();
 
       // Zoom & frame map to imported zones
       const allCoords = parsedZones.flatMap((z) => z.coordinates || []).map((p) => [p.lat, p.lng]);

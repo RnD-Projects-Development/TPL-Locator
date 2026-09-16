@@ -22,7 +22,7 @@ export function UserCacheProvider({ children }) {
   useEffect(() => { adminGetUsersRef.current = adminGetUsers; }, [adminGetUsers]);
 
   const fetchUsers = useCallback(async (force = false) => {
-    if (!force && usersRef.current.length > 0 && lastFetchedRef.current && (Date.now() - lastFetchedRef.current < 120_000)) {
+    if (!force && usersRef.current.length > 0 && lastFetchedRef.current) {
       return;
     }
     setLoading(true);
@@ -70,6 +70,15 @@ export function UserCacheProvider({ children }) {
       silentRefresh();
     }
   });
+
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    if (!user || !canManageUsers) return;
+    const id = setInterval(() => {
+      silentRefresh();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [user, canManageUsers, silentRefresh]);
 
   // Prefetch as soon as admin is authenticated; clear on logout
   useEffect(() => {

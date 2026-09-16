@@ -296,17 +296,18 @@ function ActionsDropdown({ isLight, onEdit, onUnbind, onUnbindSuperuser, isAdmin
         onClick={toggle}
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 10, cursor: 'pointer',
-          fontFamily: 'inherit', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-          background: open ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.08)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+          fontFamily: CARD_FONT, fontSize: '0.72rem', fontWeight: 600, transition: 'all 0.15s ease',
+          background: open ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.14)',
           color: '#ECECEC',
+          lineHeight: 1.2,
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)' }}
         onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
       >
         Actions
-        <ChevronDown style={{ width: 11, height: 11, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+        <ChevronDown style={{ width: 11, height: 11, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }} />
       </button>
 
       {open && createPortal(
@@ -467,14 +468,13 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel, statusTabsNode }) {
   const location = useLocation()
   const pushTrail = useTrailNav()
-  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminGetSuperusers, getCategories, getGeocode, getLatestLocationsBatch } = useCityTag()
+  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminGetSuperusers, getCategories } = useCityTag()
   const { user, isAdmin: rawIsAdmin, isSuperUser } = useAuth()
   // A super user manages a fleet exactly like an admin — the backend scopes the
   // data to its own devices/users — so treat it as an admin throughout this page.
   const isAdmin = rawIsAdmin || isSuperUser
   const { users, loading: usersLoading } = useUserCache()
   const [categories, setCategories] = useState([])
-  const [locationMap, setLocationMap] = useState({})
     useEffect(() => {
       let cancelled = false;
       getCategories()
@@ -483,15 +483,28 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
       return () => { cancelled = true; };
     }, [getCategories]);
 
-  const cacheValid = () => isFleetCacheValid()
+  const { devices: cachedFleet } = useDeviceCache()
+  const initialFleet = useMemo(() => {
+    const fromFleetCache = getFleetCache()
+    if (fromFleetCache && fromFleetCache.length > 0) return fromFleetCache
+    if (cachedFleet && cachedFleet.length > 0) return cachedFleet
+    return []
+  }, [cachedFleet])
 
   const savedView = useRef(loadDevView()).current
-  const [allDevices,   setAllDevices]   = useState(() => getFleetCache() ?? [])
-  const [fetching,     setFetching]     = useState(() => !cacheValid())
+  const [allDevices,   setAllDevices]   = useState(initialFleet)
+  const [fetching,     setFetching]     = useState(() => initialFleet.length === 0 && !isFleetCacheValid())
   const [rawQ,         setRawQ]         = useState(savedView?.q || '')
   const [debQ,         setDebQ]         = useState(savedView?.q || '')
   const [page,         setPage]         = useState(savedView?.page || 1)
   const [localRefresh, setLocalRefresh] = useState(0)
+
+  useEffect(() => {
+    if (allDevices.length === 0 && initialFleet.length > 0) {
+      setAllDevices(initialFleet)
+      setFetching(false)
+    }
+  }, [initialFleet, allDevices.length])
 
   const muiTheme = useMemo(() => createTheme({
     palette: { mode: isLight ? 'light' : 'dark', primary: { main: '#A72C32', contrastText: '#FFFFFF' } },
@@ -577,22 +590,17 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   // Listen for global updates
   useDeviceUpdates(() => {
     isSilentRef.current = true
-    invalidateFleetCache(false)
     setLocalRefresh(k => k + 1)
   })
-
-  // Auto-refresh every 60s when Online filter is active — silently (no loader)
-  useEffect(() => {
-    if (externalStatus !== 'online') return
-    const id = setInterval(() => emitDevicesUpdated(), 60_000)
-    return () => clearInterval(id)
-  }, [externalStatus])
 
   // Silent auto-refresh every 15 min — mirrors the Dashboard and detail pages.
   // Runs on every tab/filter; keeps the current tab, search and page in place
   // (no loader) while the fleet is refetched in the background.
   useEffect(() => {
-    const id = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
+    const id = setInterval(() => {
+      isSilentRef.current = true
+      emitDevicesUpdated()
+    }, 15 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
 
@@ -603,8 +611,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     const forced = prevSignal.current !== refreshSignal
     prevSignal.current = refreshSignal
 
-    if (!forced && cacheValid()) {
-      setAllDevices(getFleetCache() ?? [])
+    if (!forced && (allDevices.length > 0 || isFleetCacheValid())) {
+      if (allDevices.length === 0 && getFleetCache()) {
+        setAllDevices(getFleetCache() ?? [])
+      }
       setFetching(false)
       return
     }
@@ -764,8 +774,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         const sn     = String(d.sn ?? '').toLowerCase()
         const user   = String(d.assigned_user_name || d.user_name || '').toLowerCase()
         const client = String(d.client || '').toLowerCase()
-        const cat    = String(d.category || '').toLowerCase()
-        return name.includes(q) || disp.includes(q) || sn.includes(q) || user.includes(q) || client.includes(q) || cat.includes(q)
+        return name.includes(q) || disp.includes(q) || sn.includes(q) || user.includes(q) || client.includes(q)
       })
     }
 
@@ -792,44 +801,13 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const hasPrev     = safePage > 1
   const hasNext     = safePage < totalPages
 
-  // Batch fetch location details (coordinates & landmarks) for current visible page
-  useEffect(() => {
-    if (!pageDevices.length || !getLatestLocationsBatch) return
-    let cancelled = false
-    const sns = pageDevices.map(d => d.sn).filter(Boolean)
-    getLatestLocationsBatch(sns).then(res => {
-      if (cancelled) return
-      const map = res?.locations ?? res ?? {}
-      setLocationMap(prev => ({ ...prev, ...map }))
-
-      // For points with coordinates but without landmark, resolve in background
-      Object.entries(map).forEach(([sn, loc]) => {
-        const lat = loc?.lat ?? loc?.latitude
-        const lng = loc?.lng ?? loc?.long ?? loc?.lon
-        if (!loc?.landmark && lat != null && lng != null) {
-          resolveGeocode({ lat, lng }, getGeocode).then(geo => {
-            if (!cancelled && geo) {
-              const label = [geo.primary, geo.secondary].filter(Boolean).join(', ')
-              setLocationMap(prev => ({
-                ...prev,
-                [sn]: { ...prev[sn], ...loc, landmark: label }
-              }))
-            }
-          }).catch(() => {})
-        }
-      })
-    }).catch(() => {})
-
-    return () => { cancelled = true }
-  }, [pageDevices, getLatestLocationsBatch, getGeocode])
-
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '0.45rem', minHeight: 0, overflow: 'hidden' }}>
 
       {/* Search + count + filters */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0, width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', flexWrap: 'nowrap', flexShrink: 0, width: '100%' }}>
         <div ref={searchWrapRef} style={{ position: 'relative' }}>
-          <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
+          <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 12, height: 12, color: T.txt3, pointerEvents: 'none' }} />
           <input
             value={rawQ}
             onChange={e => setRawQ(e.target.value)}
@@ -840,7 +818,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
             placeholder="Search devices…"
             style={{
               background: T.inputBg, border: `1px solid ${T.inputBorder}`,
-              borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12,
+              borderRadius: 8, padding: '6px 12px 6px 30px', fontSize: 12,
               color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220,
               boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
             }}
@@ -865,155 +843,164 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
             />
           )}
         </div>
-        <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400 }}>
+        <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400, whiteSpace: 'nowrap' }}>
           {fetching ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}
         </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {statusTabsNode}
           {onBind && (
             <button onClick={onBind}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, cursor: 'pointer', flexShrink: 0,
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', flexShrink: 0,
               background: isLight ? '#A72C32' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
               border: isLight ? '1px solid #8B2328' : '1px solid rgba(167,44,50,0.45)',
-              color: '#fff', fontSize: 13, fontWeight: 700,
+              color: '#fff', fontSize: 12, fontWeight: 700,
               boxShadow: isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)',
-              transition: 'box-shadow 0.2s, transform 0.2s' }}
-            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = isLight ? '0 4px 16px rgba(167,44,50,0.35)' : '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)' }}
-            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)' }}
-          >
-            <Plus style={{ width: 14, height: 14 }} /> {bindLabel}
-          </button>
-        )}
+              transition: 'box-shadow 0.2s, transform 0.2s', whiteSpace: 'nowrap' }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = isLight ? '0 4px 16px rgba(167,44,50,0.35)' : '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)' }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)' }}
+            >
+              <Plus style={{ width: 13, height: 13 }} /> {bindLabel}
+            </button>
+          )}
+        </div>
       </div>
-    </div>
 
-      {/* Device grid — fills remaining height, fixed 4 col × 4 row.
-          Always render exactly PAGE_SIZE slots so gridTemplateRows distributes space correctly. */}
+      {/* Device grid — 4x4 matrix fitting 100% available height */}
       {fetching ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <TPLLoader label="Loading devices…" />
         </div>
       ) : (
-        <div ref={gridScrollRef} className="scalable-container" style={{
-          flex: 1, minHeight: 0, overflow: 'auto',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(14.3em, 1fr))',
-          gridTemplateRows: 'repeat(4, minmax(7.2em, 1fr))',
-          gap: '0.7em',
-        }}>
+        <div ref={gridScrollRef} className="devices-card-grid">
           {pageDevices.length === 0 ? (
             /* No results — single cell spanning full grid */
-            <div style={{ gridColumn: '1 / -1', gridRow: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: T.txt3, fontSize: 13, padding: '3rem 1rem' }}>
               No devices match your filters
             </div>
           ) : (
-            /* Always render exactly PAGE_SIZE slots so row heights stay consistent */
-            Array.from({ length: PAGE_SIZE }, (_, idx) => {
-              const d = pageDevices[idx] ?? null
-              if (!d) return <div key={`_ph_${idx}`} aria-hidden="true" />
+            pageDevices.map((d) => {
               const isSticker  = isStickerSN(d.sn)
               const isActive   = d.status === 'online'
               const dotColor   = isActive ? '#23D160' : '#DC2626'
               const dotGlow    = isActive ? 'rgba(35,209,96,0.55)' : 'rgba(220,38,38,0.50)'
               const card       = getDeviceCardDisplay(d, debQ)
               const name       = card.primaryTitle
-              const locInfo    = locationMap[d.sn]
-              const lastSeen   = fmtLastSeen(d, locInfo)
-              const address    = formatDeviceAddress(d, locInfo)
+              const lastSeen   = fmtLastSeen(d)
+              const address    = formatDeviceAddress(d)
               return (
                 <div
                   key={d.sn}
                   onClick={() => { recordSearch(rawQ); pushTrail(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + (location.search || '') } }) }}
                   style={{
-                    position: 'relative', overflow: 'hidden', height: '100%',
-                    borderRadius: 16, cursor: 'pointer', boxSizing: 'border-box',
-                    // Charcoal NFC-card face (not pure black) with a soft top-down
-                    // gradient; the red locator swirl is drawn on top (SwirlPin).
-                    background: 'linear-gradient(155deg, #333333 0%, #292929 100%)',
-                    boxShadow: '0 6px 22px rgba(0,0,0,0.45)',
-                    transition: 'box-shadow 0.24s ease',
+                    position: 'relative', overflow: 'hidden', height: '100%', minHeight: 0,
+                    borderRadius: '12px', cursor: 'pointer', boxSizing: 'border-box',
+                    background: 'linear-gradient(155deg, #323232 0%, #262626 100%)',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.38)',
+                    transition: 'box-shadow 0.24s ease, border-color 0.24s ease',
+                    display: 'flex',
                   }}
-                  // Matte premium hover — soft shadow + faint inset ring + brighter
-                  // chevron. No glow, no translate, so the grid never clips the tile.
                   onMouseEnter={e => {
-                    e.currentTarget.style.boxShadow = '0 12px 34px rgba(0,0,0,0.58), inset 0 0 0 1px rgba(255,255,255,0.10)'
+                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.52), inset 0 0 0 1px rgba(255,255,255,0.10)'
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)'
                     const chev = e.currentTarget.querySelector('[data-chev]')
-                    if (chev) chev.style.color = 'rgba(255,255,255,0.80)'
+                    if (chev) chev.style.color = 'rgba(255,255,255,0.85)'
                   }}
                   onMouseLeave={e => {
-                    e.currentTarget.style.boxShadow = '0 6px 22px rgba(0,0,0,0.45)'
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.38)'
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'
                     const chev = e.currentTarget.querySelector('[data-chev]')
                     if (chev) chev.style.color = 'rgba(255,255,255,0.35)'
                   }}
                 >
-                  {/* Redrawn TPL locator swirl — vector-traced from the physical card.
-                      Sized to the tile height so the whole pin (eye, body, point) shows,
-                      with a whisper of top bleed. It's tall, so on these wide tiles it
-                      naturally occupies the left ~third. */}
-                  <SwirlPin style={{ position: 'absolute', left: '0%', top: '-3%', height: '100%', width: 'auto', zIndex: 0, pointerEvents: 'none' }} />
-                  {/* Device info. It sits after a spacer that mirrors the swirl's
-                      footprint — the pin is height:100% width:auto, so it occupies
-                      cardHeight × the artwork's 1052:1481 ratio. The old left:44%
-                      was a share of card *width* while the pin scales with card
-                      *height*, so the space between them ballooned on wider tiles
-                      (13px at 240px wide, 55px at 400px). The spacer keeps that gap
-                      at a constant ~13px whatever the tile size. */}
+                  {/* Redrawn TPL locator swirl — vector-traced from the physical card */}
+                  <SwirlPin color="#D93A3A" style={{ position: 'absolute', left: 0, top: '-2%', height: '104%', width: 'auto', zIndex: 0, pointerEvents: 'none', opacity: 0.88 }} />
+
+                  {/* Device info: spacer matches swirl pin width, content uses clean vertical structure */}
                   <div style={{
                     position: 'absolute', inset: 0, zIndex: 1,
                     display: 'flex', alignItems: 'stretch', minWidth: 0,
                   }}>
                     <div aria-hidden="true" style={{ height: '100%', aspectRatio: '1052 / 1481', flexShrink: 0 }} />
                     <div style={{
-                      flex: 1, minWidth: 0, margin: '0.6em 1em 0.6em 0.85em',
-                      display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.3em',
+                      flex: 1, minWidth: 0,
+                      padding: '0.4rem 0.6rem 0.35rem 0.5rem',
+                      display: 'flex', flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      boxSizing: 'border-box',
+                      minHeight: 0,
                     }}>
-                      {/* 1. Status dot + Device Name */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
-                        <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
-                        <span style={{ fontFamily: CARD_FONT, fontSize: '0.96em', fontWeight: 700, color: '#F7F7F7', letterSpacing: '0.005em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {name}
-                        </span>
+                      {/* 1. Header: Status dot + Primary Title (left) & Navigation Chevron (right) */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem', minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 }}>
+                          <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
+                          <span style={{
+                            fontFamily: CARD_FONT, fontSize: '0.9375rem', fontWeight: 600,
+                            color: '#FFFFFF', letterSpacing: '0.01em',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            lineHeight: 1.25,
+                          }} title={name}>
+                            {name}
+                          </span>
+                        </div>
+                        <ChevronRight data-chev strokeWidth={1.8} style={{ width: '0.95rem', height: '0.95rem', color: 'rgba(255,255,255,0.35)', flexShrink: 0, transition: 'color 0.2s ease' }} />
                       </div>
 
-                      {/* 2. Serial Number / Secondary */}
-                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.74em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.4em' }}>
+                      {/* 2. Vehicle IDs: smaller, visually muted, directly underneath title */}
+                      <div style={{
+                        paddingLeft: '0.9rem',
+                        fontFamily: CARD_FONT, fontSize: '0.75rem', fontWeight: 400,
+                        color: 'rgba(255,255,255,0.45)', letterSpacing: '0.015em',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        lineHeight: 1.2,
+                      }}>
                         <span>{card.subTitle || d.sn}</span>
-                        {card.extraSub && <span>• {card.extraSub}</span>}
+                        {card.extraSub && <span> • {card.extraSub}</span>}
                       </div>
 
-                      {/* 3. Clock icon + Timestamp */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45em', minWidth: 0, fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.85)' }}>
-                        <Clock strokeWidth={1.8} style={{ width: '1.15em', height: '1.15em', color: 'rgba(255,255,255,0.75)', flexShrink: 0 }} />
+                      {/* 3. Clock icon + Timestamp row */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.35rem', minWidth: 0,
+                        fontFamily: CARD_FONT, fontSize: '0.75rem', fontWeight: 400,
+                        color: 'rgba(255,255,255,0.85)', lineHeight: 1.2,
+                      }}>
+                        <Clock strokeWidth={1.8} style={{ width: '0.85rem', height: '0.85rem', color: 'rgba(255,255,255,0.65)', flexShrink: 0 }} />
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {lastSeen || 'No last report'}
                         </span>
                       </div>
 
-                      {/* 4. MapPin icon + Location */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45em', minWidth: 0, paddingRight: isAdmin ? '7.5em' : '2.5em', fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.80)' }}>
-                        <MapPin strokeWidth={1.8} style={{ width: '1.15em', height: '1.15em', color: 'rgba(255,255,255,0.75)', flexShrink: 0 }} />
+                      {/* 4. MapPin icon + Location row with single-line ellipsis */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.35rem', minWidth: 0,
+                        fontFamily: CARD_FONT, fontSize: '0.75rem', fontWeight: 400,
+                        color: 'rgba(255,255,255,0.80)', lineHeight: 1.2,
+                      }}>
+                        <MapPin strokeWidth={1.8} style={{ width: '0.85rem', height: '0.85rem', color: 'rgba(255,255,255,0.65)', flexShrink: 0 }} />
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={address}>
                           {address}
                         </span>
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Actions + chevron, bottom-right */}
-                  <div style={{ position: 'absolute', zIndex: 2, right: '0.9em', bottom: '0.6em', display: 'flex', alignItems: 'center', gap: '0.5em' }}>
-                    {isAdmin && (
-                      <ActionsDropdown
-                        isLight={isLight}
-                        isAdmin={isAdmin}
-                        rawIsAdmin={rawIsAdmin}
-                        isBoundDevice={isBound(d)}
-                        hasSuperuser={!!(d.superuser_id || d.superuser_name)}
-                        onEdit={() => openEdit(d)}
-                        onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
-                        onUnbindSuperuser={() => { setUnbindSuperuserError(''); setUnbindSuperuserTarget(d) }}
-                      />
-                    )}
-                    <ChevronRight data-chev strokeWidth={1.5} style={{ width: '1.05em', height: '1.05em', color: 'rgba(255,255,255,0.35)', transition: 'color 0.2s ease' }} />
+                      {/* 5. Dedicated Actions button area at bottom-right */}
+                      {isAdmin && (
+                        <div style={{
+                          display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <ActionsDropdown
+                            isLight={isLight}
+                            isAdmin={isAdmin}
+                            rawIsAdmin={rawIsAdmin}
+                            isBoundDevice={isBound(d)}
+                            hasSuperuser={!!(d.superuser_id || d.superuser_name)}
+                            onEdit={() => openEdit(d)}
+                            onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
+                            onUnbindSuperuser={() => { setUnbindSuperuserError(''); setUnbindSuperuserTarget(d) }}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
@@ -1024,8 +1011,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
 
       {/* Pagination */}
       {total > 0 && !fetching && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, padding: '4px 2px', flexShrink: 0 }}>
-          <span style={{ fontSize: 11, color: T.txt3, marginRight: 4, fontWeight: isLight ? 500 : 400 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'nowrap', gap: 6, padding: '2px 0', flexShrink: 0, marginTop: 'auto' }}>
+          <span style={{ fontSize: 11, color: T.txt3, marginRight: 4, fontWeight: isLight ? 500 : 400, whiteSpace: 'nowrap' }}>
             {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
           </span>
           <ThemeProvider theme={muiTheme}>
@@ -1033,8 +1020,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               <Pagination
                 count={totalPages} page={safePage}
                 onChange={(_, p) => setPage(p)}
-                color="primary" shape="rounded" size="medium"
-                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: '#A72C32', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: '#8B2328' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
+                color="primary" shape="rounded" size="small"
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 12, height: 26, minWidth: 26, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: '#A72C32', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: '#8B2328' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
               />
             </Stack>
           </ThemeProvider>
@@ -1477,7 +1464,7 @@ export default function Devices() {
   )
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0 0.25rem' }}>
 
       {/* ── Content — fills remaining height ─────────────────────────────────── */}
       <div style={{ flex: 1, overflow: 'hidden', minHeight: 0, position: 'relative' }}>

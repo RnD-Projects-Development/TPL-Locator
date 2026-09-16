@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { readPersistedPage, saveLocatorPageState } from "../utils/locatorPageState.js";
 import { useCityTag } from "./useCityTag.js";
 import { useDeviceUpdates } from "../utils/deviceEvents.js";
+import { getFleetCache, isFleetCacheValid } from "../utils/fleetCache.js";
 
 const DEFAULT_LIMIT = 20;
 const BULK_DEVICE_LIMIT = 100;
@@ -80,10 +81,6 @@ function seedPageCacheFromBulk(bulkEntry, search, status, deviceType, pageLimit 
 function getModuleCached(key) {
   const entry = moduleCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.fetchedAt > MODULE_TTL_MS) {
-    moduleCache.delete(key);
-    return null;
-  }
   return entry.snapshot;
 }
 
@@ -97,10 +94,6 @@ function getValidBulkEntry(search, status, deviceType, searchScope = null) {
   const key = filtersKey(search, status, deviceType, searchScope);
   const entry = bulkDeviceCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.fetchedAt > BULK_TTL_MS) {
-    bulkDeviceCache.delete(key);
-    return null;
-  }
   return entry;
 }
 
@@ -218,6 +211,25 @@ function peekCachedPageSnapshot(initialLimit, search, status, device_type, searc
     }
   }
 
+  const fleet = getFleetCache();
+  if (fleet && fleet.length > 0 && !searchTerm) {
+    let matching = fleet;
+    if (statusFilter && statusFilter !== 'all') {
+      matching = matching.filter(d => d.status === statusFilter);
+    }
+    if (devType === 'locator') {
+      matching = matching.filter(d => !/^\d+$/.test(String(d.sn ?? '')));
+    } else if (devType === 'sticker') {
+      matching = matching.filter(d => /^\d+$/.test(String(d.sn ?? '')));
+    }
+    const entry = {
+      devices: matching,
+      total: matching.length,
+      fetchedAt: Date.now(),
+    };
+    return sliceBulkPage(entry, targetPage, initialLimit);
+  }
+
   return null;
 }
 
@@ -309,6 +321,27 @@ export function usePaginatedDevices(initialLimit = DEFAULT_LIMIT, options = {}) 
     if (!force) {
       const existing = getValidBulkEntry(searchTerm, statusFilter, devType, scope);
       if (existing) return existing;
+
+      const fleet = getFleetCache();
+      if (fleet && fleet.length > 0 && !searchTerm) {
+        let matching = fleet;
+        if (statusFilter && statusFilter !== 'all') {
+          matching = matching.filter(d => d.status === statusFilter);
+        }
+        if (devType === 'locator') {
+          matching = matching.filter(d => !/^\d+$/.test(String(d.sn ?? '')));
+        } else if (devType === 'sticker') {
+          matching = matching.filter(d => /^\d+$/.test(String(d.sn ?? '')));
+        }
+        const entry = {
+          devices: matching,
+          total: matching.length,
+          fetchedAt: Date.now(),
+        };
+        bulkDeviceCache.set(key, entry);
+        seedPageCacheFromBulk(entry, searchTerm, statusFilter, devType, initialLimit, scope);
+        return entry;
+      }
     }
 
     const inflightKey = `bulk:${key}`;

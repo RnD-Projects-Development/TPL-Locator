@@ -4,6 +4,7 @@ import { useAuth } from "./AuthContext.jsx";
 import { registerCacheResetListener } from "../utils/clearAppCaches.js";
 import { loadSidebarScopeState, saveSidebarScopeState } from "../utils/sidebarPageState.js";
 import { useDeviceUpdates } from '../utils/deviceEvents.js';
+import { getFleetCache } from '../utils/fleetCache.js';
 
 const DEFAULT_LIMIT  = 20;
 const SEARCH_LIMIT   = 50;
@@ -118,10 +119,6 @@ export function SidebarDevicesProvider({ children }) {
     const key = listCacheKey(typeFilter, targetPage);
     const entry = listCacheRef.current.get(key);
     if (!entry) return null;
-    if (Date.now() - entry.fetchedAt > LIST_CACHE_TTL_MS) {
-      listCacheRef.current.delete(key);
-      return null;
-    }
     return entry;
   }, []);
 
@@ -136,10 +133,6 @@ export function SidebarDevicesProvider({ children }) {
     const key = searchCacheKey(typeFilter, term);
     const entry = searchCacheRef.current.get(key);
     if (!entry) return null;
-    if (Date.now() - entry.fetchedAt > SEARCH_CACHE_TTL_MS) {
-      searchCacheRef.current.delete(key);
-      return null;
-    }
     return entry;
   }, []);
 
@@ -174,6 +167,7 @@ export function SidebarDevicesProvider({ children }) {
 
     const typeFilter = options.deviceTypeFilter ?? deviceTypeFilterRef.current;
     const force = Boolean(options.force);
+    const silent = Boolean(options.silent);
 
     if (!force) {
       const cached = getValidListCache(typeFilter, targetPage);
@@ -181,9 +175,30 @@ export function SidebarDevicesProvider({ children }) {
         applyListSnapshot(cached, targetPage);
         return;
       }
+
+      const fleet = getFleetCache();
+      if (fleet && fleet.length > 0) {
+        let filtered = fleet;
+        if (typeFilter === 'locator') {
+          filtered = fleet.filter(d => !isSticker(d.sn));
+        } else if (typeFilter === 'sticker') {
+          filtered = fleet.filter(d => isSticker(d.sn));
+        }
+        const t  = filtered.length;
+        const tp = Math.max(1, Math.ceil(t / DEFAULT_LIMIT));
+        const start = (targetPage - 1) * DEFAULT_LIMIT;
+        const list = filtered.slice(start, start + DEFAULT_LIMIT);
+        const snapshot = { list, total: t, totalPages: tp };
+        setListCache(typeFilter, targetPage, snapshot);
+        applyListSnapshot(snapshot, targetPage);
+        if (activeScopeRef.current) {
+          saveSidebarScopeState(activeScopeRef.current, { page: targetPage });
+        }
+        return;
+      }
     }
 
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError("");
     try {
       const params = { page: targetPage, limit: DEFAULT_LIMIT };
@@ -204,7 +219,7 @@ export function SidebarDevicesProvider({ children }) {
       setTotal(0);
       setTotalPages(1);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [user, getValidListCache, applyListSnapshot, setListCache, registerDevices]);
 
@@ -216,6 +231,7 @@ export function SidebarDevicesProvider({ children }) {
 
     const typeFilter = options.deviceTypeFilter ?? deviceTypeFilterRef.current;
     const force = Boolean(options.force);
+    const silent = Boolean(options.silent);
 
     if (!force) {
       const cached = getValidSearchCache(typeFilter, term);
@@ -225,9 +241,31 @@ export function SidebarDevicesProvider({ children }) {
         setError("");
         return;
       }
+
+      const fleet = getFleetCache();
+      if (fleet && fleet.length > 0) {
+        const q = term.toLowerCase().trim();
+        let filtered = fleet.filter(d => {
+          const sn = String(d?.sn ?? '').toLowerCase();
+          const name = String(d?.name ?? d?.deviceName ?? '').toLowerCase();
+          const user = String(d?.assigned_user_name ?? d?.user ?? '').toLowerCase();
+          const client = String(d?.client ?? '').toLowerCase();
+          return sn.includes(q) || name.includes(q) || user.includes(q) || client.includes(q);
+        });
+        if (typeFilter === 'locator') {
+          filtered = filtered.filter(d => !isSticker(d.sn));
+        } else if (typeFilter === 'sticker') {
+          filtered = filtered.filter(d => isSticker(d.sn));
+        }
+        const list = filtered.slice(0, SEARCH_LIMIT);
+        setSearchCache(typeFilter, term, list);
+        registerDevices(list);
+        setSearchResults(list);
+        return;
+      }
     }
 
-    setSearchLoading(true);
+    if (!silent) setSearchLoading(true);
     setError("");
     try {
       const searchParams = { page: 1, limit: SEARCH_LIMIT, search: term };
@@ -241,7 +279,7 @@ export function SidebarDevicesProvider({ children }) {
       setError(err.message || "Search failed");
       setSearchResults([]);
     } finally {
-      setSearchLoading(false);
+      if (!silent) setSearchLoading(false);
     }
   }, [user, getValidSearchCache, setSearchCache, registerDevices]);
 
@@ -388,6 +426,20 @@ export function SidebarDevicesProvider({ children }) {
     const cached = registryRef.current.get(sn);
     if (cached) return cached;
 
+    const fleet = getFleetCache();
+    if (fleet) {
+      const match = fleet.find((d) => String(d.sn) === String(sn)) ?? null;
+      if (match) {
+        registerDevices([match]);
+        setRecentSns((prev) => {
+          const next = [sn, ...prev.filter((s) => s !== sn)].slice(0, RECENT_MAX);
+          saveRecentSns(next);
+          return next;
+        });
+        return match;
+      }
+    }
+
     try {
       const payload = await getDevicesRef.current({ page: 1, limit: SEARCH_LIMIT, search: sn });
       const list = normalizeList(payload);
@@ -443,9 +495,10 @@ export function SidebarDevicesProvider({ children }) {
     void loadDefault(p);
   }, [loadDefault]);
 
-  const refresh = useCallback(async () => {
-    await loadDefault(page, { force: true });
-    if (debouncedSearch) await runSearch(debouncedSearch, { force: true });
+  const refresh = useCallback(async (opts = {}) => {
+    const silent = Boolean(opts?.silent);
+    await loadDefault(page, { force: true, silent });
+    if (debouncedSearch) await runSearch(debouncedSearch, { force: true, silent });
   }, [loadDefault, runSearch, debouncedSearch, page]);
 
   const online = displayDevices.filter((d) => d.status === "online").length;
@@ -502,6 +555,15 @@ export function SidebarDevicesProvider({ children }) {
     activateScope,
     activeScope,
   ]);
+
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    if (!user) return;
+    const id = setInterval(() => {
+      refresh({ silent: true });
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [user, refresh]);
 
   useDeviceUpdates(() => {
     refresh({ silent: true });

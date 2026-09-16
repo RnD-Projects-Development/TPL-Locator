@@ -96,10 +96,9 @@ export function getDeviceCardDisplay(device, searchTerm = '') {
     { field: 'sn',       score: matchQuality(sn, q),       val: sn       },
     { field: 'user',     score: matchQuality(userName, q), val: userName },
     { field: 'client',   score: matchQuality(client, q),   val: client   },
-    { field: 'category', score: matchQuality(category, q), val: category },
   ].filter(c => c.score > 0);
 
-  // Highest match quality wins; ties break in natural order: name > sn > user > client > category
+  // Highest match quality wins; ties break in natural order: name > sn > user > client
   scores.sort((a, b) => b.score - a.score);
 
   const best = scores[0] || null;
@@ -130,12 +129,6 @@ export function getDeviceCardDisplay(device, searchTerm = '') {
 
     case 'client':
       primaryTitle = client;
-      subTitle = name || userName || sn;
-      extraSub = primaryTitle !== sn && subTitle !== sn ? sn : '';
-      break;
-
-    case 'category':
-      primaryTitle = category;
       subTitle = name || userName || sn;
       extraSub = primaryTitle !== sn && subTitle !== sn ? sn : '';
       break;

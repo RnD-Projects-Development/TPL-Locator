@@ -1,7 +1,7 @@
 import { resetMapCache } from '../components/MapView.jsx';
 import { clearInflightApiCache } from '../hooks/useCityTag.js';
 import { invalidatePaginatedCache } from '../hooks/usePaginatedDevices.js';
-import { invalidateFleetCache } from './fleetCache.js';
+import { clearFleetCache, invalidateFleetCache } from './fleetCache.js';
 import { clearLocatorPageState } from './locatorPageState.js';
 import { clearSidebarPageState } from './sidebarPageState.js';
 
@@ -29,7 +29,7 @@ export function registerCacheResetListener(fn) {
 /** Clear all session/user caches. Call on logout before clearing auth. */
 export function clearAppCaches() {
   invalidatePaginatedCache();
-  invalidateFleetCache();
+  clearFleetCache();
   clearInflightApiCache();
   clearLocatorPageState();
   clearSidebarPageState();

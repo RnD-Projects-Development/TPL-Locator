@@ -70,6 +70,15 @@ export function ZoneCacheProvider({ children }) {
     }
   });
 
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    if (!accessToken) return;
+    const id = setInterval(() => {
+      silentRefreshZones();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [accessToken, silentRefreshZones]);
+
   useEffect(() => {
     if (accessToken) refreshZones();
   }, [accessToken, refreshZones]);

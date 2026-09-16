@@ -72,8 +72,7 @@ const DevicesTable = ({
           (d.sn || "").toLowerCase().includes(term) ||
           (d.client || d.assigned_name || "").toLowerCase().includes(term) ||
           (d.assigned_user_name || d.assignedUser || "").toLowerCase().includes(term) ||
-          (d.name || "").toLowerCase().includes(term) ||
-          (d.category || "").toLowerCase().includes(term);
+          (d.name || "").toLowerCase().includes(term);
         const matchStatus = filterStatus === 'all' || d.status === filterStatus;
         return matchSearch && matchStatus;
       });

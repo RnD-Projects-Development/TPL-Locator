@@ -2,8 +2,6 @@ import React from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar.jsx'
 import Header from './Header.jsx'
-import { HomePageCacheProvider } from '../../context/HomePageCacheContext.jsx'
-import { BindCacheProvider } from '../../context/BindCacheContext.jsx'
 import { DashboardChromeProvider } from '../../context/DashboardChromeContext.jsx'
 import GlobalZoneAlerts from '../alerts/GlobalZoneAlerts.jsx'
 import '../../styles/light-theme.css'
@@ -24,6 +22,7 @@ export default function Layout({ children }) {
   // than the viewport, so let main scroll for it instead of clipping.
   const mainOverflow = isMapPage ? 'overflow-hidden p-0'
     : isUsersPage    ? 'overflow-y-auto overflow-x-hidden p-5'
+    : isDevicesPage  ? 'overflow-hidden p-4'
     :                  'overflow-hidden p-5'
 
   // global theme state (persists across all pages)
@@ -46,27 +45,22 @@ export default function Layout({ children }) {
   }, [pageTheme])
 
   return (
-    <BindCacheProvider>
-      <HomePageCacheProvider>
-        <DashboardChromeProvider>
-          <div className="flex h-screen overflow-hidden" style={{ background: '#000000' }}>
-            <Sidebar />
-            <div className="flex flex-col flex-1 overflow-hidden">
-              <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
-              <main
-                key={pathname}
-                className={`page-anim flex-1 ${mainOverflow} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
-              style={{ borderTopLeftRadius: 0 }}
-              >
-                <ThemeContext.Provider value={pageTheme}>
-                  {children}
-                </ThemeContext.Provider>
-              </main>
-            </div>
-            <GlobalZoneAlerts />
-          </div>
-        </DashboardChromeProvider>
-      </HomePageCacheProvider>
-    </BindCacheProvider>
+    <DashboardChromeProvider>
+      <div className="flex h-screen overflow-hidden" style={{ background: '#000000' }}>
+        <Sidebar />
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <Header pageTheme={pageTheme} setPageTheme={setPageTheme} />
+          <main
+            className={`page-anim flex-1 ${mainOverflow} ${pageTheme === 'light' && !isDarkOnlyPage ? 'page-theme-light' : 'page-theme-dark'}`}
+            style={{ borderTopLeftRadius: 0 }}
+          >
+            <ThemeContext.Provider value={pageTheme}>
+              {children}
+            </ThemeContext.Provider>
+          </main>
+        </div>
+        <GlobalZoneAlerts />
+      </div>
+    </DashboardChromeProvider>
   )
 }

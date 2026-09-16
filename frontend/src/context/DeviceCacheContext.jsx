@@ -62,6 +62,15 @@ export function DeviceCacheProvider({ children }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!user]);
 
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    if (!user) return;
+    const id = setInterval(() => {
+      silentRefresh();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [user, silentRefresh]);
+
   useDeviceUpdates(() => {
     fetchFleetDevices(getDevicesRef.current, { force: true })
       .then(list => {

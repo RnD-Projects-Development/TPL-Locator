@@ -96,8 +96,7 @@ export default function Search() {
           d.id.toLowerCase().includes(dq) ||
           d.deviceName.toLowerCase().includes(dq) ||
           d.userName.toLowerCase().includes(dq) ||
-          d.client.toLowerCase().includes(dq) ||
-          d.category.toLowerCase().includes(dq)
+          d.client.toLowerCase().includes(dq)
       })
     : []
 

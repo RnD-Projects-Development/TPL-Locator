@@ -30,8 +30,7 @@
   align-items: stretch;
 }
 
-/* Translucent by design: a tinted gradient over a blurred backdrop, with a
-   solid accent rail on the leading edge carrying the severity colour. */
+/* Opaque alert banner: solid dark surface with an accent rail on the leading edge carrying the severity colour. */
 .fsd-toast {
   position: relative;
   display: grid;
@@ -42,16 +41,10 @@
   border-radius: 0.9375em;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-left: 0.3125em solid var(--fsd-tone);
-  background: linear-gradient(
-    to right,
-    rgba(var(--fsd-tone-rgb), 0.30),
-    rgba(var(--fsd-tone-rgb), 0.12) 55%,
-    rgba(var(--fsd-tone-rgb), 0.20)
-  );
-  backdrop-filter: blur(0.875em) saturate(150%);
-  -webkit-backdrop-filter: blur(0.875em) saturate(150%);
-  box-shadow: 0 0.75em 2em rgba(0, 0, 0, 0.45);
+  background: #18181b;
+  box-shadow: 0 0.75em 2em rgba(0, 0, 0, 0.75), 0 0.125em 0.5em rgba(0, 0, 0, 0.5);
   color: #ffffff;
   animation: fsdToastIn 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -110,8 +103,8 @@
 .fsd-toast-all {
   padding: 0.25em 0.625em;
   border-radius: 0.4375em;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #27272a;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   color: #ffffff;
   font-family: inherit;
   font-size: 0.75em;
@@ -122,8 +115,8 @@
   transition: background 0.15s, border-color 0.15s;
 }
 .fsd-toast-all:hover {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.28);
+  background: #3f3f46;
+  border-color: rgba(255, 255, 255, 0.32);
 }
 
 .fsd-toast-x {
@@ -137,13 +130,13 @@
   border-radius: 0.375em;
   background: transparent;
   color: #ffffff;
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: pointer;
   transition: opacity 0.15s, background 0.15s;
 }
 .fsd-toast-x:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.14);
+  background: #27272a;
 }
 .fsd-toast-x-icon { width: 0.875em; height: 0.875em; }
 
