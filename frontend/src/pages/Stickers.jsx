@@ -14,7 +14,9 @@ import { useBindCache } from '../context/BindCacheContext.jsx'
 import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
+import { invalidateFleetCache } from '../utils/fleetCache.js'
 import { deviceDisplayName } from '../utils/deviceDisplayName.js'
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
@@ -180,9 +182,9 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
   const { isAdmin } = useAuth()
   const navigate  = useNavigate()
   const { bindDevice, adminAssignDeviceToUser, unbindDevice, getAvailableDevices, getDevices, getLatestLocationsBatch } = useCityTag()
-  const { devices: cacheDevices, refresh: refreshDeviceCache } = useDeviceCache()
+  const { devices: cacheDevices, refresh: refreshDeviceCache, silentRefresh: silentRefreshDevices } = useDeviceCache()
   const { recordBind } = useBindCache()
-  const { users } = useUserCache()
+  const { users, silentRefresh: silentRefreshUsers } = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
@@ -321,7 +323,10 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory })
         recordBind(bindSn)            // persist bind history immediately
-        refreshDevices(); closeBindModal()
+        invalidateFleetCache()
+        silentRefreshDevices?.()
+        silentRefreshUsers?.()
+        closeBindModal()
       } catch (err) { setBindError(err.message || 'Failed to bind sticker') }
       finally { setBindLoading(false) }
     } else {
@@ -332,7 +337,9 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory })
         recordBind(bindSn.trim())     // persist bind history immediately
-        refreshDevices()
+        invalidateFleetCache()
+        silentRefreshDevices?.()
+        silentRefreshUsers?.()
         getAvailableDevices()
           .then(list => setAvailableDevices((list || []).filter(d => /^\d+$/.test(String(d.sn ?? '')))))
           .catch(() => {})
@@ -349,14 +356,25 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
       setDeleteTarget(device || { sn })
     } else {
       if (!window.confirm(`Remove binding for ${sn}?`)) return
-      try { await unbindDevice(sn); refreshDevices() } catch {}
+      try {
+        await unbindDevice(sn)
+        invalidateFleetCache()
+        silentRefreshDevices?.()
+        silentRefreshUsers?.()
+      } catch {}
     }
   }
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setDeleteLoading(true)
-    try { await unbindDevice(deleteTarget.sn); refreshDevices(); setDeleteTarget(null) } catch {}
+    try {
+      await unbindDevice(deleteTarget.sn)
+      invalidateFleetCache()
+      silentRefreshDevices?.()
+      silentRefreshUsers?.()
+      setDeleteTarget(null)
+    } catch {}
     finally { setDeleteLoading(false) }
   }
 
@@ -365,9 +383,13 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
     const lastSeen = d.dataRetrievalTime || null
     const hoursAgo = lastSeen ? (Date.now() - new Date(lastSeen).getTime()) / 3600000 : 99
     const status = hoursAgo < 12 ? 'Active' : 'Offline'
+    const card = getDeviceCardDisplay(d, debouncedQuery)
     return {
       id: d.sn || d.local_id,
-      displayName: deviceDisplayName(d),
+      displayName: card.primaryTitle,
+      subTitle: card.subTitle || (d.sn || d.local_id),
+      extraSub: card.extraSub,
+      matchedField: card.matchedField,
       category: d.category || '',
       company:  d.client || '',
       status,
@@ -378,7 +400,7 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
       fence_zone_ids: d.fence_zone_ids || [],
       detections: d.detections ?? 0,
     }
-  }), [stickers])
+  }), [stickers, debouncedQuery])
 
   // CSV export — pulls the FULL sticker fleet from the DB (all pages) with
   // owner, bound-at, last location, detections, battery, etc.
@@ -556,7 +578,10 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
                   <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
                   <span style={{ fontSize: 13, fontWeight: 700, color: '#000000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.displayName}</span>
                 </div>
-                <div style={{ fontSize: 10, color: '#555555', marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13 }}>{s.id}</div>
+                <div style={{ fontSize: 10, color: '#555555', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'monospace' }}>{s.subTitle || s.id}</span>
+                  {s.extraSub && <span>• {s.extraSub}</span>}
+                </div>
               </div>
               <ChevronRight style={{ width: 14, height: 14, color: '#333333', flexShrink: 0 }} />
               {isAdmin && (
@@ -589,7 +614,10 @@ export default function Stickers({ embedded = false, externalStatus = undefined 
                   <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
                   <span style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.displayName}</span>
                 </div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13 }}>{s.id}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'monospace' }}>{s.subTitle || s.id}</span>
+                  {s.extraSub && <span>• {s.extraSub}</span>}
+                </div>
               </div>
               <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />
               {isAdmin && (

@@ -41,6 +41,11 @@ export function AuthProvider({ children }) {
       accessToken,
       role: role ?? stored?.role,
       isAdmin: (role ?? stored?.role) === "admin",
+      isSuperUser: (role ?? stored?.role) === "superuser",
+      // "Fleet" accounts: admins and super users both manage a fleet + user pool
+      // (scoped server-side for super users). Use this for tab/feature gating.
+      isFleetManager:
+        (role ?? stored?.role) === "admin" || (role ?? stored?.role) === "superuser",
       isAuthed: Boolean(accessToken),
       loginSuccess: ({ user: newUser, accessToken: token, role: newRole }) => {
         // Drop any caches left over from a previous account (e.g. an admin's

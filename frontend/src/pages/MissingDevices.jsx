@@ -12,6 +12,7 @@ import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
 import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js'
 
 /* ── Recovery score (decreases 1.8%/h from last contact) ─────────────────── */
 function recoveryScore(hoursAgo, detections) {
@@ -173,7 +174,8 @@ function DeviceCard({ device, navigate, pushTrail, isLight, T }) {
 
               {/* Row 2: ID, Offline Time, Battery */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: 12, color: T.txt2 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', color: T.txt3 }}>{device.id}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: T.txt3 }}>{device.secondaryText || device.id}</span>
+                {device.extraSub && <span style={{ color: T.txt3 }}>• {device.extraSub}</span>}
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Clock style={{ width: 12, height: 12, color: accentHardClr, flexShrink: 0 }} />
                   {device.lastSeen ? (
@@ -417,6 +419,7 @@ export default function MissingDevices({ embedded = false, deviceType = undefine
         displayName: d.assigned_user_name || d.name || d.sn || '—',
         deviceType:  /^\d+$/.test(String(d.sn ?? '')) ? 'sticker' : 'locator',
         recovery:    recoveryScore(hoursAgo, d.detections ?? 0),
+        rawDevice:   d,
       }
     }).filter(Boolean)
   }, [offlineDocs, locations])
@@ -435,17 +438,31 @@ export default function MissingDevices({ embedded = false, deviceType = undefine
     const activeQ = embedded ? externalSearch : debouncedQ
     if (activeQ) {
       const q = activeQ.toLowerCase()
-      list = list.filter(d =>
-        d.id.toLowerCase().includes(q) ||
-        d.displayName.toLowerCase().includes(q) ||
-        (d.lastLocation || '').toLowerCase().includes(q)
-      )
+      list = list.filter(d => {
+        const raw = d.rawDevice || d
+        const name = (raw.name || raw.assigned_name || '').toLowerCase()
+        const user = (raw.assigned_user_name || raw.user_name || '').toLowerCase()
+        const client = (raw.client || '').toLowerCase()
+        const id = (d.id || '').toLowerCase()
+        const loc = (d.lastLocation || '').toLowerCase()
+        return id.includes(q) || name.includes(q) || user.includes(q) || client.includes(q) || loc.includes(q)
+      })
     }
-    return [...list].sort((a, b) => {
+    const sorted = [...list].sort((a, b) => {
       if (sortBy === 'hours')    return b.hoursAgo - a.hoursAgo
       if (sortBy === 'recovery') return b.recovery - a.recovery
       if (sortBy === 'battery')  return a.battery  - b.battery
       return 0
+    })
+    return sorted.map(d => {
+      const card = getDeviceCardDisplay(d.rawDevice || d, activeQ)
+      return {
+        ...d,
+        displayName: card.primaryTitle,
+        secondaryText: card.subTitle || d.id,
+        extraSub: card.extraSub,
+        matchedField: card.matchedField,
+      }
     })
   }, [allDevices, missing, atRisk, filter, debouncedQ, externalSearch, embedded, sortBy])
 

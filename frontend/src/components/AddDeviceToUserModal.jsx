@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import ModalPortal from './common/ModalPortal.jsx';
 import { categoriesFor } from '../utils/deviceCategories.js';
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js';
 
 const isStickerSN = (sn) => /^\d+$/.test(String(sn ?? ''));
 
@@ -24,7 +25,16 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
   const matches = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return items;
-    return items.filter((it) => labelOf(it).toLowerCase().includes(term));
+    return items.filter((it) => {
+      const card = getDeviceCardDisplay(it, q);
+      return (
+        card.matchedField !== null ||
+        (it.sn || '').toLowerCase().includes(term) ||
+        (it.name || it.assigned_name || '').toLowerCase().includes(term) ||
+        (it.client || '').toLowerCase().includes(term) ||
+        (labelOf ? labelOf(it).toLowerCase().includes(term) : false)
+      );
+    });
   }, [items, q, labelOf]);
 
   const matchKeys = matches.map(keyOf);
@@ -83,6 +93,7 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
           matches.map((it) => {
             const key = keyOf(it);
             const on = selected.has(key);
+            const card = getDeviceCardDisplay(it, q);
             return (
               <label
                 key={key}
@@ -102,14 +113,17 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
                   onChange={() => onToggle(key)}
                   style={{ accentColor: '#A72C32', width: 14, height: 14, flexShrink: 0, cursor: 'pointer' }}
                 />
-                <span style={{ fontFamily: 'monospace', fontWeight: 600, flexShrink: 0 }}>
-                  {it.sn}
-                </span>
-                {(it.name && it.name !== it.sn) && (
-                  <span style={{ color: 'rgba(255,255,255,0.60)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {it.name}
+                <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                    {card.primaryTitle}
                   </span>
-                )}
+                  {card.subTitle && (
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontFamily: 'monospace' }}>{card.subTitle}</span>
+                      {card.extraSub && <span>• {card.extraSub}</span>}
+                    </span>
+                  )}
+                </div>
                 {it.client && (
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {it.client}
@@ -133,7 +147,8 @@ function DeviceMultiSelect({ items, selected, onToggle, onToggleMany, labelOf, k
  *   onAssign  — async (sns: string[], { name, client, category }) => void
  *   onClose   — () => void
  */
-export default function AddDeviceToUserModal({ user, devices, onAssign, onClose }) {
+export default function AddDeviceToUserModal({ user, devices, onAssign, onClose, targetRole = 'user' }) {
+  const isSuperuserTarget = targetRole === 'superuser';
   const [selectedSns, setSelectedSns] = useState(() => new Set(devices.length > 0 ? [devices[0].sn] : []));
   const [name,        setName]        = useState('');
   const [client,      setClient]      = useState('');
@@ -141,7 +156,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState('');
 
-  const userName = user.name || user.email || 'this user';
+  const userName = user.name || user.email || user.phone || (isSuperuserTarget ? 'this super user' : 'this user');
   const firstSelected = Array.from(selectedSns)[0];
   const cats = categoriesFor(isStickerSN(firstSelected) ? 'sticker' : 'locator');
 
@@ -167,7 +182,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
 
   async function handleConfirm() {
     if (selectedSns.size === 0) { setError('Select at least one device'); return; }
-    if (!category) { setError('Select a category'); return; }
+    if (!isSuperuserTarget && !category) { setError('Select a category'); return; }
     setLoading(true);
     setError('');
     try {
@@ -180,7 +195,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
     }
   }
 
-  const isDisabled = loading || devices.length === 0 || selectedSns.size === 0 || !category;
+  const isDisabled = loading || devices.length === 0 || selectedSns.size === 0 || (!isSuperuserTarget && !category);
 
   return (
     <ModalPortal>
@@ -212,7 +227,7 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Add Devices</div>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', marginTop: 1 }}>
-                  Assign to {userName}
+                  {isSuperuserTarget ? `Hand over to ${userName}` : `Assign to ${userName}`}
                 </div>
               </div>
             </div>
@@ -244,38 +259,47 @@ export default function AddDeviceToUserModal({ user, devices, onAssign, onClose 
               )}
             </div>
 
-            {/* User — locked */}
+            {/* Target — locked */}
             <div>
-              <label style={LABEL_STYLE}>Assign to User</label>
+              <label style={LABEL_STYLE}>{isSuperuserTarget ? 'Super User' : 'Assign to User'}</label>
               <div style={{ ...FIELD_STYLE, color: 'rgba(255,255,255,0.55)', cursor: 'default' }}>
                 {userName}
               </div>
             </div>
 
-            {/* Display Name */}
-            <div>
-              <label style={LABEL_STYLE}>Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Office Tracker" style={FIELD_STYLE}
-                onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
-            </div>
+            {isSuperuserTarget ? (
+              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.40)' }}>
+                These devices join this super user's fleet. They stay unbound until the
+                super user assigns them to one of its users.
+              </p>
+            ) : (
+              <>
+                {/* Display Name */}
+                <div>
+                  <label style={LABEL_STYLE}>Display Name <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+                  <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Office Tracker" style={FIELD_STYLE}
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
 
-            {/* Category */}
-            <div>
-              <label style={LABEL_STYLE}>Category <span style={{ color: '#C86068' }}>*</span></label>
-              <select value={category} onChange={e => setCategory(e.target.value)} style={SELECT_STYLE}>
-                <option value="" disabled style={SELECT_OPT}>Select a category…</option>
-                {cats.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
-              </select>
-            </div>
+                {/* Category */}
+                <div>
+                  <label style={LABEL_STYLE}>Category <span style={{ color: '#C86068' }}>*</span></label>
+                  <select value={category} onChange={e => setCategory(e.target.value)} style={SELECT_STYLE}>
+                    <option value="" disabled style={SELECT_OPT}>Select a category…</option>
+                    {cats.map(c => <option key={c} value={c} style={SELECT_OPT}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                  </select>
+                </div>
 
-            {/* Client */}
-            <div>
-              <label style={LABEL_STYLE}>Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
-              <input value={client} onChange={e => setClient(e.target.value)} placeholder="e.g. Acme Corp" style={FIELD_STYLE}
-                onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
-                onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
-            </div>
+                {/* Client */}
+                <div>
+                  <label style={LABEL_STYLE}>Client <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span></label>
+                  <input value={client} onChange={e => setClient(e.target.value)} placeholder="e.g. Acme Corp" style={FIELD_STYLE}
+                    onFocus={e => { e.target.style.borderColor = 'rgba(167,44,50,0.60)' }}
+                    onBlur={e => { e.target.style.borderColor = '#3f3f46' }} />
+                </div>
+              </>
+            )}
 
             {/* Footer */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>

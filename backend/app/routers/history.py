@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.dependencies import get_current_account, get_location_service, get_mongo_service
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.models.location import TrajectoryResponse, PlaybackResponse
 from app.services.location import LocationService
@@ -53,6 +53,15 @@ async def _resolve_uid_for_device(
         if device.admin_id and str(device.admin_id) != str(account.id):
             raise HTTPException(status_code=403, detail="You do not have access to this device")
         return account.uid
+
+    if isinstance(account, SuperUserInDB):
+        if str(getattr(device, "superuser_id", "") or "") != str(account.id):
+            raise HTTPException(status_code=403, detail="You do not have access to this device")
+        if device.admin_id:
+            admin = await mongo.get_admin_by_id(str(device.admin_id))
+            if admin:
+                return admin.uid
+        return None
 
     # UserInDB path — device must be assigned to this user
     if str(device.user_id) != str(account.id):

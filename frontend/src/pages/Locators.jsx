@@ -15,7 +15,9 @@ import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { usePaginatedDevices } from '../hooks/usePaginatedDevices.js'
 import { loadLocatorPageState, readPersistedPage, saveLocatorPageState } from '../utils/locatorPageState.js'
+import { invalidateFleetCache } from '../utils/fleetCache.js'
 import { deviceDisplayName } from '../utils/deviceDisplayName.js'
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
@@ -178,9 +180,9 @@ export default function Locators({ embedded = false, externalStatus = undefined 
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { bindDevice, adminAssignDeviceToUser, unbindDevice, getAvailableDevices, getDevices, getLatestLocationsBatch } = useCityTag()
-  const { devices: cacheDevices, refresh: refreshDeviceCache } = useDeviceCache()
+  const { devices: cacheDevices, refresh: refreshDeviceCache, silentRefresh: silentRefreshDevices } = useDeviceCache()
   const { recordBind } = useBindCache()
-  const { users } = useUserCache()
+  const { users, silentRefresh: silentRefreshUsers } = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
@@ -378,7 +380,10 @@ export default function Locators({ embedded = false, externalStatus = undefined 
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory })
         recordBind(bindSn)            // persist bind history immediately
-        refreshDevices(); closeBindModal()
+        invalidateFleetCache()
+        silentRefreshDevices?.()
+        silentRefreshUsers?.()
+        closeBindModal()
       } catch (err) { setBindError(err.message || 'Failed to bind locator') }
       finally { setBindLoading(false) }
     } else {
@@ -389,7 +394,9 @@ export default function Locators({ embedded = false, externalStatus = undefined 
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory })
         recordBind(bindSn.trim())     // persist bind history immediately
-        refreshDevices()
+        invalidateFleetCache()
+        silentRefreshDevices?.()
+        silentRefreshUsers?.()
         getAvailableDevices().then(setAvailableDevices).catch(() => {})
         closeBindModal()
       } catch (err) { setBindError(err.message || 'Failed to bind locator') }
@@ -404,14 +411,25 @@ export default function Locators({ embedded = false, externalStatus = undefined 
       setDeleteTarget(device || { sn })
     } else {
       if (!window.confirm(`Remove binding for ${sn}?`)) return
-      try { await unbindDevice(sn); refreshDevices() } catch {}
+      try {
+        await unbindDevice(sn)
+        invalidateFleetCache()
+        silentRefreshDevices?.()
+        silentRefreshUsers?.()
+      } catch {}
     }
   }
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setDeleteLoading(true)
-    try { await unbindDevice(deleteTarget.sn); refreshDevices(); setDeleteTarget(null) } catch {}
+    try {
+      await unbindDevice(deleteTarget.sn)
+      invalidateFleetCache()
+      silentRefreshDevices?.()
+      silentRefreshUsers?.()
+      setDeleteTarget(null)
+    } catch {}
     finally { setDeleteLoading(false) }
   }
 
@@ -419,9 +437,13 @@ export default function Locators({ embedded = false, externalStatus = undefined 
     const lastSeen = d.dataRetrievalTime || null
     const hoursAgo = lastSeen ? (Date.now() - new Date(lastSeen).getTime()) / 3600000 : 99
     const status = hoursAgo < 12 ? 'Active' : 'Offline'
+    const card = getDeviceCardDisplay(d, debouncedQuery)
     return {
       id: d.sn || d.local_id,
-      displayName: deviceDisplayName(d),
+      displayName: card.primaryTitle,
+      subTitle: card.subTitle || (d.sn || d.local_id),
+      extraSub: card.extraSub,
+      matchedField: card.matchedField,
       category: d.category || '',
       company:  d.client || '',
       status,
@@ -432,7 +454,7 @@ export default function Locators({ embedded = false, externalStatus = undefined 
       fence_zone_ids: d.fence_zone_ids || [],
       detections: d.detections ?? 0,
     }
-  }), [locators])
+  }), [locators, debouncedQuery])
 
   // CSV export — pulls the FULL locator fleet from the DB (all pages) with
   // owner, bound-at, last location, detections, battery, etc.
@@ -627,9 +649,10 @@ export default function Locators({ embedded = false, externalStatus = undefined 
                     {loc.displayName}
                   </span>
                 </div>
-                {/* SN / ID */}
-                <div style={{ fontSize: 10, color: '#555555', marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13 }}>
-                  {loc.id}
+                {/* Secondary details */}
+                <div style={{ fontSize: 10, color: '#555555', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'monospace' }}>{loc.subTitle || loc.id}</span>
+                  {loc.extraSub && <span>• {loc.extraSub}</span>}
                 </div>
               </div>
               <ChevronRight style={{ width: 14, height: 14, color: '#333333', flexShrink: 0 }} />
@@ -683,9 +706,10 @@ export default function Locators({ embedded = false, externalStatus = undefined 
                     {loc.displayName}
                   </span>
                 </div>
-                {/* SN / ID */}
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 3, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13 }}>
-                  {loc.id}
+                {/* Secondary details */}
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'monospace' }}>{loc.subTitle || loc.id}</span>
+                  {loc.extraSub && <span>• {loc.extraSub}</span>}
                 </div>
               </div>
               <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.18)', flexShrink: 0 }} />

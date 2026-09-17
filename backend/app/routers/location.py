@@ -7,7 +7,7 @@ import jwt
 
 from app.dependencies import get_current_account, get_mongo_service, get_settings
 from app.services.geocode import reverse_geocode
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 
@@ -62,8 +62,16 @@ async def get_latest_location(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
 
         admin = await mongo.get_admin_by_id(user_or_admin_id)
+        superuser = None if admin else await mongo.get_superuser_by_id(user_or_admin_id)
         if admin:
             logger.info("get_latest_location started role=admin actor_id=%s sn=%s", user_or_admin_id, sn)
+        elif superuser:
+            logger.info("get_latest_location started role=superuser actor_id=%s sn=%s", user_or_admin_id, sn)
+            device = await mongo.get_device_by_sn(sn)
+            if not device:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+            if str(getattr(device, "superuser_id", "") or "") != str(user_or_admin_id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this device")
         else:
             logger.info("get_latest_location started role=user actor_id=%s sn=%s", user_or_admin_id, sn)
             user = await mongo.get_user_by_id(user_or_admin_id)
@@ -78,11 +86,18 @@ async def get_latest_location(
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not have access to this device")
 
         logger.info("get_latest_location querying_mongodb sn=%s", sn)
-        local_doc = await mongo.locations.find_one({"sn": sn}, sort=[("timestamp", -1)])
+        local_doc = await mongo.db["latestLocation"].find_one({"sn": sn})
         latest = None
         if local_doc:
             logger.info("get_latest_location raw_doc sn=%s fields=%s", sn, list(local_doc.keys()))
             local_doc["_id"] = str(local_doc["_id"])
+            
+            # Map latestLocation schema to standard locations schema
+            if "timestamps" in local_doc and "timestamp" not in local_doc:
+                local_doc["timestamp"] = local_doc["timestamps"]
+            if "long" in local_doc and "lng" not in local_doc:
+                local_doc["lng"] = local_doc["long"]
+                
             latest = local_doc
             logger.info("get_latest_location mongodb_hit sn=%s", sn)
         else:
@@ -104,7 +119,7 @@ async def get_latest_location(
 @router.post("/location/latest-batch")
 async def get_latest_locations_batch(
     payload: BatchLocationRequest,
-    account: Annotated[Union[AdminInDB, UserInDB], Depends(get_current_account)],
+    account: Annotated[Union[AdminInDB, SuperUserInDB, UserInDB], Depends(get_current_account)],
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ) -> Dict[str, Any]:
     """Return the latest location for multiple SNs in one request."""

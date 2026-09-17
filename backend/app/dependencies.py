@@ -6,7 +6,7 @@ import jwt
 from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request, status
 
-from app.models.admin import AccountInDB, AdminInDB, AdminPublic
+from app.models.admin import AccountInDB, AdminInDB, AdminPublic, SuperUserInDB
 from app.models.user import UserInDB, UserPublic
 from app.user_display import public_contact
 from app.services.mongodb import MongoService
@@ -131,19 +131,40 @@ async def get_current_user(
     return UserInDB(**account.dict())
 
 
-async def get_current_account(
-    request: Request,
-    mongo: Annotated[MongoService, Depends(get_mongo_service)],
-):
-    """Return either AdminInDB or UserInDB depending on token subject."""
-    account = await _get_account_from_request(request, mongo)
+def _account_to_model(account: AccountInDB):
+    """Map a raw account doc to its concrete typed model by role."""
     if account.role == "admin":
         return AdminInDB(**account.dict())
+    if account.role == "superuser":
+        return SuperUserInDB(**account.dict())
     if account.role == "user":
         from app.models.user import UserInDB
 
         return UserInDB(**account.dict())
-    raise HTTPException(status_code=401, detail="Account not found")
+    return None
+
+
+async def get_current_account(
+    request: Request,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+):
+    """Return AdminInDB, SuperUserInDB or UserInDB depending on token subject."""
+    account = await _get_account_from_request(request, mongo)
+    model = _account_to_model(account)
+    if model is None:
+        raise HTTPException(status_code=401, detail="Account not found")
+    return model
+
+
+async def get_current_superuser(
+    request: Request,
+    mongo: Annotated[MongoService, Depends(get_mongo_service)],
+) -> SuperUserInDB:
+    """JWT-based auth dependency – returns current super user."""
+    account = await _get_account_from_request(request, mongo)
+    if account.role != "superuser":
+        raise HTTPException(status_code=403, detail="Not a super user token")
+    return SuperUserInDB(**account.dict())
 
 
 def _decode_jwt_from_request(request: Request) -> dict[str, Any]:
@@ -189,10 +210,14 @@ async def _get_account_from_request(
     return account
 
 
+_KNOWN_ROLES = {"admin", "superuser", "user"}
+
+
 def require_role(role: str) -> Callable[..., Any]:
     """Factory for FastAPI dependencies that enforce a specific role.
 
     Usage: `Depends(require_role("admin"))` or `Depends(require_role("user"))`.
+    Pass `"any"` to accept any authenticated account.
     """
 
     async def _dependency(
@@ -201,21 +226,44 @@ def require_role(role: str) -> Callable[..., Any]:
     ):
         account = await _get_account_from_request(request, mongo)
 
-        if role not in {"admin", "user", "any"}:
+        if role not in _KNOWN_ROLES and role != "any":
             raise HTTPException(status_code=500, detail="Invalid role requirement")
 
         if role != "any" and account.role != role:
             raise HTTPException(status_code=403, detail=f"{role.capitalize()} role required")
 
-        if account.role == "admin":
-            return AdminInDB(**account.dict())
+        model = _account_to_model(account)
+        if model is None:
+            raise HTTPException(status_code=403, detail="Insufficient role")
+        return model
 
-        if account.role == "user":
-            from app.models.user import UserInDB
+    return _dependency
 
-            return UserInDB(**account.dict())
 
-        raise HTTPException(status_code=403, detail="Insufficient role")
+def require_roles(*roles: str) -> Callable[..., Any]:
+    """Factory for FastAPI dependencies that accept any of several roles.
+
+    Usage: `Depends(require_roles("admin", "superuser"))`. Returns the concrete
+    typed model (AdminInDB / SuperUserInDB / UserInDB) for the caller.
+    """
+    allowed = set(roles)
+    if not allowed or not allowed.issubset(_KNOWN_ROLES):
+        raise ValueError(f"require_roles: invalid roles {roles!r}")
+
+    async def _dependency(
+        request: Request,
+        mongo: Annotated[MongoService, Depends(get_mongo_service)],
+    ):
+        account = await _get_account_from_request(request, mongo)
+        if account.role not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Requires one of: {', '.join(sorted(allowed))}",
+            )
+        model = _account_to_model(account)
+        if model is None:
+            raise HTTPException(status_code=403, detail="Insufficient role")
+        return model
 
     return _dependency
 
@@ -239,11 +287,29 @@ def user_to_public(user: UserInDB) -> UserPublic:
         name=user.name,
         phone=user.phone,
         admin_id=str(user.admin_id) if user.admin_id else None,
+        superuser_id=str(user.superuser_id) if getattr(user, "superuser_id", None) else None,
         devices=[str(d) for d in user.devices],
         dashboard_access=getattr(user, "dashboard_access", True),
         geofence_access=getattr(user, "geofence_access", False),
         geofence_create_access=getattr(user, "geofence_create_access", False),
     )
+
+
+def superuser_to_public(su: "SuperUserInDB") -> dict:
+    """Public payload for a super user account (used by login responses)."""
+    return {
+        "id": str(su.id),
+        "email": public_contact(su.email, su.phone),
+        "role": "superuser",
+        "name": su.name or "",
+        "phone": su.phone,
+        "admin_id": str(su.admin_id) if su.admin_id else None,
+        # Super users see every tab; expose the access flags as always-on so the
+        # frontend's generic gates light up without special-casing.
+        "dashboard_access": True,
+        "geofence_access": True,
+        "geofence_create_access": True,
+    }
 
 
 def get_location_service(

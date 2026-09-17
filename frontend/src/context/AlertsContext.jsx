@@ -297,8 +297,8 @@ export function AlertsProvider({ children }) {
             ))
           }
 
-          // Crossings need the event log. Windowed to the last 24h so the
-          // backend doesn't re-walk each device's whole history every poll.
+          // Crossings: call /api/geofence/activity which evaluates crossings across
+          // ALL devices and ALL zones (including unassigned devices).
           const since = new Date(Date.now() - GEO_WINDOW_MS)
           const sinceParam = encodeURIComponent(
             `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, '0')}-` +
@@ -306,25 +306,50 @@ export function AlertsProvider({ children }) {
             `${String(since.getHours()).padStart(2, '0')}:${String(since.getMinutes()).padStart(2, '0')}:00`
           )
 
-          const batch = zoneIds.slice(0, 10)
-          const reportResults = await Promise.allSettled(
-            batch.map(zid =>
-              fetch(`/api/geofence/report/${encodeURIComponent(zid)}?start=${sinceParam}`, { headers })
-                .then(r => r.ok ? r.json() : null)
+          try {
+            const actRes = await fetch(`/api/geofence/activity?since=${sinceParam}&limit=100`, { headers })
+            if (actRes.ok) {
+              const actData = await actRes.json()
+              const actEvents = Array.isArray(actData.events) ? actData.events : []
+              for (const e of actEvents) {
+                const entered = e.type === 'ENTER'
+                all.push({
+                  id: e.id,
+                  type: 'GEOFENCE',
+                  actionType: e.type,
+                  severity: entered ? 'medium' : 'high',
+                  deviceId: e.sn,
+                  deviceName: e.deviceName || nameBySn[e.sn] || e.sn,
+                  zoneId: e.zoneId,
+                  zoneName: e.zoneName,
+                  message: `${e.deviceName || nameBySn[e.sn] || e.sn} ${entered ? 'entered' : 'exited'} zone ${e.zoneName}`,
+                  timestamp: e.timestamp,
+                  isRead: readIds.has(e.id),
+                })
+              }
+            }
+          } catch {
+            // fallback if activity endpoint is unavailable
+            const batch = zoneIds.slice(0, 10)
+            const reportResults = await Promise.allSettled(
+              batch.map(zid =>
+                fetch(`/api/geofence/report/${encodeURIComponent(zid)}?start=${sinceParam}`, { headers })
+                  .then(r => r.ok ? r.json() : null)
+              )
             )
-          )
 
-          for (let i = 0; i < batch.length; i++) {
-            const result = reportResults[i]
-            if (result.status !== 'fulfilled' || !result.value?.events?.length) continue
-            const zoneAlerts = buildGeofenceAlerts(
-              batch[i],
-              result.value.events,
-              nameBySn,
-              readIds,
-              result.value.zone_name || zoneNames[batch[i]],
-            )
-            all.push(...zoneAlerts)
+            for (let i = 0; i < batch.length; i++) {
+              const result = reportResults[i]
+              if (result.status !== 'fulfilled' || !result.value?.events?.length) continue
+              const zoneAlerts = buildGeofenceAlerts(
+                batch[i],
+                result.value.events,
+                nameBySn,
+                readIds,
+                result.value.zone_name || zoneNames[batch[i]],
+              )
+              all.push(...zoneAlerts)
+            }
           }
         }
       } catch {

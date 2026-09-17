@@ -242,7 +242,7 @@ function RecentActivityPanel({ activityRows, totalActive }) {
     if (!isSearching) return activeRows.slice(0, 6)
     const q = search.toLowerCase()
     return activityRows
-      .filter(r => r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q))
+      .filter(r => r.id.toLowerCase().includes(q) || r.user.toLowerCase().includes(q) || (r.name || '').toLowerCase().includes(q))
       .slice(0, 6)
   }, [activityRows, activeRows, search, isSearching])
 
@@ -475,18 +475,21 @@ function TopZonesCard({ zones, devices, onView }) {
 /* ══════════════════════════════════════════════════════════════════
    DASHBOARD — single scrollable page, fixed 4-column grid (2:4:5 rows)
    ══════════════════════════════════════════════════════════════════ */
+import { emitDevicesUpdated } from '../utils/deviceEvents.js'
+
 export default function Dashboard() {
   const { locations, activityData, devices: rawDevices, summary, refreshAll } = useHomePageCache()
 
   // Silent auto-refresh every 15 min — keeps the current dashboard on screen
   // (no loaders) while fresh data is fetched sequentially in the background.
   useEffect(() => {
-    const iv = setInterval(() => { refreshAll({ force: true, silent: true }) }, 15 * 60 * 1000)
+    const iv = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
     return () => clearInterval(iv)
-  }, [refreshAll])
+  }, [])
   const navigate = useNavigate()
   const pushTrail = useTrailNav()
-  const { isAdmin } = useAuth()
+  const { isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  const isAdmin = rawIsAdmin || isSuperUser
   const { users } = useUserCache()
   const { zones } = useZoneCache()
   const chrome = useDashboardChrome()

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.dependencies import get_current_account, get_mongo_service
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 
@@ -22,6 +22,16 @@ def _to_oid(v):
         return ObjectId(str(v))
     except Exception:
         return None
+
+
+def _is_su(account) -> bool:
+    return isinstance(account, SuperUserInDB)
+
+
+async def _su_own_sns(account, mongo: MongoService) -> set:
+    """Serial numbers of devices in a super user's fleet."""
+    docs = await mongo.devices.find({"superuser_id": _to_oid(account.id)}, {"sn": 1}).to_list(5000)
+    return {d["sn"] for d in docs if d.get("sn")}
 
 
 def _zone_out(doc: dict) -> dict:
@@ -48,8 +58,9 @@ def _zone_out(doc: dict) -> dict:
 
 
 def _require_admin_or_fence_create(account):
-    """Zone management (create/edit/delete/assign) is allowed for admins and users with fence create access."""
-    if isinstance(account, AdminInDB):
+    """Zone management (create/edit/delete/assign) is allowed for admins, super
+    users, and users with fence create access."""
+    if isinstance(account, (AdminInDB, SuperUserInDB)):
         return
     if getattr(account, "geofence_create_access", False) or getattr(account, "fence_create_access", False):
         return
@@ -65,10 +76,12 @@ async def _resolve_admin_scope(account, mongo: MongoService):
     """
     if isinstance(account, AdminInDB):
         return _to_oid(account.id)
-    if account.admin_id:
+    if getattr(account, "admin_id", None):
         return _to_oid(account.admin_id)
-    user_oid = _to_oid(account.id)
-    dev = await mongo.devices.find_one({"user_id": user_oid}, {"admin_id": 1})
+    if _is_su(account):
+        dev = await mongo.devices.find_one({"superuser_id": _to_oid(account.id)}, {"admin_id": 1})
+    else:
+        dev = await mongo.devices.find_one({"user_id": _to_oid(account.id)}, {"admin_id": 1})
     if dev and dev.get("admin_id"):
         return _to_oid(dev["admin_id"])
     return None
@@ -78,10 +91,13 @@ def _zone_ownership_filter(oid, account):
     """Query filter scoping a zone write (update/delete) to the account's owned zones.
 
     Admins may update/delete any zone under their own admin_id.
+    Super users may update/delete zones they created (superuser_id == account.id).
     Users may ONLY update/delete zones they created themselves (user_id == account.id).
     """
     if isinstance(account, AdminInDB):
         return {"_id": oid, "admin_id": _to_oid(account.id)}
+    if _is_su(account):
+        return {"_id": oid, "superuser_id": _to_oid(account.id)}
     return {"_id": oid, "user_id": _to_oid(account.id)}
 
 
@@ -112,6 +128,15 @@ async def list_zones(
     if isinstance(account, AdminInDB):
         # Admins see every zone under their admin scope.
         query = {"admin_id": admin_oid}
+    elif _is_su(account):
+        # Super users see zones they created, plus admin zones under their scope
+        # that contain one of their fleet devices.
+        su_oid = _to_oid(account.id)
+        sns = list(await _su_own_sns(account, mongo))
+        conditions = [{"superuser_id": su_oid}]
+        if sns:
+            conditions.append({"admin_id": admin_oid, "device_sns": {"$in": sns}})
+        query = {"$or": conditions}
     else:
         # Users should NEVER see admin-created zones unless their assigned devices are in the zone.
         # They also see any zones they created themselves.
@@ -141,7 +166,8 @@ async def create_zone(
     admin_oid = await _resolve_admin_scope(account, mongo)
     doc = {
         "admin_id":    admin_oid,
-        "user_id":     _to_oid(account.id) if not isinstance(account, AdminInDB) else None,
+        "user_id":     _to_oid(account.id) if isinstance(account, UserInDB) else None,
+        "superuser_id": _to_oid(account.id) if _is_su(account) else None,
         "name":        body.name.strip(),
         "company":     body.company.strip() if body.company else None,
         "color":       body.color,
@@ -169,7 +195,8 @@ async def create_zones_batch(
         return []
 
     admin_oid = await _resolve_admin_scope(account, mongo)
-    user_oid = _to_oid(account.id) if not isinstance(account, AdminInDB) else None
+    user_oid = _to_oid(account.id) if isinstance(account, UserInDB) else None
+    su_oid = _to_oid(account.id) if _is_su(account) else None
     now = datetime.utcnow()
 
     docs = []
@@ -177,6 +204,7 @@ async def create_zones_batch(
         docs.append({
             "admin_id":    admin_oid,
             "user_id":     user_oid,
+            "superuser_id": su_oid,
             "name":        item.name.strip() if item.name else "Imported Zone",
             "company":     item.company.strip() if item.company else None,
             "color":       item.color or "#C1121F",
@@ -284,7 +312,11 @@ async def assign_device_to_zone(
     if not zone:
         raise HTTPException(status_code=404, detail="Zone not found")
 
-    if not isinstance(account, AdminInDB):
+    if _is_su(account):
+        su_oid = _to_oid(account.id)
+        if _to_oid(zone.get("superuser_id")) != su_oid and _to_oid(zone.get("admin_id")) != admin_oid:
+            raise HTTPException(status_code=403, detail="Zone not accessible")
+    elif not isinstance(account, AdminInDB):
         user_oid = _to_oid(account.id)
         # Check zone accessibility: user created it OR it's under user's admin scope
         if zone.get("user_id") != user_oid and _to_oid(zone.get("admin_id")) != admin_oid:
@@ -293,8 +325,12 @@ async def assign_device_to_zone(
     devices = await mongo.devices.find({"sn": {"$in": sns_to_assign}}).to_list(len(sns_to_assign))
     found_sns = [d["sn"] for d in devices]
 
-    # If user is assigning, ensure all found devices belong to them
-    if not isinstance(account, AdminInDB):
+    # Non-admin actors may only assign devices within their own slice.
+    if _is_su(account):
+        for d in devices:
+            if _to_oid(d.get("superuser_id")) != _to_oid(account.id):
+                raise HTTPException(status_code=403, detail="You can only assign devices in your fleet")
+    elif not isinstance(account, AdminInDB):
         for d in devices:
             if _to_oid(d.get("user_id")) != _to_oid(account.id):
                 raise HTTPException(status_code=403, detail="You can only assign devices belonging to your account")
@@ -324,8 +360,12 @@ async def unassign_device_from_zone(
     if not zone:
         raise HTTPException(status_code=404, detail="Zone not found")
 
-    # If user is unassigning, ensure the device belongs to them
-    if not isinstance(account, AdminInDB):
+    # Non-admin actors may only unassign devices within their own slice.
+    if _is_su(account):
+        device = await mongo.devices.find_one({"sn": sn})
+        if not device or _to_oid(device.get("superuser_id")) != _to_oid(account.id):
+            raise HTTPException(status_code=403, detail="You can only unassign devices in your fleet")
+    elif not isinstance(account, AdminInDB):
         device = await mongo.devices.find_one({"sn": sn})
         if not device or _to_oid(device.get("user_id")) != _to_oid(account.id):
             raise HTTPException(status_code=403, detail="You can only unassign devices belonging to your account")

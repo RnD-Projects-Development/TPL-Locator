@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useUserCache } from "../context/Usercachecontext.jsx";
 import { useHomePageCache } from "../context/HomePageCacheContext.jsx";
 import { invalidatePaginatedCache, usePaginatedDevices } from "../hooks/usePaginatedDevices.js";
+import { invalidateFleetCache } from "../utils/fleetCache.js";
 import { loadLocatorPageState, saveLocatorPageState } from "../utils/locatorPageState.js";
 import { isValidIdentifier } from "../utils/userContact.js";
 import "./DevicesPage.css";
@@ -78,7 +79,7 @@ const HomePage = () => {
     goToPage,
     refresh: refreshDevices,
   } = usePaginatedDevices(20, paginationOptions);
-  const { users, loading: usersLoading, refresh: refreshUsers } = useUserCache();
+  const { users, loading: usersLoading, refresh: refreshUsers, silentRefresh: silentRefreshUsers } = useUserCache();
   const { locations, refreshAll: refreshHomeData } = useHomePageCache();
 
   const [error, setError]               = useState("");
@@ -187,7 +188,7 @@ const HomePage = () => {
       setBindError(''); setBindLoading(true);
       try {
         await adminAssignDeviceToUser(bindUserId, bindSn, { name: bindName.trim(), client: bindClient.trim(), category: bindCategory });
-        invalidatePaginatedCache(); refreshDevices(); refreshUsers(); refreshHomeData(); closeBindModal();
+        invalidateFleetCache(); invalidatePaginatedCache(); refreshDevices(); silentRefreshUsers?.(); refreshHomeData(); closeBindModal();
       } catch (err) {
         setBindError(err.message || 'Failed to bind locator');
       } finally {
@@ -198,7 +199,7 @@ const HomePage = () => {
       setBindError(''); setBindLoading(true);
       try {
         await bindDevice({ sn: bindSn.trim(), label: bindName.trim() || undefined, category: bindCategory });
-        invalidatePaginatedCache(); refreshDevices();
+        invalidateFleetCache(); invalidatePaginatedCache(); refreshDevices();
         refreshHomeData();
         closeBindModal();
       } catch (err) {
@@ -218,7 +219,7 @@ const HomePage = () => {
     } else {
       // For regular users, use simple confirm
       if (!window.confirm(`Remove binding for ${sn}?`)) return;
-      try { invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); refreshUsers(); }
+      try { invalidateFleetCache(); invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); silentRefreshUsers?.(); }
       catch (err) { setError(err.message || "Failed to unbind"); }
     }
   };
@@ -228,7 +229,7 @@ const HomePage = () => {
     setDeleteDeviceLoading(true);
     try {
       await unbindDevice(deleteDeviceTarget.sn);
-      invalidatePaginatedCache(); refreshDevices(); refreshUsers(); refreshHomeData();
+      invalidateFleetCache(); invalidatePaginatedCache(); refreshDevices(); silentRefreshUsers?.(); refreshHomeData();
       setDeleteDeviceTarget(null);
     } catch (err) {
       setError(err.message || "Failed to delete device");
@@ -245,7 +246,7 @@ const HomePage = () => {
 
   const handleUserUnbind = async (sn) => {
     if (!window.confirm(`Remove binding for ${sn}?`)) return;
-    try { invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); refreshHomeData(); }
+    try { invalidateFleetCache(); invalidatePaginatedCache(); await unbindDevice(sn); refreshDevices(); refreshHomeData(); }
     catch (err) { setError(err.message || "Failed to unbind"); }
   };
 

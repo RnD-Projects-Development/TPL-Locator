@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext.jsx';
 import { registerCacheResetListener } from '../utils/clearAppCaches.js';
+import { useDeviceUpdates } from '../utils/deviceEvents.js';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
 
@@ -50,6 +51,34 @@ export function ZoneCacheProvider({ children }) {
     finally { setZonesLoading(false); }
   }, []);
 
+  const silentRefreshZones = useCallback(async () => {
+    const token = accessTokenRef.current;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/zones`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setUserZones(Array.isArray(data) ? data : []);
+    } catch {}
+  }, []);
+
+  useDeviceUpdates(() => {
+    if (accessTokenRef.current) {
+      silentRefreshZones();
+    }
+  });
+
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    if (!accessToken) return;
+    const id = setInterval(() => {
+      silentRefreshZones();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [accessToken, silentRefreshZones]);
+
   useEffect(() => {
     if (accessToken) refreshZones();
   }, [accessToken, refreshZones]);
@@ -58,7 +87,7 @@ export function ZoneCacheProvider({ children }) {
   const areas = zones.map(_toArea);
 
   return (
-    <ZoneCacheContext.Provider value={{ zones, areas, loading: zonesLoading, zonesLoading, refreshZones }}>
+    <ZoneCacheContext.Provider value={{ zones, areas, loading: zonesLoading, zonesLoading, refreshZones, silentRefreshZones }}>
       {children}
     </ZoneCacheContext.Provider>
   );

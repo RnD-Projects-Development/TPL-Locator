@@ -21,6 +21,8 @@ import TPLLoader from '../components/TPLLoader.jsx';
 import LocatingOverlay from '../components/LocatingOverlay.jsx';
 import { frameBounds } from '../utils/frameBounds.js';
 import { parseKML } from '../utils/kmlParser.js';
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js';
+import { invalidateFleetCache } from '../utils/fleetCache.js';
 import './FencePage.css';
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || '');
@@ -97,7 +99,8 @@ class ErrorBoundary extends Component {
 // ─── Main page ────────────────────────────────────────────────────────────────
 function FencePageInner() {
   const { devices, refresh, silentRefresh } = useDeviceCache();
-  const { accessToken, isAdmin, user } = useAuth();
+  const { accessToken, isAdmin: rawIsAdmin, isSuperUser, user } = useAuth();
+  const isAdmin = rawIsAdmin || isSuperUser;
   const { zones, refreshZones, zonesLoading } = useZoneCache();
   const canManageFence = isAdmin || Boolean(user?.geofence_create_access);
 
@@ -135,6 +138,8 @@ function FencePageInner() {
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
   useEffect(() => { devicesRef.current = devices; }, [devices]);
   useEffect(() => { zonesRef.current = zones; }, [zones]);
+
+  useDeviceUpdates(() => setTracksFetchKey(k => k + 1));
 
   // Stable auth headers
   const authHeaders = useCallback(() => ({
@@ -408,7 +413,8 @@ function FencePageInner() {
 
       onProgress?.(list.length);
 
-      // Force-refresh device cache silently
+      // Force-refresh device cache silently across the entire application
+      invalidateFleetCache();
       await silentRefresh();
       setTracksFetchKey((k) => k + 1);
       return { failures };
@@ -436,6 +442,7 @@ function FencePageInner() {
 
     setAssignments((prev) => ({ ...prev, [zone_id]: (prev[zone_id] || []).filter((e) => e.sn !== sn) }));
     setDeviceTracks((prev) => prev.filter((t) => t.sn !== sn));
+    invalidateFleetCache();
     await silentRefresh();
   }
 
@@ -460,6 +467,7 @@ function FencePageInner() {
       setEditingZone(null);
       refreshZones();
       refresh();
+      emitDevicesUpdated();
     } finally {
       setIsSaving(false);
     }
@@ -474,6 +482,7 @@ function FencePageInner() {
     if (selectedZoneId === zone_id) setSelectedZoneId(null);
     refreshZones();
     refresh();
+    emitDevicesUpdated();
   }
 
   function handleEditZone(zone) {
@@ -513,6 +522,7 @@ function FencePageInner() {
 
       await refreshZones();
       await refresh();
+      emitDevicesUpdated();
 
       // Zoom & frame map to imported zones
       const allCoords = parsedZones.flatMap((z) => z.coordinates || []).map((p) => [p.lat, p.lng]);

@@ -64,6 +64,110 @@ class MongoService:
     def categories(self):
         return self.db["categories"]
 
+    @property
+    def pricing(self):
+        """Single-document collection — one configurable price for the whole deployment."""
+        return self.db["pricing"]
+
+    _PRICING_DOC_ID = "current"
+    _cached_pricing: Optional[dict] = None
+    _cached_pricing_ts: float = 0.0
+
+    async def get_pricing(self) -> dict:
+        """Return the configured universal price, or the default (0 PKR) if never set. Cached in-memory for zero latency."""
+        import time
+        now_ts = time.time()
+        if self._cached_pricing is not None and (now_ts - self._cached_pricing_ts) < 60.0:
+            return self._cached_pricing
+
+        doc = await self.pricing.find_one({"_id": self._PRICING_DOC_ID})
+        if not doc:
+            data = {"price": 0.0, "currency": "PKR", "updated_at": None, "updated_by": None}
+        else:
+            data = {
+                "price": float(doc.get("price", 0.0) or 0.0),
+                "currency": doc.get("currency", "PKR") or "PKR",
+                "updated_at": doc.get("updated_at"),
+                "updated_by": str(doc["updated_by"]) if doc.get("updated_by") else None,
+            }
+        self._cached_pricing = data
+        self._cached_pricing_ts = now_ts
+        return data
+
+    async def set_pricing(self, price: float, currency: str = "PKR", updated_by: Optional[str] = None) -> dict:
+        """Upsert the single price document. Instant O(1) operation."""
+        import time
+        now = datetime.now(timezone.utc)
+        curr = (currency or "PKR").strip().upper()
+        p_val = float(price)
+        await self.pricing.update_one(
+            {"_id": self._PRICING_DOC_ID},
+            {"$set": {
+                "price": p_val,
+                "currency": curr,
+                "updated_at": now,
+                "updated_by": ObjectId(updated_by) if updated_by else None,
+            }},
+            upsert=True,
+        )
+        data = {
+            "price": p_val,
+            "currency": curr,
+            "updated_at": now,
+            "updated_by": updated_by,
+        }
+        self._cached_pricing = data
+        self._cached_pricing_ts = time.time()
+        return data
+
+    async def set_device_pricing(self, sn: str, price: float, currency: str = "PKR", updated_by: Optional[str] = None) -> Optional[dict]:
+        """Price is universal for all devices. Updates universal pricing and returns device info."""
+        await self.set_pricing(price, currency, updated_by=updated_by)
+        doc = await self.devices.find_one({"sn": sn})
+        return {
+            "sn": sn,
+            "name": (doc.get("name") if doc else None) or sn,
+            "price": float(price),
+            "currency": (currency or "PKR").strip().upper(),
+            "client": doc.get("client") if doc else None,
+        }
+
+    async def set_all_devices_pricing(self, price: float, currency: str = "PKR", updated_by: Optional[str] = None) -> dict:
+        """Set price and currency across all devices instantly via universal pricing config."""
+        res = await self.set_pricing(price, currency, updated_by=updated_by)
+        return {
+            "price": res["price"],
+            "currency": res["currency"],
+            "matched_count": 1,
+            "modified_count": 1,
+            "updated_at": res["updated_at"],
+        }
+
+    async def get_devices_pricing(self, search: Optional[str] = None, limit: int = 1000) -> list[dict]:
+        """Return list of devices with their current price and currency."""
+        query = {}
+        if search:
+            q = search.strip()
+            query = {
+                "$or": [
+                    {"sn": {"$regex": q, "$options": "i"}},
+                    {"name": {"$regex": q, "$options": "i"}},
+                    {"client": {"$regex": q, "$options": "i"}},
+                ]
+            }
+        cursor = self.devices.find(query).limit(limit)
+        items = []
+        async for doc in cursor:
+            items.append({
+                "sn": doc.get("sn"),
+                "name": doc.get("name") or doc.get("assigned_name") or doc.get("sn"),
+                "client": doc.get("client"),
+                "category": doc.get("category"),
+                "price": doc.get("price"),
+                "currency": doc.get("currency", "PKR"),
+            })
+        return items
+
     async def get_account_by_email(self, email: str, role: Optional[str] = None):
         """Get account by email. If role is specified, filter by role."""
         from app.models.admin import AccountInDB
@@ -130,6 +234,88 @@ class MongoService:
         from app.models.user import UserInDB
         return UserInDB(**doc)
 
+    # ---------- super user methods ----------
+    async def get_superuser_by_id(self, su_id: str):
+        from app.models.admin import SuperUserInDB
+        account = await self.get_account_by_id(su_id, role="superuser")
+        if not account:
+            return None
+        return SuperUserInDB(**account.dict())
+
+    async def get_superuser_by_email(self, email: str):
+        from app.models.admin import SuperUserInDB
+        account = await self.get_account_by_email(email, role="superuser")
+        if not account:
+            return None
+        return SuperUserInDB(**account.dict())
+
+    async def get_superuser_by_phone(self, phone: str):
+        doc = await self.accounts.find_one({"phone": phone.strip(), "role": "superuser"})
+        if not doc:
+            return None
+        from app.models.admin import AccountInDB, SuperUserInDB
+        return SuperUserInDB(**AccountInDB(**doc).dict())
+
+    async def create_superuser(
+        self,
+        email: Optional[str],
+        password: str,
+        name: Optional[str],
+        phone: Optional[str],
+        admin_id: str,
+    ):
+        from app.models.admin import AccountInDB, SuperUserInDB
+        payload = {
+            **({"email": email.strip().lower()} if email else {}),
+            "password": hash_password(password),
+            "name": name or "",
+            "phone": phone or None,
+            "role": "superuser",
+            "admin_id": ObjectId(admin_id) if admin_id else None,
+            "created_at": datetime.now(timezone.utc),
+        }
+        result = await self.accounts.insert_one(payload)
+        created = await self.accounts.find_one({"_id": result.inserted_id})
+        return SuperUserInDB(**AccountInDB(**created).dict())
+
+    async def set_device_superuser(self, sn: str, superuser_id: Optional[str]) -> bool:
+        """Set (or clear) the owning super user on a device.
+
+        When assigning to a super user, any user currently bound to the device is
+        migrated so it "falls under" that super user immediately.
+        """
+        device_doc = await self.devices.find_one({"sn": sn})
+        if not device_doc:
+            return False
+
+        su_oid = None
+        if superuser_id:
+            try:
+                su_oid = ObjectId(str(superuser_id))
+            except Exception:
+                return False
+
+        if su_oid:
+            await self.devices.update_one({"sn": sn}, {"$set": {"superuser_id": su_oid}})
+            if device_doc.get("user_id"):
+                await self.accounts.update_one(
+                    {"_id": device_doc["user_id"], "role": "user", "superuser_id": None},
+                    {"$set": {"superuser_id": su_oid}},
+                )
+        else:
+            # Clearing super user: also remove binding from any user under that super user,
+            # and revert device custom name/client back to vendor default.
+            if device_doc.get("user_id"):
+                await self.accounts.update_one(
+                    {"_id": device_doc["user_id"], "role": "user"},
+                    {"$pull": {"devices": device_doc["_id"]}},
+                )
+            await self.devices.update_one(
+                {"sn": sn},
+                {"$set": {"superuser_id": None, "user_id": None, "bound_at": None}, "$unset": {"name": "", "client": ""}},
+            )
+        return True
+
     async def create_user(self, email: Optional[str], password: str, name: Optional[str] = None, phone: Optional[str] = None) -> 'UserInDB':
 
         from app.models.user import UserInDB
@@ -166,6 +352,27 @@ class MongoService:
             {"$set": {"user_id": None, "bound_at": None}, "$unset": {"name": "", "client": ""}},
         )
         result = await self.accounts.delete_one({"_id": oid, "role": "user"})
+        return result.deleted_count == 1
+
+    async def delete_superuser(self, su_id: str) -> bool:
+        """Delete a super user and detach (not delete) its users and devices.
+
+        Users revert to plain 'individual' users; devices revert to admin-only
+        ownership (superuser_id cleared).
+        """
+        try:
+            oid = ObjectId(su_id)
+        except Exception:
+            return False
+        await self.accounts.update_many(
+            {"superuser_id": oid, "role": "user"},
+            {"$set": {"superuser_id": None}},
+        )
+        await self.devices.update_many(
+            {"superuser_id": oid},
+            {"$set": {"superuser_id": None}},
+        )
+        result = await self.accounts.delete_one({"_id": oid, "role": "superuser"})
         return result.deleted_count == 1
 
     # ---------- device methods ----------
@@ -235,12 +442,16 @@ class MongoService:
         if not sns:
             return []
 
+        from app.models.admin import SuperUserInDB
+        from app.models.user import UserInDB
+
         query = {"sn": {"$in": sns}}
         if isinstance(account, AdminInDB):
             cursor = self.devices.find(query, {"sn": 1, "_id": 0})
+        elif isinstance(account, SuperUserInDB):
+            query["superuser_id"] = account.id
+            cursor = self.devices.find(query, {"sn": 1, "_id": 0})
         else:
-            from app.models.user import UserInDB
-
             if not isinstance(account, UserInDB):
                 return []
             query["user_id"] = account.id
@@ -255,16 +466,22 @@ class MongoService:
 
         pipeline = [
             {"$match": {"sn": {"$in": sns}}},
-            {"$sort": {"sn": 1, "timestamp": -1}},
-            {"$group": {"_id": "$sn", "latest": {"$first": "$$ROOT"}}},
         ]
 
         latest_by_sn: dict[str, dict] = {}
-        async for row in self.locations.aggregate(pipeline):
-            latest = row.get("latest") or {}
+        async for row in self.db["latestLocation"].aggregate(pipeline):
+            latest = dict(row)
             if latest.get("_id") is not None:
                 latest["_id"] = str(latest["_id"])
-            latest_by_sn[str(row["_id"])] = latest
+            if "timestamps" in latest and "timestamp" not in latest:
+                latest["timestamp"] = latest["timestamps"]
+            if "long" in latest and "lng" not in latest:
+                latest["lng"] = latest["long"]
+            if isinstance(latest.get("timestamps"), datetime):
+                latest["timestamps"] = latest["timestamps"].isoformat()
+            if isinstance(latest.get("timestamp"), datetime):
+                latest["timestamp"] = latest["timestamp"].isoformat()
+            latest_by_sn[str(latest["sn"])] = latest
         return latest_by_sn
 
     async def get_playback_points_by_sns(
@@ -307,6 +524,15 @@ class MongoService:
             {"_id": ObjectId(user_id), "role": "user"},
             {"$push": {"devices": device_doc["_id"]}}
         )
+        # "Falls under a super user" rule: binding a device that an admin has
+        # handed to a super user pulls the binding user under that super user
+        # (only if they aren't already under one).
+        device_su = device_doc.get("superuser_id")
+        if device_su:
+            await self.accounts.update_one(
+                {"_id": ObjectId(user_id), "role": "user", "superuser_id": None},
+                {"$set": {"superuser_id": device_su}},
+            )
         updated = await self.devices.find_one({"sn": sn})
         return DeviceInDB(**updated)
 

@@ -20,6 +20,7 @@ from app.dependencies import (
     get_settings,
     admin_to_public,
     user_to_public,
+    superuser_to_public,
     require_role,
 )
 from app.models.admin import AdminCreate, AdminPublic
@@ -201,10 +202,24 @@ def _user_account_payload(user: UserPublic) -> dict:
         "name": user.name,
         "phone": user.phone,
         "admin_id": user.admin_id,
+        "superuser_id": getattr(user, "superuser_id", None),
         "devices": user.devices,
         "dashboard_access": getattr(user, "dashboard_access", True),
         "geofence_access": getattr(user, "geofence_access", False),
         "geofence_create_access": getattr(user, "geofence_create_access", False),
+        "uid": None,
+        "created_at": None,
+        "reg_device": None,
+        "reg_devices": [],
+    }
+
+
+def _superuser_account_payload(su) -> dict:
+    """Login payload for a super user (SuperUserInDB)."""
+    pub = superuser_to_public(su)
+    return {
+        **pub,
+        "devices": [],
         "uid": None,
         "created_at": None,
         "reg_device": None,
@@ -344,11 +359,12 @@ async def send_login_otp(
 
 
 async def _resolve_user_for_passwordless_login(mongo: MongoService, identifier: str):
-    """Resolve a user account by email or phone for password-less login.
+    """Resolve an account by email or phone for password-less login.
 
-    Users only — admin accounts are rejected (admins must use /login/portal with
-    a password). Unlike the OTP flow this does NOT require a real email address,
-    since no verification code is delivered.
+    Users and super users are allowed here (the mobile app supports both). Admin
+    accounts are rejected — admins must use /login/portal with a password. Unlike
+    the OTP flow this does NOT require a real email address, since no
+    verification code is delivered.
     """
     raw = identifier.strip()
     is_email = "@" in raw
@@ -362,21 +378,27 @@ async def _resolve_user_for_passwordless_login(mongo: MongoService, identifier: 
                 detail="Password-less login is not available for admin accounts. Use your password.",
             )
         user = await mongo.get_user_by_email(email)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No account found with this identifier.",
-            )
-        return user
-
-    phone = normalize_phone(raw)
-    user = await mongo.get_user_by_phone(phone)
-    if not user:
+        if user:
+            return user
+        superuser = await mongo.get_superuser_by_email(email)
+        if superuser:
+            return superuser
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No account found with this identifier.",
         )
-    return user
+
+    phone = normalize_phone(raw)
+    user = await mongo.get_user_by_phone(phone)
+    if user:
+        return user
+    superuser = await mongo.get_superuser_by_phone(phone)
+    if superuser:
+        return superuser
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="No account found with this identifier.",
+    )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -399,14 +421,18 @@ async def login(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Identifier is required")
 
     try:
-        user = await _resolve_user_for_passwordless_login(mongo, raw)
+        account = await _resolve_user_for_passwordless_login(mongo, raw)
         await mongo.accounts.update_one(
-            {"_id": ObjectId(str(user.id))},
+            {"_id": ObjectId(str(account.id))},
             {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
         )
-        access_token = create_access_token(str(user.id))
-        logger.info("user password-less login completed identifier=%s user_id=%s", raw, user.id)
-        return LoginResponse(account=_user_account_payload(user_to_public(user)), access_token=access_token)
+        access_token = create_access_token(str(account.id))
+        logger.info("password-less login completed identifier=%s account_id=%s role=%s", raw, account.id, account.role)
+        if account.role == "superuser":
+            payload = _superuser_account_payload(account)
+        else:
+            payload = _user_account_payload(user_to_public(account))
+        return LoginResponse(account=payload, access_token=access_token)
     except HTTPException:
         raise
     except Exception as exc:
@@ -489,6 +515,17 @@ async def login_portal(
                 access_token = create_access_token(str(admin.id))
                 return LoginResponse(account=_admin_account_payload(admin_to_public(admin)), access_token=access_token)
 
+            # Super user by email
+            superuser = await mongo.get_superuser_by_email(email)
+            if superuser and verify_password(payload.password, superuser.password):
+                await mongo.accounts.update_one(
+                    {"_id": ObjectId(str(superuser.id))},
+                    {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
+                )
+                access_token = create_access_token(str(superuser.id))
+                logger.info("superuser login completed email=%s superuser_id=%s", email, superuser.id)
+                return LoginResponse(account=_superuser_account_payload(superuser), access_token=access_token)
+
             # User by email
             user = await mongo.get_user_by_email(email)
             if user and verify_password(payload.password, user.password):
@@ -522,6 +559,16 @@ async def login_portal(
 
                 access_token = create_access_token(str(admin.id))
                 return LoginResponse(account=_admin_account_payload(admin_to_public(admin)), access_token=access_token)
+
+            superuser = await mongo.get_superuser_by_phone(phone)
+            if superuser and verify_password(payload.password, superuser.password):
+                await mongo.accounts.update_one(
+                    {"_id": ObjectId(str(superuser.id))},
+                    {"$set": {"last_logged_in": datetime.now(timezone.utc)}},
+                )
+                access_token = create_access_token(str(superuser.id))
+                logger.info("superuser login by phone completed phone=%s superuser_id=%s", phone, superuser.id)
+                return LoginResponse(account=_superuser_account_payload(superuser), access_token=access_token)
 
             user = await mongo.get_user_by_phone(phone)
             if user and verify_password(payload.password, user.password):

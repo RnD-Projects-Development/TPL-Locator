@@ -6,6 +6,8 @@ import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { landmarkFromPoint, clientReverseGeocode, parseLandmarkDisplay, googleReverseGeocode, googleGeoLabelString, insidePakistan } from '../utils/landmark.js'
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
+import { invalidateFleetCache } from '../utils/fleetCache.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import MapView from '../components/MapView.jsx'
@@ -53,7 +55,8 @@ export default function StickerDetail() {
   const backTo = useBackTarget('/devices?tab=all')
   const { zones }            = useZoneCache()
   const { getLatestLocation, getDeviceBySn, getGeocode, adminAssignDeviceToUser } = useCityTag()
-  const { isAdmin }          = useAuth()
+  const { isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  const isAdmin = rawIsAdmin || isSuperUser
   const { users }            = useUserCache()
 
   const pageTheme = React.useContext(ThemeContext)
@@ -160,39 +163,42 @@ export default function StickerDetail() {
     return () => { cancelled = true }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Silent auto-refresh every 15 min — no loaders, current view stays put.
-  // Device then location are fetched sequentially to avoid a request spike.
-  useEffect(() => {
+  const performSilentRefresh = React.useCallback(async (isCancelled) => {
     if (!id) return
-    let cancelled = false
-    const iv = setInterval(async () => {
-      try {
-        const d = await getDeviceBySn(id)
-        if (!cancelled && d) setSticker(mapDeviceToSticker(d))
-      } catch {}
-      if (cancelled) return
-      try {
-        const res = await getLatestLocation(id)
-        if (cancelled) return
-        const point = res?.latest ?? res ?? null
-        setLivePoint(point)
-        const stored = landmarkFromPoint(point)
-        if (stored) { setGeoLabel(stored); return }
-        const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
-        const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
-        if (ptLat == null || ptLng == null) return
-        // Gate by country so the auto-refresh only pays the worldwide (Google Maps)
-        // cost when it's actually needed — inside PK uses TPL Maps / backend.
-        if (insidePakistan(ptLat, ptLng)) {
-          try { const lm = await clientReverseGeocode(ptLat, ptLng); if (cancelled) return; if (lm) { setGeoLabel(lm); return } } catch {}
-          try { const geo = await getGeocode(ptLat, ptLng); if (cancelled) return; if (geo?.landmark) setGeoLabel(geo.landmark) } catch {}
-        } else {
-          try { const geo = await googleReverseGeocode(ptLat, ptLng, import.meta.env.VITE_GOOGLE_MAPS_KEY); if (cancelled) return; if (geo) setGeoLabel(googleGeoLabelString(geo) ?? '') } catch {}
-        }
-      } catch {}
-    }, 15 * 60 * 1000)
-    return () => { cancelled = true; clearInterval(iv) }
-  }, [id, getDeviceBySn, getLatestLocation, getGeocode]) // eslint-disable-line react-hooks/exhaustive-deps
+    try {
+      const d = await getDeviceBySn(id)
+      if (!isCancelled() && d) setSticker(mapDeviceToSticker(d))
+    } catch {}
+    if (isCancelled()) return
+    try {
+      const res = await getLatestLocation(id)
+      if (isCancelled()) return
+      const point = res?.latest ?? res ?? null
+      setLivePoint(point)
+      const stored = landmarkFromPoint(point)
+      if (stored) { setGeoLabel(stored); return }
+      const ptLat = point?.lat ?? point?.latitude ?? point?.gpsLat ?? point?.wgLat
+      const ptLng = point?.lng ?? point?.lon ?? point?.longitude ?? point?.gpsLng ?? point?.wgLng
+      if (ptLat == null || ptLng == null) return
+      if (insidePakistan(ptLat, ptLng)) {
+        try { const lm = await clientReverseGeocode(ptLat, ptLng); if (isCancelled()) return; if (lm) { setGeoLabel(lm); return } } catch {}
+        try { const geo = await getGeocode(ptLat, ptLng); if (isCancelled()) return; if (geo?.landmark) setGeoLabel(geo.landmark) } catch {}
+      } else {
+        try { const geo = await googleReverseGeocode(ptLat, ptLng, import.meta.env.VITE_GOOGLE_MAPS_KEY); if (isCancelled()) return; if (geo) setGeoLabel(googleGeoLabelString(geo) ?? '') } catch {}
+      }
+    } catch {}
+  }, [id, getDeviceBySn, getLatestLocation, getGeocode])
+
+  useDeviceUpdates(() => {
+    let cancelled = false;
+    performSilentRefresh(() => cancelled);
+    return () => { cancelled = true; };
+  })
+
+  useEffect(() => {
+    const iv = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
+    return () => clearInterval(iv)
+  }, [])
 
   const fenceZoneNames = useMemo(() => {
     if (!sticker?.fence_zone_ids?.length) return '—'
@@ -354,6 +360,7 @@ export default function StickerDetail() {
             if (name)   opts.name = name
             if (client) opts.client = client
             await adminAssignDeviceToUser(userId, id, opts)
+            invalidateFleetCache()
             const d = await getDeviceBySn(id)
             if (d) setSticker(prev => ({
               ...prev,

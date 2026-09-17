@@ -6,7 +6,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 import {
   Users, Search, X, RefreshCw, Shield, ShieldCheck, UserCog,
   Plus, Trash2, Radio, Tag, ChevronRight, ChevronDown, Pencil, Link2,
-  Eye, PlusCircle, Check, Loader2, Smartphone, LayoutDashboard,
+  Eye, PlusCircle, Check, Loader2, Smartphone, LayoutDashboard, Crown, UserMinus,
 } from 'lucide-react'
 import {
   Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription,
@@ -17,12 +17,14 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useDeviceCache } from '../context/DeviceCacheContext.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import AddDeviceToUserModal from '../components/AddDeviceToUserModal.jsx'
-import { displayContact, isValidIdentifier } from '../utils/userContact.js'
+import { displayContact, isValidIdentifier, isSyntheticEmail } from '../utils/userContact.js'
 import { isUserOnline, lastActiveTs, lastActiveStamp, parseTs } from '../utils/userPresence.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
+import { invalidateFleetCache } from '../utils/fleetCache.js'
 import { useSearchHistory } from '../hooks/useSearchHistory.js'
 import { APP_CACHE_STORAGE_KEYS } from '../utils/clearAppCaches.js'
 import { useTrailNav } from '../hooks/useBreadcrumbTrail.js'
@@ -170,11 +172,14 @@ function RoleBadge({ role, isLight }) {
   const map = {
     admin:      'badge-red-500',
     superadmin: 'badge-primary',
+    superuser:  'badge-primary',
     user:       'badge-secondary',
     operator:   'badge-teal-500',
   }
   const cls = map[r] || 'badge-secondary'
-  const label = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User'
+  const label = r === 'superuser'
+    ? 'Super User'
+    : (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User')
   
   const customStyle = (isLight && cls === 'badge-secondary')
     ? { background: '#F3F4F6', color: '#4B5563', border: '1px solid #E5E7EB' }
@@ -267,28 +272,33 @@ function DeviceCard({ device, pushTrail, isAdmin, onUnbind, isLight }) {
 }
 
 /* ── Permissions dropdown (Dashboard, Fence Access & Fence Create) ───────── */
-function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
+function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading, isRealAdmin }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0, openUp: false })
   const btnRef = useRef(null)
   const menuRef = useRef(null)
 
   const uid = String(u._id || u.id || '')
-  const hasDashboard = u.dashboard_access !== false
-  const hasAccess = Boolean(u.geofence_access)
-  const hasCreate = Boolean(u.geofence_create_access)
-  const activeCount = (hasDashboard ? 1 : 0) + (hasAccess ? 1 : 0) + (hasCreate ? 1 : 0)
+  const isSuper = u.role === 'superuser'
+  const hasDashboard = isSuper || u.dashboard_access !== false
+  const hasAccess = isSuper || Boolean(u.geofence_access)
+  const hasCreate = isSuper || Boolean(u.geofence_create_access)
+  const activeCount = isSuper
+    ? (isRealAdmin ? 4 : 3)
+    : (hasDashboard ? 1 : 0) + (hasAccess ? 1 : 0) + (hasCreate ? 1 : 0)
+  const totalCount = isRealAdmin ? 4 : 3
 
   const loadingDashboard = Boolean(permLoading?.[`${uid}_dashboard_access`])
   const loadingAccess = Boolean(permLoading?.[`${uid}_geofence_access`])
   const loadingCreate = Boolean(permLoading?.[`${uid}_geofence_create_access`])
+  const loadingRole = Boolean(permLoading?.[`${uid}_role`])
 
   const toggle = (e) => {
     e.stopPropagation()
     if (open) { setOpen(false); return }
     const r = btnRef.current.getBoundingClientRect()
     const menuW = 285
-    const menuH = 240
+    const menuH = isRealAdmin ? 305 : 240
     const openUp = r.bottom + menuH + 12 > window.innerHeight
     const left = Math.max(10, Math.min(r.left, window.innerWidth - menuW - 16))
     const top = openUp ? Math.max(10, r.top - menuH - 6) : r.bottom + 6
@@ -405,28 +415,91 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
               </span>
             </div>
             <span style={{ fontSize: 10, fontWeight: 600, color: txtActive, background: bgActive, padding: '2px 6px', borderRadius: 6 }}>
-              {activeCount} of 3 Active
+              {activeCount} of {totalCount} Active
             </span>
           </div>
+
+          {/* Admin-only: Super User Role */}
+          {isRealAdmin && (
+            <div
+              onClick={() => {
+                if (loadingRole) return
+                onTogglePermission(u, 'role')
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 10px', borderRadius: 8, cursor: loadingRole ? 'wait' : 'pointer',
+                background: isSuper ? (isLight ? 'rgba(167,44,50,0.08)' : 'rgba(167,44,50,0.16)') : 'transparent',
+                border: `1px solid ${isSuper ? (isLight ? 'rgba(167,44,50,0.25)' : 'rgba(167,44,50,0.35)') : 'transparent'}`,
+                marginBottom: 6, transition: 'all 0.12s',
+              }}
+              onMouseEnter={e => {
+                if (!isSuper) e.currentTarget.style.background = itemHov
+              }}
+              onMouseLeave={e => {
+                if (!isSuper) e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{
+                  marginTop: 2, width: 22, height: 22, borderRadius: 6,
+                  background: isSuper ? (isLight ? 'rgba(167,44,50,0.14)' : 'rgba(167,44,50,0.24)') : (isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'),
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <Crown style={{ width: 12, height: 12, color: isSuper ? '#C86068' : subTxt }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: mainTxt, lineHeight: 1.2 }}>Super User Role</div>
+                  <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>Manage own fleet & users</div>
+                </div>
+              </div>
+
+              {/* Switch / Status Pill */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
+                {loadingRole ? (
+                  <div style={{
+                    width: 14, height: 14, borderRadius: '50%',
+                    border: `2px solid ${isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)'}`,
+                    borderTopColor: '#A72C32', animation: 'spin 0.6s linear infinite',
+                  }} />
+                ) : (
+                  <div style={{
+                    width: 32, height: 18, borderRadius: 10,
+                    background: isSuper ? '#A72C32' : (isLight ? '#D1D5DB' : '#4B5563'),
+                    position: 'relative', transition: 'background 0.18s ease',
+                    padding: 2, boxSizing: 'border-box',
+                  }}>
+                    <div style={{
+                      width: 14, height: 14, borderRadius: '50%', background: '#FFFFFF',
+                      transform: isSuper ? 'translateX(14px)' : 'translateX(0)',
+                      transition: 'transform 0.18s ease',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+                    }} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Option 1: Dashboard Access */}
           <div
             onClick={() => {
-              if (loadingDashboard) return
+              if (loadingDashboard || isSuper) return
               onTogglePermission(u, 'dashboard_access')
             }}
+            title={isSuper ? 'Included with Super User role' : undefined}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '8px 10px', borderRadius: 8, cursor: loadingDashboard ? 'wait' : 'pointer',
+              padding: '8px 10px', borderRadius: 8, cursor: isSuper ? 'default' : (loadingDashboard ? 'wait' : 'pointer'),
               background: hasDashboard ? (isLight ? 'rgba(16,185,129,0.06)' : 'rgba(16,185,129,0.08)') : 'transparent',
               border: `1px solid ${hasDashboard ? (isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)') : 'transparent'}`,
               marginBottom: 4, transition: 'all 0.12s',
             }}
             onMouseEnter={e => {
-              if (!hasDashboard) e.currentTarget.style.background = itemHov
+              if (!hasDashboard && !isSuper) e.currentTarget.style.background = itemHov
             }}
             onMouseLeave={e => {
-              if (!hasDashboard) e.currentTarget.style.background = 'transparent'
+              if (!hasDashboard && !isSuper) e.currentTarget.style.background = 'transparent'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -439,7 +512,9 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
               </div>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: mainTxt, lineHeight: 1.2 }}>Dashboard</div>
-                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>View overview & KPIs dashboard</div>
+                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>
+                  {isSuper ? 'Included with Super User role' : 'View overview & KPIs dashboard'}
+                </div>
               </div>
             </div>
 
@@ -457,6 +532,7 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
                   background: hasDashboard ? '#10B981' : (isLight ? '#D1D5DB' : '#4B5563'),
                   position: 'relative', transition: 'background 0.18s ease',
                   padding: 2, boxSizing: 'border-box',
+                  opacity: isSuper ? 0.75 : 1,
                 }}>
                   <div style={{
                     width: 14, height: 14, borderRadius: '50%', background: '#FFFFFF',
@@ -472,21 +548,22 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
           {/* Option 2: Fence Access (View) */}
           <div
             onClick={() => {
-              if (loadingAccess) return
+              if (loadingAccess || isSuper) return
               onTogglePermission(u, 'geofence_access')
             }}
+            title={isSuper ? 'Included with Super User role' : undefined}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '8px 10px', borderRadius: 8, cursor: loadingAccess ? 'wait' : 'pointer',
+              padding: '8px 10px', borderRadius: 8, cursor: isSuper ? 'default' : (loadingAccess ? 'wait' : 'pointer'),
               background: hasAccess ? (isLight ? 'rgba(16,185,129,0.06)' : 'rgba(16,185,129,0.08)') : 'transparent',
               border: `1px solid ${hasAccess ? (isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)') : 'transparent'}`,
               marginBottom: 4, transition: 'all 0.12s',
             }}
             onMouseEnter={e => {
-              if (!hasAccess) e.currentTarget.style.background = itemHov
+              if (!hasAccess && !isSuper) e.currentTarget.style.background = itemHov
             }}
             onMouseLeave={e => {
-              if (!hasAccess) e.currentTarget.style.background = 'transparent'
+              if (!hasAccess && !isSuper) e.currentTarget.style.background = 'transparent'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -499,7 +576,9 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
               </div>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: mainTxt, lineHeight: 1.2 }}>Fence Access</div>
-                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>View fence map & events</div>
+                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>
+                  {isSuper ? 'Included with Super User role' : 'View fence map & events'}
+                </div>
               </div>
             </div>
 
@@ -517,6 +596,7 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
                   background: hasAccess ? '#10B981' : (isLight ? '#D1D5DB' : '#4B5563'),
                   position: 'relative', transition: 'background 0.18s ease',
                   padding: 2, boxSizing: 'border-box',
+                  opacity: isSuper ? 0.75 : 1,
                 }}>
                   <div style={{
                     width: 14, height: 14, borderRadius: '50%', background: '#FFFFFF',
@@ -532,21 +612,22 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
           {/* Option 3: Fence Create */}
           <div
             onClick={() => {
-              if (loadingCreate) return
+              if (loadingCreate || isSuper) return
               onTogglePermission(u, 'geofence_create_access')
             }}
+            title={isSuper ? 'Included with Super User role' : undefined}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '8px 10px', borderRadius: 8, cursor: loadingCreate ? 'wait' : 'pointer',
+              padding: '8px 10px', borderRadius: 8, cursor: isSuper ? 'default' : (loadingCreate ? 'wait' : 'pointer'),
               background: hasCreate ? (isLight ? 'rgba(16,185,129,0.06)' : 'rgba(16,185,129,0.08)') : 'transparent',
               border: `1px solid ${hasCreate ? (isLight ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.22)') : 'transparent'}`,
               transition: 'all 0.12s',
             }}
             onMouseEnter={e => {
-              if (!hasCreate) e.currentTarget.style.background = itemHov
+              if (!hasCreate && !isSuper) e.currentTarget.style.background = itemHov
             }}
             onMouseLeave={e => {
-              if (!hasCreate) e.currentTarget.style.background = 'transparent'
+              if (!hasCreate && !isSuper) e.currentTarget.style.background = 'transparent'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -559,7 +640,9 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
               </div>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: mainTxt, lineHeight: 1.2 }}>Create Fence</div>
-                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>Create & manage fences</div>
+                <div style={{ fontSize: 10, color: subTxt, marginTop: 2, lineHeight: 1.2 }}>
+                  {isSuper ? 'Included with Super User role' : 'Create & manage fences'}
+                </div>
               </div>
             </div>
 
@@ -577,6 +660,7 @@ function PermissionsDropdown({ u, isLight, onTogglePermission, permLoading }) {
                   background: hasCreate ? '#10B981' : (isLight ? '#D1D5DB' : '#4B5563'),
                   position: 'relative', transition: 'background 0.18s ease',
                   padding: 2, boxSizing: 'border-box',
+                  opacity: isSuper ? 0.75 : 1,
                 }}>
                   <div style={{
                     width: 14, height: 14, borderRadius: '50%', background: '#FFFFFF',
@@ -746,8 +830,8 @@ function UserDevicesDrawer({
                         {isAdmin && (
                           <button
                             onClick={() => {
-                              onClose?.()
                               onUnbindDevice(d)
+                              onClose?.()
                             }}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 4,
@@ -782,10 +866,204 @@ function UserDevicesDrawer({
   )
 }
 
+/* ── SuperUser Users Drawer (Slider) ────────────────────────────────────────── */
+function SuperUserUsersDrawer({
+  superuser,
+  open,
+  onClose,
+  isAdmin,
+  onUnassignUser,
+  onOpenUserDevices,
+  isLight,
+}) {
+  if (!superuser) return null
+
+  const contact = displayContact(superuser)
+  const initials = (superuser.name || contact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  const online = isUserOnline(superuser)
+  const assignedUsers = superuser.assigned_users || []
+
+  return (
+    <Drawer open={open} onOpenChange={isOpen => { if (!isOpen) onClose() }} swipeDirection="right">
+      <DrawerContent style={{ background: '#141414', borderLeft: '1px solid rgba(255,255,255,0.10)' }}>
+        <DrawerHeader style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '20px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                background: '#A72C32', border: '1.5px solid #C44E54',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 16, fontWeight: 800, color: '#FFFFFF',
+              }}>
+                {initials}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <DrawerTitle style={{ color: '#FFFFFF', fontSize: 17, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {superuser.name || contact || 'Super User'}
+                  </span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                    background: 'rgba(167,44,50,0.25)', border: '1px solid rgba(167,44,50,0.45)', color: '#C86068',
+                    letterSpacing: '0.04em', textTransform: 'uppercase',
+                  }}>
+                    Super User
+                  </span>
+                </DrawerTitle>
+                <DrawerDescription style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, margin: '2px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>{contact}</span>
+                  <span>·</span>
+                  <span style={{ color: '#60a5fa', fontWeight: 600 }}>{assignedUsers.length} user{assignedUsers.length !== 1 ? 's' : ''}</span>
+                </DrawerDescription>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <span style={{
+                padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                background: online ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)',
+                border: `1px solid ${online ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.12)'}`,
+                color: online ? '#34d399' : 'rgba(255,255,255,0.40)',
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: online ? '#10b981' : '#6b7280' }} />
+                {online ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+          </div>
+        </DrawerHeader>
+
+        <DrawerBody style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
+          {assignedUsers.length === 0 ? (
+            <div style={{
+              padding: '40px 20px', textAlign: 'center', background: 'rgba(255,255,255,0.02)',
+              borderRadius: 12, border: '1px dashed rgba(255,255,255,0.10)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+            }}>
+              <Users style={{ width: 32, height: 32, color: 'rgba(255,255,255,0.18)' }} />
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.40)' }}>No users assigned to this super user</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {assignedUsers.map(usr => {
+                const uContact = displayContact(usr)
+                const uInitials = (usr.name || uContact || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+                const uOnline = usr.is_online !== undefined ? usr.is_online : isUserOnline(usr)
+                const uDevCount = usr.devices_count ?? (usr.devices ? usr.devices.length : 0)
+
+                return (
+                  <div
+                    key={usr.id}
+                    style={{
+                      background: '#1d1d1d',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: 12, padding: '14px 16px',
+                      display: 'flex', flexDirection: 'column', gap: 10,
+                      transition: 'all 0.18s ease',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = '#252525'
+                      e.currentTarget.style.borderColor = 'rgba(167,44,50,0.45)'
+                      e.currentTarget.style.transform = 'translateY(-1px)'
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = '#1d1d1d'
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+                      e.currentTarget.style.transform = 'translateY(0)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <div style={{
+                          width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                          background: 'rgba(167,44,50,0.12)', border: '1px solid rgba(167,44,50,0.25)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 12, fontWeight: 700, color: '#C86068',
+                        }}>
+                          {uInitials}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {usr.name || uContact || 'User'}
+                          </div>
+                          <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>
+                            {usr.email && !isSyntheticEmail(usr.email) ? usr.email : usr.phone || usr.id}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <span style={{
+                        padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+                        background: uOnline ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${uOnline ? 'rgba(16,185,129,0.30)' : 'rgba(255,255,255,0.10)'}`,
+                        color: uOnline ? '#34d399' : 'rgba(255,255,255,0.40)',
+                        display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                      }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: uOnline ? '#10b981' : '#6b7280' }} />
+                        {uOnline ? 'Online' : 'Offline'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8, fontSize: 11, color: 'rgba(255,255,255,0.38)' }}>
+                      <span>Devices: <strong style={{ color: '#60a5fa', fontWeight: 600 }}>{uDevCount}</strong></span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              onUnassignUser(usr, superuser)
+                            }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4,
+                              padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+                              background: 'rgba(220,38,38,0.10)', border: '1px solid rgba(220,38,38,0.25)',
+                              color: '#f87171', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.20)'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.40)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.25)'; }}
+                            title="Unassign user from this super user"
+                          >
+                            <UserMinus style={{ width: 11, height: 11 }} /> Unassign
+                          </button>
+                        )}
+                        {onOpenUserDevices && (
+                          <button
+                            onClick={() => {
+                              onClose?.()
+                              onOpenUserDevices(usr)
+                            }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 4,
+                              padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+                              background: 'rgba(59,130,246,0.10)', border: '1px solid rgba(59,130,246,0.25)',
+                              color: '#60a5fa', fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.18)'; e.currentTarget.style.borderColor = 'rgba(59,130,246,0.40)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.10)'; e.currentTarget.style.borderColor = 'rgba(59,130,246,0.25)'; }}
+                          >
+                            <Smartphone style={{ width: 11, height: 11 }} /> View Devices
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </DrawerBody>
+
+        <DrawerFooter style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '14px 24px', display: 'flex', justifyContent: 'flex-end' }}>
+          <DrawerClose />
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+  )
+}
+
 /* ── User row ─────────────────────────────────────────────────────────────── */
 function UserRow({
-  u, idx, isAdmin, onDelete, onEdit, onAddDevice, onTogglePermission,
-  permLoading, onOpenDevices, boundDevices, isLight,
+  u, idx, isAdmin, isRealAdmin, onDelete, onEdit, onAddDevice, onTogglePermission,
+  permLoading, onOpenDevices, onOpenUsers, boundDevices, isLight,
 }) {
   const [hov, setHov] = useState(false)
   const contact = displayContact(u)
@@ -834,13 +1112,28 @@ function UserRow({
       {/* Email */}
       <td style={{ padding: '0.92em 1.15em' }}>
         <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
-          {contact || '—'}
+          {u.email && !isSyntheticEmail(u.email) ? u.email : '—'}
+        </span>
+      </td>
+
+      {/* Phone */}
+      <td style={{ padding: '0.92em 1.15em' }}>
+        <span style={{ fontSize: '0.85em', color: txt2, fontFamily: 'var(--font-mono)' }}>
+          {u.phone || '—'}
         </span>
       </td>
 
       {/* Role */}
       <td style={{ padding: '0.92em 1.15em' }}>
         <RoleBadge role={u.role} isLight={isLight} />
+        {u.superuser_name && (
+          <div style={{ fontSize: '0.7em', color: '#60a5fa', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span>Under:</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }} title={u.superuser_name}>
+              {u.superuser_name}
+            </span>
+          </div>
+        )}
       </td>
 
       {/* Last Logged In — Online badge while logged in; elapsed time after */}
@@ -858,36 +1151,73 @@ function UserRow({
         )}
       </td>
 
-      {/* Devices */}
+      {/* Devices & Users */}
       <td style={{ padding: '0.92em 1.15em' }}>
-        <button
-          onClick={(e) => { e.stopPropagation(); onOpenDevices(u); }}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '4px 10px', borderRadius: 8, cursor: 'pointer',
-            background: boundDevices.length > 0 ? 'rgba(59,130,246,0.12)' : (isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
-            border: `1px solid ${boundDevices.length > 0 ? 'rgba(59,130,246,0.30)' : (isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)')}`,
-            color: boundDevices.length > 0 ? '#60a5fa' : txt4,
-            fontSize: '0.85em', fontWeight: boundDevices.length > 0 ? 600 : 400,
-            transition: 'all 0.15s ease',
-          }}
-          onMouseEnter={e => {
-            if (boundDevices.length > 0) {
-              e.currentTarget.style.background = 'rgba(59,130,246,0.22)'
-              e.currentTarget.style.borderColor = 'rgba(59,130,246,0.50)'
-            }
-          }}
-          onMouseLeave={e => {
-            if (boundDevices.length > 0) {
-              e.currentTarget.style.background = 'rgba(59,130,246,0.12)'
-              e.currentTarget.style.borderColor = 'rgba(59,130,246,0.30)'
-            }
-          }}
-          title="Click to view assigned devices slider"
-        >
-          <Smartphone style={{ width: 12, height: 12 }} />
-          <span>{boundDevices.length} device{boundDevices.length !== 1 ? 's' : ''}</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenDevices(u); }}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '4px 10px', borderRadius: 8, cursor: 'pointer',
+              background: boundDevices.length > 0 ? 'rgba(59,130,246,0.12)' : (isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+              border: `1px solid ${boundDevices.length > 0 ? 'rgba(59,130,246,0.30)' : (isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)')}`,
+              color: boundDevices.length > 0 ? '#60a5fa' : txt4,
+              fontSize: '0.85em', fontWeight: boundDevices.length > 0 ? 600 : 400,
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={e => {
+              if (boundDevices.length > 0) {
+                e.currentTarget.style.background = 'rgba(59,130,246,0.22)'
+                e.currentTarget.style.borderColor = 'rgba(59,130,246,0.50)'
+              }
+            }}
+            onMouseLeave={e => {
+              if (boundDevices.length > 0) {
+                e.currentTarget.style.background = 'rgba(59,130,246,0.12)'
+                e.currentTarget.style.borderColor = 'rgba(59,130,246,0.30)'
+              }
+            }}
+            title="Click to view assigned devices slider"
+          >
+            <Smartphone style={{ width: 12, height: 12 }} />
+            <span>{boundDevices.length} device{boundDevices.length !== 1 ? 's' : ''}</span>
+          </button>
+
+          {u.role === 'superuser' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenUsers?.(u); }}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', borderRadius: 8, cursor: 'pointer',
+                background: (u.user_count || (u.assigned_users && u.assigned_users.length)) > 0
+                  ? 'rgba(167,44,50,0.12)'
+                  : (isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)'),
+                border: `1px solid ${(u.user_count || (u.assigned_users && u.assigned_users.length)) > 0
+                  ? 'rgba(167,44,50,0.30)'
+                  : (isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)')}`,
+                color: (u.user_count || (u.assigned_users && u.assigned_users.length)) > 0 ? '#C44E54' : txt4,
+                fontSize: '0.85em', fontWeight: (u.user_count || (u.assigned_users && u.assigned_users.length)) > 0 ? 600 : 400,
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={e => {
+                if ((u.user_count || (u.assigned_users && u.assigned_users.length)) > 0) {
+                  e.currentTarget.style.background = 'rgba(167,44,50,0.22)'
+                  e.currentTarget.style.borderColor = 'rgba(167,44,50,0.50)'
+                }
+              }}
+              onMouseLeave={e => {
+                if ((u.user_count || (u.assigned_users && u.assigned_users.length)) > 0) {
+                  e.currentTarget.style.background = 'rgba(167,44,50,0.12)'
+                  e.currentTarget.style.borderColor = 'rgba(167,44,50,0.30)'
+                }
+              }}
+              title="Click to view assigned users slider"
+            >
+              <Users style={{ width: 12, height: 12 }} />
+              <span>{u.user_count ?? (u.assigned_users ? u.assigned_users.length : 0)} user{(u.user_count ?? (u.assigned_users ? u.assigned_users.length : 0)) !== 1 ? 's' : ''}</span>
+            </button>
+          )}
+        </div>
       </td>
 
       {/* Actions */}
@@ -897,6 +1227,7 @@ function UserRow({
             <PermissionsDropdown
               u={u}
               isLight={isLight}
+              isRealAdmin={isRealAdmin}
               onTogglePermission={onTogglePermission}
               permLoading={permLoading}
             />
@@ -960,20 +1291,42 @@ function UserRow({
 export default function UsersPage() {
   const pushTrail = useTrailNav()
   const { users, loading, error, refresh, silentRefresh, lastFetched } = useUserCache()
-  const { isAdmin } = useAuth()
+  const { isAdmin, isSuperUser } = useAuth()
+  const canManageUsers = isAdmin || isSuperUser
   const { devices, refresh: refreshDevices, silentRefresh: silentRefreshDevices } = useDeviceCache()
 
+  useDeviceUpdates(() => {
+    silentRefresh()
+    // silentRefreshDevices() is handled globally by DeviceCacheContext
+  })
+
   useEffect(() => {
-    const id = setInterval(async () => {
-      // Sequential (users → devices) to avoid a double request spike / lag.
-      await silentRefresh()
-      await silentRefreshDevices()
-    }, 15 * 60 * 1000)
+    const id = setInterval(() => emitDevicesUpdated(), 15 * 60 * 1000)
     return () => clearInterval(id)
-  }, [silentRefresh, silentRefreshDevices])
-  const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser } = useCityTag()
+  }, [])
+  const { adminCreateUser, adminDeleteUser, adminUpdateUser, unbindDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminGetSuperusers } = useCityTag()
   const [addDeviceTarget, setAddDeviceTarget] = useState(null)
+  const [superusers, setSuperusers] = useState([])
+  const [drawerSuperUser, setDrawerSuperUser] = useState(null)
   const unboundDevices = useMemo(() => devices.filter(d => !(d.user_id || d.assigned_user_name)), [devices])
+
+  // Fetch super users for assignment dropdowns (admin only)
+  useEffect(() => {
+    if (!isAdmin) return
+    let alive = true
+    adminGetSuperusers()
+      .then(rows => { if (alive) setSuperusers(Array.isArray(rows) ? rows : []) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [isAdmin, adminGetSuperusers, users])
+
+  // Keep drawerSuperUser in sync when users cache updates
+  useEffect(() => {
+    if (drawerSuperUser) {
+      const refreshed = users.find(u => (u._id || u.id) === (drawerSuperUser._id || drawerSuperUser.id))
+      if (refreshed) setDrawerSuperUser(refreshed)
+    }
+  }, [users])
 
   const pageTheme = React.useContext(ThemeContext)
   const isLight   = pageTheme === 'light'
@@ -1059,6 +1412,13 @@ export default function UsersPage() {
   const [debouncedQ, setDQ]         = useState((savedUsersView?.q || '').trim().toLowerCase())
   const [page,       setPage]       = useState(savedUsersView?.page || 1)
   const [drawerUser, setDrawerUser] = useState(null)
+  // Keep drawerUser in sync when users cache updates
+  useEffect(() => {
+    if (drawerUser) {
+      const refreshed = users.find(u => (u._id || u.id) === (drawerUser._id || drawerUser.id))
+      if (refreshed) setDrawerUser(refreshed)
+    }
+  }, [users])
   const PAGE_SIZE   = 6
   const debounceRef = useRef(null)
   const tableContainerRef = useRef(null)
@@ -1086,12 +1446,14 @@ export default function UsersPage() {
   }, [query, page])
 
   /* Create User state */
-  const [showCreate,    setShowCreate]    = useState(false)
-  const [newIdentifier, setNewIdentifier] = useState('')
-  const [newName,       setNewName]       = useState('')
-  const [newPassword,   setNewPassword]   = useState('')
-  const [createLoading, setCreateLoading] = useState(false)
-  const [createError,   setCreateError]   = useState('')
+  const [showCreate,      setShowCreate]      = useState(false)
+  const [newIdentifier,   setNewIdentifier]   = useState('')
+  const [newName,         setNewName]         = useState('')
+  const [newPassword,     setNewPassword]     = useState('')
+  const [newRole,         setNewRole]         = useState('user')  // 'user' | 'superuser' (admin only)
+  const [newSuperuserId,  setNewSuperuserId]  = useState('')
+  const [createLoading,   setCreateLoading]   = useState(false)
+  const [createError,     setCreateError]     = useState('')
 
   /* Delete User state */
   const [deleteTarget,  setDeleteTarget]  = useState(null)
@@ -1100,10 +1462,12 @@ export default function UsersPage() {
   /* Edit User state */
   const [editTarget,               setEditTarget]               = useState(null)
   const [editName,                 setEditName]                 = useState('')
+  const [editPhone,                setEditPhone]                = useState('')
   const [editPassword,             setEditPassword]             = useState('')
   const [editDashboardAccess,      setEditDashboardAccess]      = useState(true)
   const [editGeofenceAccess,       setEditGeofenceAccess]       = useState(false)
   const [editGeofenceCreateAccess, setEditGeofenceCreateAccess] = useState(false)
+  const [editSuperuserId,          setEditSuperuserId]          = useState('')
   const [editLoading,              setEditLoading]              = useState(false)
   const [editError,                setEditError]                = useState('')
 
@@ -1178,7 +1542,9 @@ export default function UsersPage() {
     const q = debouncedQ
     const list = users.filter(u => {
       if (!q) return true
-      return u.name?.toLowerCase().includes(q) || displayContact(u).toLowerCase().includes(q)
+      return u.name?.toLowerCase().includes(q) 
+          || displayContact(u).toLowerCase().includes(q)
+          || u.phone?.toLowerCase().includes(q)
     })
 
     return list.sort((a, b) => {
@@ -1254,17 +1620,23 @@ export default function UsersPage() {
     setExpanded(prev => (prev.has(userId) ? new Set() : new Set([userId])))
   }, [])
 
-  /* ── Toggle user permissions (Dashboard / Fence Access / Fence Create) ──── */
+  /* ── Toggle user permissions (Dashboard / Fence Access / Fence Create / Super User Role) ──── */
   const handleTogglePermission = useCallback(async (u, permKey) => {
     const uid = String(u._id || u.id || '')
     if (!uid) return
     const loadingKey = `${uid}_${permKey}`
     setPermLoading(prev => ({ ...prev, [loadingKey]: true }))
     try {
-      const currentVal = permKey === 'dashboard_access' ? (u.dashboard_access !== false) : Boolean(u[permKey])
-      const nextVal = !currentVal
-      await adminUpdateUser(uid, { [permKey]: nextVal })
+      if (permKey === 'role') {
+        const nextRole = u.role === 'superuser' ? 'user' : 'superuser'
+        await adminUpdateUser(uid, { role: nextRole })
+      } else {
+        const currentVal = permKey === 'dashboard_access' ? (u.dashboard_access !== false) : Boolean(u[permKey])
+        const nextVal = !currentVal
+        await adminUpdateUser(uid, { [permKey]: nextVal })
+      }
       await silentRefresh()
+      emitDevicesUpdated()
     } catch (err) {
       console.error(`Failed to toggle ${permKey}:`, err)
     } finally {
@@ -1276,8 +1648,29 @@ export default function UsersPage() {
     }
   }, [adminUpdateUser, silentRefresh])
 
+  /* ── Unassign user from super user ────────────────────────────────────────── */
+  const handleUnassignUserFromSuperuser = useCallback(async (userToUnassign) => {
+    const uid = String(userToUnassign._id || userToUnassign.id || '')
+    if (!uid) return
+    try {
+      await adminUpdateUser(uid, { superuser_id: '' })
+      await silentRefresh()
+      emitDevicesUpdated()
+    } catch (err) {
+      console.error('Failed to unassign user from superuser:', err)
+    }
+  }, [adminUpdateUser, silentRefresh])
+
   /* ── Create user ────────────────────────────────────────────────────────── */
-  const openCreate  = () => { setNewIdentifier(''); setNewName(''); setNewPassword(''); setCreateError(''); setShowCreate(true) }
+  const openCreate  = () => {
+    setNewIdentifier('')
+    setNewName('')
+    setNewPassword('')
+    setNewRole('user')
+    setNewSuperuserId('')
+    setCreateError('')
+    setShowCreate(true)
+  }
   const closeCreate = () => setShowCreate(false)
 
   const handleCreate = async () => {
@@ -1291,8 +1684,16 @@ export default function UsersPage() {
     }
     setCreateError(''); setCreateLoading(true)
     try {
-      await adminCreateUser({ identifier: newIdentifier.trim(), password: newPassword.trim(), name: newName.trim() })
+      await adminCreateUser({
+        identifier: newIdentifier.trim(),
+        password: newPassword.trim(),
+        name: newName.trim(),
+        // Only admins may create super users; the backend ignores role for a super-user actor.
+        ...(isAdmin && newRole === 'superuser' ? { role: 'superuser' } : {}),
+        ...(isAdmin && newRole === 'user' && newSuperuserId ? { superuser_id: newSuperuserId } : {}),
+      })
       refresh()
+      emitDevicesUpdated()
       closeCreate()
     } catch (err) {
       setCreateError(err.message || 'Failed to create user')
@@ -1308,6 +1709,7 @@ export default function UsersPage() {
     try {
       await adminDeleteUser(deleteTarget._id || deleteTarget.id)
       refresh()
+      emitDevicesUpdated()
       setDeleteTarget(null)
     } catch {}
     finally { setDeleteLoading(false) }
@@ -1317,10 +1719,12 @@ export default function UsersPage() {
   const openEdit  = (u) => {
     setEditTarget(u)
     setEditName(u.name || '')
+    setEditPhone(u.phone || '')
     setEditPassword('')
     setEditDashboardAccess(u.dashboard_access !== false)
     setEditGeofenceAccess(Boolean(u.geofence_access))
     setEditGeofenceCreateAccess(Boolean(u.geofence_create_access))
+    setEditSuperuserId(u.superuser_id ? String(u.superuser_id) : '')
     setEditError('')
   }
   const closeEdit = () => { if (!editLoading) setEditTarget(null) }
@@ -1333,13 +1737,18 @@ export default function UsersPage() {
       const uid = editTarget._id || editTarget.id
       const payload = {
         name: editName.trim(),
+        phone: editPhone.trim() || null,
         dashboard_access: editDashboardAccess,
         geofence_access: editGeofenceAccess,
         geofence_create_access: editGeofenceCreateAccess,
       }
       if (editPassword.trim()) payload.password = editPassword.trim()
+      if (isAdmin && editTarget.role !== 'superuser') {
+        payload.superuser_id = editSuperuserId || ''
+      }
       await adminUpdateUser(uid, payload)
-      refresh()
+      await silentRefresh()
+      emitDevicesUpdated()
       setEditTarget(null)
     } catch (err) {
       setEditError(err.message || 'Failed to update user')
@@ -1351,21 +1760,30 @@ export default function UsersPage() {
     if (!unbindTarget) return
     setUnbindLoading(true)
     try {
-      await unbindDevice(unbindTarget.sn)
-      refresh()
-      refreshDevices()
+      if (unbindTarget.isSuperuserFleet) {
+        await adminAssignDeviceSuperuser(unbindTarget.sn, null)
+      } else {
+        await unbindDevice(unbindTarget.sn)
+      }
       setUnbindTarget(null)
-    } catch {}
-    finally { setUnbindLoading(false) }
+      invalidateFleetCache()
+      await silentRefresh?.()
+      await silentRefreshDevices?.()
+    } catch (err) {
+      console.error('Failed to unbind device:', err)
+      alert(err.message || 'Failed to unbind device')
+    } finally {
+      setUnbindLoading(false)
+    }
   }
 
-  /* ── Admin gate ─────────────────────────────────────────────────────────── */
-  if (!isAdmin) {
+  /* ── Access gate ───────────────────────────────────────────────────────── */
+  if (!canManageUsers) {
     return (
       <div style={{ ...panelStyle, padding: '64px 20px', textAlign: 'center' }}>
         <Shield style={{ width: 42, height: 42, color: '#A72C32', margin: '0 auto 14px' }} />
-        <p style={{ fontSize: 15, fontWeight: 700, color: T.txt1, margin: '0 0 8px' }}>Admin access required</p>
-        <p style={{ fontSize: 12, color: T.txt3, margin: 0 }}>Only admins can view the user list.</p>
+        <p style={{ fontSize: 15, fontWeight: 700, color: T.txt1, margin: '0 0 8px' }}>Access required</p>
+        <p style={{ fontSize: 12, color: T.txt3, margin: 0 }}>Only admins and super users can view the user list.</p>
       </div>
     )
   }
@@ -1469,7 +1887,7 @@ export default function UsersPage() {
             <table className="scalable-container" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.theadBdr}`, background: T.theadBg }}>
-                  {['User', 'Email', 'Role', 'Last Logged In', 'Devices', 'Actions'].map(col => (
+                  {['User', 'Email', 'Phone', 'Role', 'Last Logged In', 'Devices', 'Actions'].map(col => (
                     <th key={col} style={{ padding: '0.85em 1.15em', textAlign: 'left', fontSize: '0.65em', fontWeight: 700, color: T.theadTxt, textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
@@ -1479,7 +1897,7 @@ export default function UsersPage() {
               <tbody>
                 {paged.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: '48px 20px', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
+                    <td colSpan={7} style={{ padding: '48px 20px', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
                       {debouncedQ ? `No users matching "${debouncedQ}"` : 'No users found'}
                     </td>
                   </tr>
@@ -1490,12 +1908,14 @@ export default function UsersPage() {
                     return (
                       <UserRow
                         key={uid || i}
-                        u={u} idx={i} isAdmin={isAdmin}
+                        u={u} idx={i} isAdmin={canManageUsers}
+                        isRealAdmin={isAdmin}
                         onDelete={setDeleteTarget} onEdit={openEdit}
                         onAddDevice={setAddDeviceTarget}
                         onTogglePermission={handleTogglePermission}
                         permLoading={permLoading}
                         onOpenDevices={(user) => { recordSearch(query); setDrawerUser(user) }}
+                        onOpenUsers={(user) => { recordSearch(query); setDrawerSuperUser(user) }}
                         boundDevices={bound} isLight={isLight}
                       />
                     )
@@ -1591,6 +2011,48 @@ export default function UsersPage() {
                   <input type="password" placeholder="Minimum 8 characters" name="cu-password" autoComplete="new-password"
                     value={newPassword} onChange={e => setNewPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreate()} style={inputSt} />
                 </div>
+                {isAdmin && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Role</label>
+                    <select
+                      value={newRole}
+                      onChange={e => setNewRole(e.target.value)}
+                      style={{ ...inputSt, background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5', appearance: 'auto' }}
+                    >
+                      <option value="user" style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>User</option>
+                      <option value="superuser" style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>Super User</option>
+                    </select>
+                    {newRole === 'superuser' && (
+                      <span style={{ fontSize: 11, color: T.txt3 }}>
+                        A super user manages its own users and the devices you assign to it.
+                      </span>
+                    )}
+                  </div>
+                )}
+                {isAdmin && newRole === 'user' && superusers.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Assign to Super User (Optional)</label>
+                    <select
+                      value={newSuperuserId}
+                      onChange={e => setNewSuperuserId(e.target.value)}
+                      style={{ ...inputSt, background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5', appearance: 'auto' }}
+                    >
+                      <option value="" style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>
+                        None (Independent User)
+                      </option>
+                      {superusers.map(su => (
+                        <option key={su.id} value={su.id} style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>
+                          {su.name || su.email || su.phone || su.id}
+                        </option>
+                      ))}
+                    </select>
+                    {newSuperuserId && (
+                      <span style={{ fontSize: 11, color: '#60a5fa' }}>
+                        This user will be managed by the selected super user.
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '14px 22px', borderTop: `1px solid ${T.bdrLight}` }}>
                 <button onClick={closeCreate} style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: T.cancelBg, border: `1px solid ${T.cancelBdr}`, color: T.cancelTxt }}>Cancel</button>
@@ -1631,6 +2093,11 @@ export default function UsersPage() {
                   <input type="email" value={editTarget.email || ''} disabled style={{ ...inputSt, opacity: 0.55, cursor: 'not-allowed' }} />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Phone Number</label>
+                  <input type="text" placeholder="e.g. 03001234567" name="eu-phone" autoComplete="off"
+                    value={editPhone} onChange={e => setEditPhone(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEditUser()} style={inputSt} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>Full Name <span style={{ color: '#C86068' }}>*</span></label>
                   <input type="text" placeholder="e.g. Ahmed Khan" name="eu-fullname" autoComplete="off"
                     value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEditUser()} autoFocus style={inputSt} />
@@ -1643,6 +2110,55 @@ export default function UsersPage() {
                   <input type="password" placeholder="Minimum 8 characters" name="eu-password" autoComplete="new-password"
                     value={editPassword} onChange={e => setEditPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleEditUser()} style={inputSt} />
                 </div>
+
+                {isAdmin && editTarget.role !== 'superuser' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: T.lblColor }}>
+                      Owning Super User
+                    </label>
+                    {editTarget.superuser_id ? (
+                      <div>
+                        <select
+                          value={editSuperuserId}
+                          onChange={e => setEditSuperuserId(e.target.value)}
+                          style={{ ...inputSt, background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5', appearance: 'auto' }}
+                        >
+                          <option value={String(editTarget.superuser_id)} style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>
+                            {editTarget.superuser_name || 'Current Super User'} (Assigned)
+                          </option>
+                          <option value="" style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>
+                            None (Unassign from Super User)
+                          </option>
+                        </select>
+                        <span style={{ fontSize: 11, color: '#f59e0b', marginTop: 4, display: 'block' }}>
+                          This user is already assigned. To prevent conflicts, a user cannot be directly transferred to another super user (unassign first if necessary).
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <select
+                          value={editSuperuserId}
+                          onChange={e => setEditSuperuserId(e.target.value)}
+                          style={{ ...inputSt, background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5', appearance: 'auto' }}
+                        >
+                          <option value="" style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>
+                            None (Independent User)
+                          </option>
+                          {superusers.map(su => (
+                            <option key={su.id} value={su.id} style={{ background: isLight ? '#FFFFFF' : '#1C1C1E', color: isLight ? '#111111' : '#F4F4F5' }}>
+                              {su.name || su.email || su.phone || su.id}
+                            </option>
+                          ))}
+                        </select>
+                        {editSuperuserId && (
+                          <span style={{ fontSize: 11, color: '#60a5fa', marginTop: 4, display: 'block' }}>
+                            This user will be placed under the selected super user.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1770,19 +2286,31 @@ export default function UsersPage() {
         >
           <div onClick={e => e.stopPropagation()}
             style={{ background: T.dlgBg, border: `1px solid ${T.dlgBdr}`, borderRadius: 16, width: '100%', maxWidth: 380, padding: 22, boxShadow: isLight ? '0 24px 64px rgba(167,44,50,0.12)' : '0 24px 64px rgba(0,0,0,0.72)' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: T.dlgTxt1, marginBottom: 8 }}>Unbind Device</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.dlgTxt1, marginBottom: 8 }}>
+              {unbindTarget.isSuperuserFleet ? 'Unbind Device from Super User' : 'Unbind Device'}
+            </div>
             <div style={{ fontSize: 13, color: T.dlgTxt2, marginBottom: 20 }}>
-              Remove binding for{' '}
-              <span style={{ color: T.dlgTxt1, fontFamily: 'monospace' }}>{unbindTarget.sn}</span>
-              {unbindTarget.assigned_user_name ? ` from ${unbindTarget.assigned_user_name}` : ''}?{' '}
-              This cannot be undone.
+              {unbindTarget.isSuperuserFleet ? (
+                <>
+                  Remove device <span style={{ color: T.dlgTxt1, fontFamily: 'monospace' }}>{unbindTarget.sn}</span> from super user{' '}
+                  <span style={{ color: T.dlgTxt1, fontWeight: 600 }}>{unbindTarget.superuserName || 'Super User'}</span>?{' '}
+                  This will return the device to the general admin pool and detach it from this super user.
+                </>
+              ) : (
+                <>
+                  Remove binding for{' '}
+                  <span style={{ color: T.dlgTxt1, fontFamily: 'monospace' }}>{unbindTarget.sn}</span>
+                  {unbindTarget.assigned_user_name ? ` from ${unbindTarget.assigned_user_name}` : ''}?{' '}
+                  This cannot be undone.
+                </>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={() => setUnbindTarget(null)} disabled={unbindLoading}
                 style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: T.cancelBg, border: `1px solid ${T.cancelBdr}`, color: T.cancelTxt }}>Cancel</button>
               <button onClick={handleUnbindDevice} disabled={unbindLoading}
                 style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: unbindLoading ? 'not-allowed' : 'pointer', background: 'linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)', border: '1px solid rgba(127,29,29,0.40)', color: '#fca5a5', opacity: unbindLoading ? 0.55 : 1 }}>
-                {unbindLoading ? 'Removing…' : 'Unbind'}
+                {unbindLoading ? 'Removing…' : (unbindTarget.isSuperuserFleet ? 'Remove from Super User' : 'Unbind')}
               </button>
             </div>
           </div>
@@ -1792,13 +2320,23 @@ export default function UsersPage() {
       {addDeviceTarget && (
         <AddDeviceToUserModal
           user={addDeviceTarget}
+          targetRole={addDeviceTarget.role || 'user'}
           devices={unboundDevices}
           onAssign={async (sns, opts) => {
-            const userId = addDeviceTarget._id ?? addDeviceTarget.id
+            const targetId = addDeviceTarget._id ?? addDeviceTarget.id
             const snList = Array.isArray(sns) ? sns : [sns]
-            for (const sn of snList) {
-              await adminAssignDeviceToUser(userId, sn, opts)
+            if ((addDeviceTarget.role || 'user') === 'superuser') {
+              // Hand the devices to the super user's fleet — they are not bound
+              // to an end user here.
+              for (const sn of snList) {
+                await adminAssignDeviceSuperuser(sn, targetId)
+              }
+            } else {
+              for (const sn of snList) {
+                await adminAssignDeviceToUser(targetId, sn, opts)
+              }
             }
+            invalidateFleetCache()
             await silentRefresh()
             await silentRefreshDevices()
           }}
@@ -1813,12 +2351,29 @@ export default function UsersPage() {
           devices={resolveUserDevices(drawerUser)}
           open={Boolean(drawerUser)}
           onClose={() => setDrawerUser(null)}
-          isAdmin={isAdmin}
+          isAdmin={canManageUsers}
           onUnbindDevice={(d) => {
-            setDrawerUser(null)
-            setUnbindTarget(d)
+            const isSu = drawerUser?.role === 'superuser'
+            setUnbindTarget({
+              ...d,
+              isSuperuserFleet: isSu,
+              superuserName: drawerUser?.name || displayContact(drawerUser),
+            })
           }}
           pushTrail={pushTrail}
+          isLight={isLight}
+        />
+      )}
+
+      {/* ── SuperUser Assigned Users Drawer (Slider) ────────────────────── */}
+      {drawerSuperUser && (
+        <SuperUserUsersDrawer
+          superuser={drawerSuperUser}
+          open={Boolean(drawerSuperUser)}
+          onClose={() => setDrawerSuperUser(null)}
+          isAdmin={canManageUsers}
+          onUnassignUser={(usr) => handleUnassignUserFromSuperuser(usr)}
+          onOpenUserDevices={(usr) => setDrawerUser(usr)}
           isLight={isLight}
         />
       )}

@@ -5,16 +5,16 @@ import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
   LayoutDashboard, Map,
   FileText, Layers,
-  LogOut, PlayCircle, Shield, UserCog,
+  LogOut, PlayCircle, Shield, UserCog, Users,
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
 
-function getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess) {
+function getNav(isFleetManager, hasGeofenceAccess, hasDashboardAccess) {
   const sections = [
     {
       section: 'OVERVIEW', links: [
-        ...(isAdmin || hasDashboardAccess ? [{ to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
+        ...(isFleetManager || hasDashboardAccess ? [{ to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' }] : []),
       ]
     },
     {
@@ -26,12 +26,13 @@ function getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess) {
       section: 'INTELLIGENCE', links: [
         { to: '/map', icon: Map, label: 'Map View' },
         { to: '/playback', icon: PlayCircle, label: 'Playback' },
-        ...(isAdmin || hasGeofenceAccess ? [{ to: '/fence', icon: Shield, label: 'Fence' }] : []),
+        ...(isFleetManager || hasGeofenceAccess ? [{ to: '/fence', icon: Shield, label: 'Fence' }] : []),
+        ...(isFleetManager ? [{ to: '/field-staff', icon: Users, label: 'Field Staff' }] : []),
       ]
     },
     {
       section: 'REPORTS & ADMIN', links: [
-        ...(isAdmin ? [{ to: '/users', icon: UserCog, label: 'Users' }] : []),
+        ...(isFleetManager ? [{ to: '/users', icon: UserCog, label: 'Users' }] : []),
         { to: '/reports', icon: FileText, label: 'Reports' },
       ]
     },
@@ -40,13 +41,14 @@ function getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess) {
 }
 
 export default function Sidebar() {
-  const { user, setUser, isAdmin, sidebarOpen, setSidebarOpen, unreadAlerts } = useApp()
+  const { user, setUser, isAdmin, isFleetManager, sidebarOpen, setSidebarOpen, unreadAlerts } = useApp()
   const { alerts } = useAlerts()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const fleetManager = isFleetManager || isAdmin
   const hasGeofenceAccess = Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access)
   const hasDashboardAccess = Boolean(user?.dashboard_access !== false)
-  const nav = getNav(isAdmin, hasGeofenceAccess, hasDashboardAccess)
+  const nav = getNav(fleetManager, hasGeofenceAccess, hasDashboardAccess)
 
   const confirmLogout = () => {
     setShowLogoutConfirm(false)
@@ -82,11 +84,11 @@ export default function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-2 px-2">
+        <nav className="flex-1 overflow-hidden py-1 px-2">
           {nav.map(({ section, links }) => (
-            <div key={section} className="mb-3">
-              <div className="px-2 py-1.5 text-[11px] font-bold text-gray-600 tracking-widest uppercase overflow-hidden" style={{
-                maxHeight: sidebarOpen ? 32 : 0,
+            <div key={section} className="mb-1.5">
+              <div className="px-2 py-1 text-[10px] font-bold text-gray-600 tracking-widest uppercase overflow-hidden" style={{
+                maxHeight: sidebarOpen ? 26 : 0,
                 opacity: sidebarOpen ? 1 : 0,
                 transform: sidebarOpen ? 'translateX(0)' : 'translateX(-6px)',
                 transition: sidebarOpen
@@ -101,8 +103,8 @@ export default function Sidebar() {
                   <NavLink key={to} to={to} title={!sidebarOpen ? label : undefined}
                     onClick={() => setSidebarOpen(false)}
                     className={({ isActive }) =>
-                      `relative w-full mb-1 block ${isActive ? 'text-[#C44E54]' : 'text-white'}`}
-                    style={{ height: 46 }}
+                      `relative w-full mb-0.5 block ${isActive ? 'text-[#C44E54]' : 'text-white'}`}
+                    style={{ height: 38 }}
                   >
                     {({ isActive }) => (
                       <>
@@ -116,8 +118,8 @@ export default function Sidebar() {
                             : 'opacity 200ms ease 150ms',
                           pointerEvents: sidebarOpen ? 'none' : 'auto',
                         }}>
-                          <div className={`w-[38px] h-[38px] rounded-xl flex items-center justify-center ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}>
-                            <Icon className="w-5 h-5 flex-shrink-0" />
+                          <div className={`w-[34px] h-[34px] rounded-lg flex items-center justify-center ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}>
+                            <Icon className="w-4 h-4 flex-shrink-0" />
                           </div>
                           {count > 0 && (
                             <span className="absolute top-1 right-1 w-2 h-2 bg-[#A72C32] rounded-full" />
@@ -135,7 +137,7 @@ export default function Sidebar() {
                             : 'opacity 100ms ease 0ms',
                           pointerEvents: sidebarOpen ? 'auto' : 'none',
                         }}>
-                          <div className={`absolute inset-0 rounded-xl ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}
+                          <div className={`absolute inset-0 rounded-lg ${isActive ? 'bg-[#A72C32]/20' : 'hover:bg-[#1a1a1a]'}`}
                             style={{ transition: 'background 0.15s' }} />
                           <Icon className="w-[18px] h-[18px] flex-shrink-0 relative z-10" />
                           <span style={{
@@ -175,7 +177,7 @@ export default function Sidebar() {
               pointerEvents: sidebarOpen ? 'auto' : 'none',
             }}>
               <div className="text-gray-200 text-xs font-semibold truncate">{user?.name}</div>
-              <div className="text-gray-500 text-[10px] capitalize">{user?.role}</div>
+              <div className="text-gray-500 text-[10px] capitalize">{user?.role === 'superuser' ? 'Super User' : user?.role}</div>
             </div>
             <button onClick={() => setShowLogoutConfirm(true)} title="Log out"
               className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors flex-shrink-0">

@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect, useContext, useCallback, useMemo } from 'react'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { createPortal } from 'react-dom'
-import { useSearchParams, useLocation } from 'react-router-dom'
-import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil } from 'lucide-react'
+import { Layers, Radio, Tag, Search, X, ChevronRight, ChevronDown, Plus, Download, Link2, Trash2, Pencil, UserMinus, Clock, MapPin } from 'lucide-react'
+import { parseLandmarkDisplay } from '../utils/landmark.js'
+import { peekGeocode, resolveGeocode } from '../utils/geocodeCache.js'
 import MissingDevices from './MissingDevices.jsx'
 import { useCityTag } from '../hooks/useCityTag.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -14,6 +16,7 @@ import { exportDevicesCsv } from '../utils/exportDevicesCsv.js'
 import { useUserCache } from '../context/Usercachecontext.jsx'
 import { useDashboardChrome } from '../context/DashboardChromeContext.jsx'
 import { deviceDisplayName } from '../utils/deviceDisplayName.js'
+import { getDeviceCardDisplay } from '../utils/deviceCardDisplay.js'
 import { BIND_CATS, STICKER_CATS } from '../utils/deviceCategories.js'
 import {
   fetchFleetDevices,
@@ -23,6 +26,7 @@ import {
 } from '../utils/fleetCache.js'
 import { ThemeContext } from '../components/layout/Layout.jsx'
 import TPLLoader from '../components/TPLLoader.jsx'
+import { useDeviceUpdates, emitDevicesUpdated } from '../utils/deviceEvents.js'
 import ModalPortal from '../components/common/ModalPortal.jsx'
 import SearchHistoryDropdown from '../components/common/SearchHistoryDropdown.jsx'
 import { useSearchHistory } from '../hooks/useSearchHistory.js'
@@ -190,17 +194,40 @@ function SearchSelect({ items, selectedValue, onSelect, labelOf, keyOf, placehol
   )
 }
 
-function fmtLastSeen(device) {
-  const raw = device.dataRetrievalTime ?? device.last_seen ?? device.lastSeen ?? null
+function fmtLastSeen(device, locInfo) {
+  const raw = locInfo?.timestamps ?? locInfo?.timestamp ?? device.dataRetrievalTime ?? device.last_seen ?? device.lastSeen ?? null
   if (!raw) return null
   try {
     const d = new Date(raw)
     if (isNaN(d.getTime())) return null
-    return d.toLocaleString(undefined, {
-      month: 'short', day: '2-digit',
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
     })
   } catch { return null }
+}
+
+function formatDeviceAddress(device, locInfo) {
+  const rawLandmark = locInfo?.landmark || device.landmark || device.lastLocation || locInfo?.address || device.address
+  if (rawLandmark && rawLandmark !== '—') {
+    const parsed = parseLandmarkDisplay(rawLandmark)
+    if (parsed) {
+      return [parsed.primary, parsed.secondary].filter(Boolean).join(', ')
+    }
+    return String(rawLandmark).replace(/\s*—\s*/g, ', ')
+  }
+
+  const lat = locInfo?.lat ?? locInfo?.latitude ?? device.lat
+  const lng = locInfo?.lng ?? locInfo?.lon ?? locInfo?.long ?? locInfo?.longitude ?? device.lng
+  if (lat != null && lng != null && !isNaN(Number(lat)) && !isNaN(Number(lng))) {
+    const cached = peekGeocode({ lat, lng })
+    if (cached) {
+      return [cached.primary, cached.secondary].filter(Boolean).join(', ')
+    }
+    return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
+  }
+
+  return 'No position data'
 }
 
 function isStickerSN(sn) { return /^\d+$/.test(String(sn ?? '')) }
@@ -210,9 +237,9 @@ const isBound = d => !!(d.user_id || d.assigned_user_name)
    ActionsDropdown — "Actions ▼" trigger + portal-rendered menu.
    Portaled to document.body so it is never clipped by the grid's overflow:hidden.
 ────────────────────────────────────────────────────────────────────────────── */
-const MENU_W = 150
+const MENU_W = 185
 
-function ActionsDropdown({ isLight, onEdit, onUnbind }) {
+function ActionsDropdown({ isLight, onEdit, onUnbind, onUnbindSuperuser, isAdmin, rawIsAdmin, isBoundDevice, hasSuperuser }) {
   const [open, setOpen] = useState(false)
   const [pos,  setPos]  = useState({ top: 0, left: 0 })
   const btnRef  = useRef(null)
@@ -222,7 +249,10 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
     e.stopPropagation()
     if (open) { setOpen(false); return }
     const r = btnRef.current.getBoundingClientRect()
-    const menuH = 88 // 2 items + padding
+    let itemCount = 1 // Edit is always present
+    if (isAdmin && isBoundDevice) itemCount++
+    if (rawIsAdmin && hasSuperuser) itemCount++
+    const menuH = itemCount * 36 + 8
     const openUp = r.bottom + menuH + 8 > window.innerHeight
     setPos({
       top:  openUp ? r.top - menuH - 6 : r.bottom + 6,
@@ -253,10 +283,10 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
   }, [open])
 
   const itemBase = {
-    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-    padding: '8px 12px', background: 'none', border: 'none',
-    fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left',
-    transition: 'background 0.12s',
+    display: 'flex', alignItems: 'center', gap: 6,
+    width: '100%', padding: '6px 12px', background: 'none', border: 'none',
+    fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+    textAlign: 'left'
   }
 
   return (
@@ -266,18 +296,18 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
         onClick={toggle}
         style={{
           display: 'flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', borderRadius: 10, cursor: 'pointer',
-          fontFamily: CARD_FONT, fontSize: 11, fontWeight: 600, transition: 'all 0.15s',
-          // Always on-dark (the tile is now the dark NFC-card face in both themes).
-          background: open ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.08)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
+          fontFamily: CARD_FONT, fontSize: '0.72rem', fontWeight: 600, transition: 'all 0.15s ease',
+          background: open ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)',
+          border: '1px solid rgba(255,255,255,0.14)',
           color: '#ECECEC',
+          lineHeight: 1.2,
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.14)' }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)' }}
         onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
       >
         Actions
-        <ChevronDown style={{ width: 11, height: 11, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+        <ChevronDown style={{ width: 11, height: 11, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }} />
       </button>
 
       {open && createPortal(
@@ -300,14 +330,26 @@ function ActionsDropdown({ isLight, onEdit, onUnbind }) {
           >
             <Pencil style={{ width: 12, height: 12 }} /> Edit
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbind() }}
-            style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
-          >
-            <Trash2 style={{ width: 12, height: 12 }} /> Unbind
-          </button>
+          {isAdmin && isBoundDevice && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbind() }}
+              style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+            >
+              <Trash2 style={{ width: 12, height: 12 }} /> {rawIsAdmin && hasSuperuser ? 'Unbind User' : 'Unbind'}
+            </button>
+          )}
+          {rawIsAdmin && hasSuperuser && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpen(false); onUnbindSuperuser?.() }}
+              style={{ ...itemBase, borderRadius: 7, color: '#DC2626' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.10)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+            >
+              <UserMinus style={{ width: 12, height: 12 }} /> Remove from Super User
+            </button>
+          )}
         </div>,
         document.body
       )}
@@ -426,10 +468,13 @@ function UserSelect({ users, loading, valueId, fallbackName, onChange }) {
 function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSignal, onBind, bindLabel, statusTabsNode }) {
   const location = useLocation()
   const pushTrail = useTrailNav()
-  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, getCategories } = useCityTag()
-  const { user, isAdmin } = useAuth()
+  const { getDevices, unbindDevice, updateDevice, adminAssignDeviceToUser, adminAssignDeviceSuperuser, adminGetSuperusers, getCategories } = useCityTag()
+  const { user, isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  // A super user manages a fleet exactly like an admin — the backend scopes the
+  // data to its own devices/users — so treat it as an admin throughout this page.
+  const isAdmin = rawIsAdmin || isSuperUser
   const { users, loading: usersLoading } = useUserCache()
-  const [categories, setCategories] = useState([]);
+  const [categories, setCategories] = useState([])
     useEffect(() => {
       let cancelled = false;
       getCategories()
@@ -438,15 +483,28 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
       return () => { cancelled = true; };
     }, [getCategories]);
 
-  const cacheValid = () => isFleetCacheValid()
+  const { devices: cachedFleet } = useDeviceCache()
+  const initialFleet = useMemo(() => {
+    const fromFleetCache = getFleetCache()
+    if (fromFleetCache && fromFleetCache.length > 0) return fromFleetCache
+    if (cachedFleet && cachedFleet.length > 0) return cachedFleet
+    return []
+  }, [cachedFleet])
 
   const savedView = useRef(loadDevView()).current
-  const [allDevices,   setAllDevices]   = useState(() => getFleetCache() ?? [])
-  const [fetching,     setFetching]     = useState(() => !cacheValid())
+  const [allDevices,   setAllDevices]   = useState(initialFleet)
+  const [fetching,     setFetching]     = useState(() => initialFleet.length === 0 && !isFleetCacheValid())
   const [rawQ,         setRawQ]         = useState(savedView?.q || '')
   const [debQ,         setDebQ]         = useState(savedView?.q || '')
   const [page,         setPage]         = useState(savedView?.page || 1)
   const [localRefresh, setLocalRefresh] = useState(0)
+
+  useEffect(() => {
+    if (allDevices.length === 0 && initialFleet.length > 0) {
+      setAllDevices(initialFleet)
+      setFetching(false)
+    }
+  }, [initialFleet, allDevices.length])
 
   const muiTheme = useMemo(() => createTheme({
     palette: { mode: isLight ? 'light' : 'dark', primary: { main: '#A72C32', contrastText: '#FFFFFF' } },
@@ -457,12 +515,19 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const [unbindLoading, setUnbindLoading] = useState(false)
   const [unbindError,   setUnbindError]   = useState('')
 
+  // Superuser unbind state
+  const [unbindSuperuserTarget,  setUnbindSuperuserTarget]  = useState(null)
+  const [unbindSuperuserLoading, setUnbindSuperuserLoading] = useState(false)
+  const [unbindSuperuserError,   setUnbindSuperuserError]   = useState('')
+
   // Edit state — reuses the bind-modal form layout, writes via PUT /api/devices/{sn}
   const [editTarget,   setEditTarget]   = useState(null)
   const [editName,     setEditName]     = useState('')
   const [editClient,   setEditClient]   = useState('')
   const [editCategory, setEditCategory] = useState('')
   const [editUserId,   setEditUserId]   = useState('')
+  const [editSuperuserId, setEditSuperuserId] = useState('')  // real-admin only
+  const [superusers,   setSuperusers]   = useState([])
   const [editLoading,  setEditLoading]  = useState(false)
   const [editError,    setEditError]    = useState('')
 
@@ -522,16 +587,11 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if (gridScrollRef.current) gridScrollRef.current.scrollTop = 0
   }, [deviceType, externalStatus, debQ, page])
 
-  // Auto-refresh every 60s when Online filter is active — silently (no loader)
-  useEffect(() => {
-    if (externalStatus !== 'online') return
-    const id = setInterval(() => {
-      isSilentRef.current = true
-      invalidateFleetCache()
-      setLocalRefresh(k => k + 1)
-    }, 60_000)
-    return () => clearInterval(id)
-  }, [externalStatus])
+  // Listen for global updates
+  useDeviceUpdates(() => {
+    isSilentRef.current = true
+    setLocalRefresh(k => k + 1)
+  })
 
   // Silent auto-refresh every 15 min — mirrors the Dashboard and detail pages.
   // Runs on every tab/filter; keeps the current tab, search and page in place
@@ -539,8 +599,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   useEffect(() => {
     const id = setInterval(() => {
       isSilentRef.current = true
-      invalidateFleetCache()
-      setLocalRefresh(k => k + 1)
+      emitDevicesUpdated()
     }, 15 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
@@ -552,8 +611,10 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     const forced = prevSignal.current !== refreshSignal
     prevSignal.current = refreshSignal
 
-    if (!forced && cacheValid()) {
-      setAllDevices(getFleetCache() ?? [])
+    if (!forced && (allDevices.length > 0 || isFleetCacheValid())) {
+      if (allDevices.length === 0 && getFleetCache()) {
+        setAllDevices(getFleetCache() ?? [])
+      }
       setFetching(false)
       return
     }
@@ -562,7 +623,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
       invalidateFleetCache()
     }
 
-    const silent = isSilentRef.current
+    const silent = isSilentRef.current || allDevices.length > 0
     isSilentRef.current = false
     if (!silent) setFetching(true)
     ;(async () => {
@@ -583,6 +644,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     setUnbindLoading(true)
     try {
       await unbindDevice(unbindTarget.sn)
+      setAllDevices(prev => prev.map(d => d.sn === unbindTarget.sn ? { ...d, user_id: null, assigned_user_name: null, assigned_user_id: null, assignedUser: null } : d))
+      isSilentRef.current = true
       invalidateFleetCache()
       setUnbindTarget(null)
       setPage(1)
@@ -594,12 +657,42 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     }
   }
 
+  const handleUnbindSuperuser = async () => {
+    if (!unbindSuperuserTarget || unbindSuperuserLoading) return
+    setUnbindSuperuserError('')
+    setUnbindSuperuserLoading(true)
+    try {
+      await adminAssignDeviceSuperuser(unbindSuperuserTarget.sn, null)
+      setAllDevices(prev => prev.map(d => d.sn === unbindSuperuserTarget.sn ? { ...d, superuser_id: null, superuser_name: null } : d))
+      isSilentRef.current = true
+      invalidateFleetCache()
+      const targetSn = unbindSuperuserTarget.sn
+      setUnbindSuperuserTarget(null)
+      setPage(1)
+      setLocalRefresh(k => k + 1)
+      showToast(`Device ${targetSn} removed from super user`)
+    } catch (err) {
+      setUnbindSuperuserError(err?.message || 'Failed to remove device from super user.')
+    } finally {
+      setUnbindSuperuserLoading(false)
+    }
+  }
+
+  // Only a real admin (not a super user) can hand devices to super users.
+  useEffect(() => {
+    if (!rawIsAdmin) return
+    let alive = true
+    adminGetSuperusers().then(rows => { if (alive) setSuperusers(Array.isArray(rows) ? rows : []) }).catch(() => {})
+    return () => { alive = false }
+  }, [rawIsAdmin, adminGetSuperusers])
+
   const openEdit = (d) => {
     setEditError('')
     setEditName(d.name || '')
     setEditClient(d.client || '')
     setEditCategory(d.category || '')
     setEditUserId(d.assigned_user_id ? String(d.assigned_user_id) : '')
+    setEditSuperuserId(d.superuser_id ? String(d.superuser_id) : '')
     setEditTarget(d)
   }
 
@@ -616,7 +709,9 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   )
   const editUserChanged = !!editTarget && !!editUserId &&
     String(editUserId) !== String(editTarget.assigned_user_id || '')
-  const editHasChanges = editDetailsChanged || editUserChanged
+  const editSuperuserChanged = !!editTarget && rawIsAdmin &&
+    String(editSuperuserId || '') !== String(editTarget.superuser_id || '')
+  const editHasChanges = editDetailsChanged || editUserChanged || editSuperuserChanged
 
   const handleEditSave = async () => {
     if (!editTarget || editLoading || !editHasChanges) return
@@ -630,11 +725,15 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
           category: editCategory || undefined,
         })
       }
+      if (editSuperuserChanged) {
+        await adminAssignDeviceSuperuser(editTarget.sn, editSuperuserId || null)
+      }
       if (editUserChanged) {
         // Admin reassignment — backend releases the device from its current
         // user and binds it to the new one in a single request.
         await adminAssignDeviceToUser(editUserId, editTarget.sn)
       }
+      isSilentRef.current = true
       invalidateFleetCache()
       const newUser = users.find(u => String(u.id) === String(editUserId))
       setEditTarget(null)
@@ -670,9 +769,12 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
     if (debQ) {
       const q = debQ.toLowerCase()
       list = list.filter(d => {
-        const name = deviceDisplayName(d).toLowerCase()
-        const sn   = String(d.sn ?? '').toLowerCase()
-        return name.includes(q) || sn.includes(q)
+        const name   = (d.name || d.assigned_name || '').toLowerCase()
+        const disp   = deviceDisplayName(d).toLowerCase()
+        const sn     = String(d.sn ?? '').toLowerCase()
+        const user   = String(d.assigned_user_name || d.user_name || '').toLowerCase()
+        const client = String(d.client || '').toLowerCase()
+        return name.includes(q) || disp.includes(q) || sn.includes(q) || user.includes(q) || client.includes(q)
       })
     }
 
@@ -700,12 +802,12 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
   const hasNext     = safePage < totalPages
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '0.45rem', minHeight: 0, overflow: 'hidden' }}>
 
       {/* Search + count + filters */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0, width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', flexWrap: 'nowrap', flexShrink: 0, width: '100%' }}>
         <div ref={searchWrapRef} style={{ position: 'relative' }}>
-          <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: T.txt3, pointerEvents: 'none' }} />
+          <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 12, height: 12, color: T.txt3, pointerEvents: 'none' }} />
           <input
             value={rawQ}
             onChange={e => setRawQ(e.target.value)}
@@ -716,7 +818,7 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
             placeholder="Search devices…"
             style={{
               background: T.inputBg, border: `1px solid ${T.inputBorder}`,
-              borderRadius: 10, padding: '8px 12px 8px 32px', fontSize: 12,
+              borderRadius: 8, padding: '6px 12px 6px 30px', fontSize: 12,
               color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', outline: 'none', width: 220,
               boxShadow: isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
             }}
@@ -741,134 +843,164 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
             />
           )}
         </div>
-        <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400 }}>
+        <span style={{ fontSize: 11, color: T.txt3, fontWeight: isLight ? 500 : 400, whiteSpace: 'nowrap' }}>
           {fetching ? 'Loading…' : `${total} device${total !== 1 ? 's' : ''}`}
         </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           {statusTabsNode}
           {onBind && (
             <button onClick={onBind}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, cursor: 'pointer', flexShrink: 0,
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', flexShrink: 0,
               background: isLight ? '#A72C32' : 'linear-gradient(135deg, #A72C32 0%, #8B2328 100%)',
               border: isLight ? '1px solid #8B2328' : '1px solid rgba(167,44,50,0.45)',
-              color: '#fff', fontSize: 13, fontWeight: 700,
+              color: '#fff', fontSize: 12, fontWeight: 700,
               boxShadow: isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)',
-              transition: 'box-shadow 0.2s, transform 0.2s' }}
-            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = isLight ? '0 4px 16px rgba(167,44,50,0.35)' : '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)' }}
-            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)' }}
-          >
-            <Plus style={{ width: 14, height: 14 }} /> {bindLabel}
-          </button>
-        )}
+              transition: 'box-shadow 0.2s, transform 0.2s', whiteSpace: 'nowrap' }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = isLight ? '0 4px 16px rgba(167,44,50,0.35)' : '0 0 44px rgba(167,44,50,0.52), 0 6px 22px rgba(0,0,0,0.40)' }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = isLight ? '0 2px 8px rgba(167,44,50,0.25)' : '0 4px 14px rgba(167,44,50,0.28)' }}
+            >
+              <Plus style={{ width: 13, height: 13 }} /> {bindLabel}
+            </button>
+          )}
+        </div>
       </div>
-    </div>
 
-      {/* Device grid — fills remaining height, fixed 4 col × 4 row.
-          Always render exactly PAGE_SIZE slots so gridTemplateRows distributes space correctly. */}
+      {/* Device grid — 4x4 matrix fitting 100% available height */}
       {fetching ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <TPLLoader label="Loading devices…" />
         </div>
       ) : (
-        <div ref={gridScrollRef} className="scalable-container" style={{
-          flex: 1, minHeight: 0, overflow: 'auto',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(14.3em, 1fr))',
-          gridTemplateRows: 'repeat(4, minmax(6.3em, 1fr))',
-          gap: '0.7em',
-        }}>
+        <div ref={gridScrollRef} className="devices-card-grid">
           {pageDevices.length === 0 ? (
             /* No results — single cell spanning full grid */
-            <div style={{ gridColumn: '1 / -1', gridRow: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: T.txt3, fontSize: 13 }}>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: T.txt3, fontSize: 13, padding: '3rem 1rem' }}>
               No devices match your filters
             </div>
           ) : (
-            /* Always render exactly PAGE_SIZE slots so row heights stay consistent */
-            Array.from({ length: PAGE_SIZE }, (_, idx) => {
-              const d = pageDevices[idx] ?? null
-              if (!d) return <div key={`_ph_${idx}`} aria-hidden="true" />
+            pageDevices.map((d) => {
               const isSticker  = isStickerSN(d.sn)
               const isActive   = d.status === 'online'
               const dotColor   = isActive ? '#23D160' : '#DC2626'
               const dotGlow    = isActive ? 'rgba(35,209,96,0.55)' : 'rgba(220,38,38,0.50)'
-              const name       = deviceDisplayName(d)
+              const card       = getDeviceCardDisplay(d, debQ)
+              const name       = card.primaryTitle
               const lastSeen   = fmtLastSeen(d)
+              const address    = formatDeviceAddress(d)
               return (
                 <div
                   key={d.sn}
                   onClick={() => { recordSearch(rawQ); pushTrail(isSticker ? `/stickers/${d.sn}` : `/locators/${d.sn}`, { state: { from: location.pathname + (location.search || '') } }) }}
                   style={{
-                    position: 'relative', overflow: 'hidden', height: '100%',
-                    borderRadius: 16, cursor: 'pointer', boxSizing: 'border-box',
-                    // Charcoal NFC-card face (not pure black) with a soft top-down
-                    // gradient; the red locator swirl is drawn on top (SwirlPin).
-                    background: 'linear-gradient(155deg, #333333 0%, #292929 100%)',
-                    boxShadow: '0 6px 22px rgba(0,0,0,0.45)',
-                    transition: 'box-shadow 0.24s ease',
+                    position: 'relative', overflow: 'hidden', height: '100%', minHeight: 0,
+                    borderRadius: '12px', cursor: 'pointer', boxSizing: 'border-box',
+                    background: 'linear-gradient(155deg, #323232 0%, #262626 100%)',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.38)',
+                    transition: 'box-shadow 0.24s ease, border-color 0.24s ease',
+                    display: 'flex',
                   }}
-                  // Matte premium hover — soft shadow + faint inset ring + brighter
-                  // chevron. No glow, no translate, so the grid never clips the tile.
                   onMouseEnter={e => {
-                    e.currentTarget.style.boxShadow = '0 12px 34px rgba(0,0,0,0.58), inset 0 0 0 1px rgba(255,255,255,0.10)'
+                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.52), inset 0 0 0 1px rgba(255,255,255,0.10)'
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)'
                     const chev = e.currentTarget.querySelector('[data-chev]')
-                    if (chev) chev.style.color = 'rgba(255,255,255,0.80)'
+                    if (chev) chev.style.color = 'rgba(255,255,255,0.85)'
                   }}
                   onMouseLeave={e => {
-                    e.currentTarget.style.boxShadow = '0 6px 22px rgba(0,0,0,0.45)'
+                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.38)'
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'
                     const chev = e.currentTarget.querySelector('[data-chev]')
                     if (chev) chev.style.color = 'rgba(255,255,255,0.35)'
                   }}
                 >
-                  {/* Redrawn TPL locator swirl — vector-traced from the physical card.
-                      Sized to the tile height so the whole pin (eye, body, point) shows,
-                      with a whisper of top bleed. It's tall, so on these wide tiles it
-                      naturally occupies the left ~third. */}
-                  <SwirlPin style={{ position: 'absolute', left: '0%', top: '-3%', height: '100%', width: 'auto', zIndex: 0, pointerEvents: 'none' }} />
-                  {/* Device info. It sits after a spacer that mirrors the swirl's
-                      footprint — the pin is height:100% width:auto, so it occupies
-                      cardHeight × the artwork's 1052:1481 ratio. The old left:44%
-                      was a share of card *width* while the pin scales with card
-                      *height*, so the space between them ballooned on wider tiles
-                      (13px at 240px wide, 55px at 400px). The spacer keeps that gap
-                      at a constant ~13px whatever the tile size. */}
+                  {/* Redrawn TPL locator swirl — vector-traced from the physical card */}
+                  <SwirlPin color="#D93A3A" style={{ position: 'absolute', left: 0, top: '-2%', height: '104%', width: 'auto', zIndex: 0, pointerEvents: 'none', opacity: 0.88 }} />
+
+                  {/* Device info: spacer matches swirl pin width, content uses clean vertical structure */}
                   <div style={{
                     position: 'absolute', inset: 0, zIndex: 1,
                     display: 'flex', alignItems: 'stretch', minWidth: 0,
                   }}>
-                  <div aria-hidden="true" style={{ height: '100%', aspectRatio: '1052 / 1481', flexShrink: 0 }} />
-                  <div style={{
-                    flex: 1, minWidth: 0, margin: '0.55em 1em 2.1em 0.85em',
-                    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0.22em',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
-                      <span style={{ width: '0.5em', height: '0.5em', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
-                      <span style={{ fontFamily: CARD_FONT, fontSize: '0.95em', fontWeight: 700, color: '#F7F7F7', letterSpacing: '0.005em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                    </div>
-                    <div style={{ fontFamily: CARD_FONT, fontSize: '0.7em', fontWeight: 500, color: 'rgba(255,255,255,0.45)', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {d.sn}
-                    </div>
-                    {lastSeen ? (
-                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.75)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Last seen: {lastSeen}
+                    <div aria-hidden="true" style={{ height: '100%', aspectRatio: '1052 / 1481', flexShrink: 0 }} />
+                    <div style={{
+                      flex: 1, minWidth: 0,
+                      padding: '0.4rem 0.6rem 0.35rem 0.5rem',
+                      display: 'flex', flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      boxSizing: 'border-box',
+                      minHeight: 0,
+                    }}>
+                      {/* 1. Header: Status dot + Primary Title (left) & Navigation Chevron (right) */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem', minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 }}>
+                          <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 5px ${dotGlow}` }} />
+                          <span style={{
+                            fontFamily: CARD_FONT, fontSize: '0.9375rem', fontWeight: 600,
+                            color: '#FFFFFF', letterSpacing: '0.01em',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            lineHeight: 1.25,
+                          }} title={name}>
+                            {name}
+                          </span>
+                        </div>
+                        <ChevronRight data-chev strokeWidth={1.8} style={{ width: '0.95rem', height: '0.95rem', color: 'rgba(255,255,255,0.35)', flexShrink: 0, transition: 'color 0.2s ease' }} />
                       </div>
-                    ) : (
-                      <div style={{ fontFamily: CARD_FONT, fontSize: '0.72em', fontWeight: 500, color: 'rgba(255,255,255,0.40)', fontStyle: 'italic' }}>
-                        No last report
-                      </div>
-                    )}
-                  </div>
-                  </div>
 
-                  {/* Actions + chevron, bottom-right */}
-                  <div style={{ position: 'absolute', zIndex: 2, right: '0.9em', bottom: '0.6em', display: 'flex', alignItems: 'center', gap: '0.5em' }}>
-                    {externalStatus === 'all' && isAdmin && isBound(d) && (
-                      <ActionsDropdown
-                        isLight={isLight}
-                        onEdit={() => openEdit(d)}
-                        onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
-                      />
-                    )}
-                    <ChevronRight data-chev strokeWidth={1.5} style={{ width: '1.05em', height: '1.05em', color: 'rgba(255,255,255,0.35)', transition: 'color 0.2s ease' }} />
+                      {/* 2. Vehicle IDs: smaller, visually muted, directly underneath title */}
+                      <div style={{
+                        paddingLeft: '0.9rem',
+                        fontFamily: CARD_FONT, fontSize: '0.75rem', fontWeight: 400,
+                        color: 'rgba(255,255,255,0.45)', letterSpacing: '0.015em',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        lineHeight: 1.2,
+                      }}>
+                        <span>{card.subTitle || d.sn}</span>
+                        {card.extraSub && <span> • {card.extraSub}</span>}
+                      </div>
+
+                      {/* 3. Clock icon + Timestamp row */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.35rem', minWidth: 0,
+                        fontFamily: CARD_FONT, fontSize: '0.75rem', fontWeight: 400,
+                        color: 'rgba(255,255,255,0.85)', lineHeight: 1.2,
+                      }}>
+                        <Clock strokeWidth={1.8} style={{ width: '0.85rem', height: '0.85rem', color: 'rgba(255,255,255,0.65)', flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {lastSeen || 'No last report'}
+                        </span>
+                      </div>
+
+                      {/* 4. MapPin icon + Location row with single-line ellipsis */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: '0.35rem', minWidth: 0,
+                        fontFamily: CARD_FONT, fontSize: '0.75rem', fontWeight: 400,
+                        color: 'rgba(255,255,255,0.80)', lineHeight: 1.2,
+                      }}>
+                        <MapPin strokeWidth={1.8} style={{ width: '0.85rem', height: '0.85rem', color: 'rgba(255,255,255,0.65)', flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={address}>
+                          {address}
+                        </span>
+                      </div>
+
+                      {/* 5. Dedicated Actions button area at bottom-right */}
+                      {isAdmin && (
+                        <div style={{
+                          display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <ActionsDropdown
+                            isLight={isLight}
+                            isAdmin={isAdmin}
+                            rawIsAdmin={rawIsAdmin}
+                            isBoundDevice={isBound(d)}
+                            hasSuperuser={!!(d.superuser_id || d.superuser_name)}
+                            onEdit={() => openEdit(d)}
+                            onUnbind={() => { setUnbindError(''); setUnbindTarget(d) }}
+                            onUnbindSuperuser={() => { setUnbindSuperuserError(''); setUnbindSuperuserTarget(d) }}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
@@ -879,8 +1011,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
 
       {/* Pagination */}
       {total > 0 && !fetching && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8, padding: '4px 2px', flexShrink: 0 }}>
-          <span style={{ fontSize: 11, color: T.txt3, marginRight: 4, fontWeight: isLight ? 500 : 400 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'nowrap', gap: 6, padding: '2px 0', flexShrink: 0, marginTop: 'auto' }}>
+          <span style={{ fontSize: 11, color: T.txt3, marginRight: 4, fontWeight: isLight ? 500 : 400, whiteSpace: 'nowrap' }}>
             {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
           </span>
           <ThemeProvider theme={muiTheme}>
@@ -888,8 +1020,8 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
               <Pagination
                 count={totalPages} page={safePage}
                 onChange={(_, p) => setPage(p)}
-                color="primary" shape="rounded" size="medium"
-                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: '#A72C32', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: '#8B2328' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
+                color="primary" shape="rounded" size="small"
+                sx={{ '& .MuiPaginationItem-root': { fontFamily: 'inherit', fontSize: 12, height: 26, minWidth: 26, fontWeight: 600, color: isLight ? '#000000' : 'rgba(255,255,255,0.70)', border: 'none', '&:hover': { background: isLight ? 'rgba(167,44,50,0.08)' : 'rgba(255,255,255,0.08)' }, '&.Mui-selected': { background: '#A72C32', color: '#ffffff', fontWeight: 700, border: 'none', '&:hover': { background: '#8B2328' } }, '&.MuiPaginationItem-ellipsis': { color: isLight ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.30)' } } }}
               />
             </Stack>
           </ThemeProvider>
@@ -921,19 +1053,36 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
                   </div>
                 </div>
 
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
-                    Assigned To
-                    {editUserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86A6A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will be reassigned</span>}
-                  </label>
-                  <UserSelect
-                    users={users}
-                    loading={usersLoading}
-                    valueId={editUserId}
-                    fallbackName={editTarget.assigned_user_name}
-                    onChange={u => setEditUserId(String(u.id))}
-                  />
-                </div>
+                {isAdmin && (
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                      Assigned To
+                      {editUserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86A6A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will be reassigned</span>}
+                    </label>
+                    <UserSelect
+                      users={users}
+                      loading={usersLoading}
+                      valueId={editUserId}
+                      fallbackName={editTarget.assigned_user_name}
+                      onChange={u => setEditUserId(String(u.id))}
+                    />
+                  </div>
+                )}
+
+                {rawIsAdmin && (
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
+                      Owning Super User <span style={{ color: 'rgba(255,255,255,0.30)', fontWeight: 400 }}>(optional)</span>
+                      {editSuperuserChanged && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#C86A6A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>will change</span>}
+                    </label>
+                    <select value={editSuperuserId} onChange={e => setEditSuperuserId(e.target.value)} style={SELECT_STYLE}>
+                      <option value="" style={SELECT_OPT}>— None —</option>
+                      {superusers.map(su => (
+                        <option key={su.id} value={su.id} style={SELECT_OPT}>{su.name || su.email || su.phone || su.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', display: 'block', marginBottom: 6 }}>
@@ -1025,6 +1174,49 @@ function AllDevices({ deviceType = 'all', externalStatus, isLight, T, refreshSig
         </ModalPortal>
       )}
 
+      {/* Remove from Super User confirmation modal */}
+      {unbindSuperuserTarget && (
+        <ModalPortal>
+          <div onClick={() => { setUnbindSuperuserTarget(null); setUnbindSuperuserError('') }} style={modalOverlay}>
+            <div onClick={e => e.stopPropagation()} style={{ ...modalPanel, width: '100%', maxWidth: 400, padding: 24, marginTop: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(220,38,38,0.14)', border: '1px solid rgba(220,38,38,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Trash2 style={{ width: 16, height: 16, color: '#DC2626' }} />
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Remove from Super User</div>
+                </div>
+                <button onClick={() => { setUnbindSuperuserTarget(null); setUnbindSuperuserError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.45)', padding: 4, display: 'flex' }}>
+                  <X style={{ width: 18, height: 18 }} />
+                </button>
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 20, lineHeight: 1.6 }}>
+                Remove device <strong style={{ color: '#FFFFFF' }}>{deviceDisplayName(unbindSuperuserTarget)}</strong> ({unbindSuperuserTarget.sn}) from super user
+                {unbindSuperuserTarget.superuser_name ? <> <strong style={{ color: '#FFFFFF' }}>{unbindSuperuserTarget.superuser_name}</strong></> : null}?
+                <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.40)' }}>
+                  This will return the device to the general admin pool and unbind it from any assigned user.
+                </div>
+              </div>
+              {unbindSuperuserError && (
+                <div style={{ fontSize: 12, color: '#fca5a5', background: 'rgba(220,38,38,0.10)', border: '1px solid rgba(220,38,38,0.22)', borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
+                  {unbindSuperuserError}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button onClick={() => { setUnbindSuperuserTarget(null); setUnbindSuperuserError('') }}
+                  style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.68)' }}>
+                  Cancel
+                </button>
+                <button onClick={handleUnbindSuperuser} disabled={unbindSuperuserLoading}
+                  style={{ padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: unbindSuperuserLoading ? 'wait' : 'pointer', background: '#A72C32', border: '1px solid rgba(167,44,50,0.40)', color: '#fff', opacity: unbindSuperuserLoading ? 0.7 : 1 }}>
+                  {unbindSuperuserLoading ? 'Removing…' : 'Remove from Super User'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
       {/* Success toast — bare portal (ModalPortal would lock body scroll) */}
       {toast && createPortal(
         <div style={{
@@ -1078,7 +1270,8 @@ export default function Devices() {
     palette: { mode: isLight ? 'light' : 'dark', primary: { main: '#A72C32', contrastText: '#FFFFFF' } },
   }), [isLight])
 
-  const { isAdmin } = useAuth()
+  const { isAdmin: rawIsAdmin, isSuperUser } = useAuth()
+  const isAdmin = rawIsAdmin || isSuperUser
   const chrome = useDashboardChrome()
   const { bindDevice, adminAssignDeviceToUser, checkDeviceAvailability, getDevices, getLatestLocationsBatch, getCategories } = useCityTag()
   const { devices: cacheDevices } = useDeviceCache()
@@ -1271,7 +1464,7 @@ export default function Devices() {
   )
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0 0.25rem' }}>
 
       {/* ── Content — fills remaining height ─────────────────────────────────── */}
       <div style={{ flex: 1, overflow: 'hidden', minHeight: 0, position: 'relative' }}>

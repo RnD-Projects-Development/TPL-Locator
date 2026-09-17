@@ -1,6 +1,7 @@
 import React from "react";
 import tplLogo from "../assets/tpl.png";
 import { useSidebarDevices } from "../hooks/useSidebarDevices.js";
+import { getDeviceCardDisplay } from "../utils/deviceCardDisplay.js";
 import "./MultiDeviceSidebar.css";
 
 /* ── Detect device type the same way as Locators/Stickers pages ─────────── */
@@ -115,6 +116,8 @@ export default function MultiDeviceSidebar({
     const assignedUser = d.assigned_user_name ?? d.assignedUser ?? null;
     const isSelected   = selectedSns.has(sn);
 
+    const card = getDeviceCardDisplay(d, searchTerm);
+
     const point        = deviceLocations[sn] ?? null;
     const isFetching   = isSelected && !point && fetchingAll;
     const hasLocation  = isSelected && point != null;
@@ -135,9 +138,18 @@ export default function MultiDeviceSidebar({
         </div>
 
         <div className="mdsb-info">
-          <div className="mdsb-sn">{assignedUser || sn}</div>
-          {assignedUser && <div className="mdsb-sub">{sn}</div>}
-          {client && <div className="mdsb-client">{client}</div>}
+          <div className="mdsb-sn" title={card.primaryTitle}>{card.primaryTitle}</div>
+          {card.subTitle && (
+            <div className="mdsb-sub" style={{ fontFamily: (card.matchedField === "name" && !card.userName) || card.matchedField === "sn" ? "monospace" : "inherit", opacity: 0.75 }}>
+              {card.subTitle}
+            </div>
+          )}
+          {card.extraSub && card.extraSub !== card.subTitle && (
+            <div className="mdsb-sub" style={{ fontFamily: "monospace", opacity: 0.6 }}>
+              {card.extraSub}
+            </div>
+          )}
+          {card.matchedField !== "client" && client && <div className="mdsb-client">{client}</div>}
 
           {isFetching && (
             <div className="mdsb-live-row fetching">

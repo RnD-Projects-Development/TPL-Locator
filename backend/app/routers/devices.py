@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.dependencies import get_current_account, get_mongo_service
-from app.models.admin import AdminInDB
+from app.models.admin import AdminInDB, SuperUserInDB
 from app.models.user import UserInDB
 from app.services.mongodb import MongoService
 from app.services.device_binding import bind_device_service, unbind_device_service
@@ -33,6 +33,10 @@ def _fmt_dt(value) -> str | None:
 
 def _get_device_status(latest_timestamp) -> str:
     """Determine if device is online or offline based on latest location timestamp."""
+    if not latest_timestamp:
+        return "offline"
+    if isinstance(latest_timestamp, dict):
+        latest_timestamp = latest_timestamp.get("timestamp") or latest_timestamp.get("timestamps")
     if not latest_timestamp:
         return "offline"
     if isinstance(latest_timestamp, str):
@@ -73,6 +77,14 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
     # client — stored on the device doc at bind time
     client = doc.get("client") or None
 
+    landmark = (latest_loc.get("landmark") if latest_loc else None) or doc.get("landmark") or doc.get("lastLocation")
+    lat = latest_loc.get("lat") if latest_loc else doc.get("lat")
+    lng = (latest_loc.get("long") if latest_loc.get("long") is not None else latest_loc.get("lng")) if latest_loc else doc.get("lng")
+
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
+
     return {
         "sn":                 device_sn,
         "name":               doc.get("name", ""),
@@ -85,8 +97,15 @@ async def _enrich_device(doc: dict, user: UserInDB, mongo: MongoService) -> dict
         # Frontend legacy alias (used by dashboard pages).
         "assignedUser":      assigned_user_name,
         "dataRetrievalTime":  data_retrieval_time,
+        "landmark":           landmark,
+        "lastLocation":       landmark,
+        "lat":                lat,
+        "lng":                lng,
         "bindTime":           _fmt_dt(doc.get("bound_at")),
         "local_id":           str(doc.get("_id")),
+        "mac":                doc.get("mac") or None,
+        "price":              price_val,
+        "currency":           curr_val,
     }
 
 
@@ -101,28 +120,65 @@ def _to_oid(value) -> ObjectId | None:
         return None
 
 
-async def _load_latest_location_map(mongo: MongoService, sns: list[str]) -> dict[str, datetime | None]:
+def _is_fleet_account(account) -> bool:
+    """True for accounts that manage a fleet (admin or super user), not a plain user."""
+    return isinstance(account, (AdminInDB, SuperUserInDB))
+
+
+def _fleet_base_query(account) -> dict:
+    """Base mongo filter over `devices` for an admin / super user fleet view."""
+    if isinstance(account, SuperUserInDB):
+        return {"superuser_id": _to_oid(account.id)}
+    return {"admin_id": _to_oid(account.id)}
+
+
+def _owns_device_doc(account, doc: dict) -> bool:
+    """Whether a fleet account owns a raw device doc."""
+    if isinstance(account, SuperUserInDB):
+        return str(doc.get("superuser_id") or "") == str(account.id)
+    return str(doc.get("admin_id") or "") == str(account.id)
+
+
+async def _load_latest_location_map(mongo: MongoService, sns: list[str]) -> dict[str, dict]:
     if not sns:
         return {}
 
-    latest_by_sn: dict[str, datetime | None] = {}
+    latest_by_sn: dict[str, dict] = {}
     pipeline = [
         {"$match": {"sn": {"$in": sns}}},
         {"$sort": {"timestamps": -1}},
-        {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamps"}}},
+        {"$group": {
+            "_id": "$sn",
+            "timestamp": {"$first": "$timestamps"},
+            "landmark": {"$first": "$landmark"},
+            "lat": {"$first": "$lat"},
+            "lng": {"$first": "$long"},
+        }},
     ]
     async for row in mongo.db["latestLocation"].aggregate(pipeline):
-        latest_by_sn[str(row["_id"])] = row.get("timestamp")
+        latest_by_sn[str(row["_id"])] = {
+            "timestamp": row.get("timestamp"),
+            "landmark": row.get("landmark"),
+            "lat": row.get("lat"),
+            "lng": row.get("lng"),
+        }
     return latest_by_sn
 
 
 def _device_row(
     doc: dict,
-    latest_timestamp: datetime | None,
+    latest_loc: dict | datetime | None,
     *,
     assigned_user_id: str | None = None,
     assigned_user_name: str | None = None,
+    price: float = 0.0,
+    currency: str = "PKR",
 ) -> dict:
+    loc_dict = latest_loc if isinstance(latest_loc, dict) else ({"timestamp": latest_loc} if isinstance(latest_loc, (datetime, str)) else {})
+    latest_timestamp = loc_dict.get("timestamp")
+    landmark = loc_dict.get("landmark") or doc.get("landmark") or doc.get("lastLocation") or None
+    lat = loc_dict.get("lat") if loc_dict.get("lat") is not None else doc.get("lat")
+    lng = loc_dict.get("lng") if loc_dict.get("lng") is not None else doc.get("lng")
     device_sn = doc.get("sn")
     device_name = doc.get("name", "") or ""
     assigned_name = (
@@ -141,7 +197,12 @@ def _device_row(
         "assigned_user_name": assigned_user_name,
         "assigned_user_id": assigned_user_id,
         "assignedUser": assigned_user_name,
+        "superuser_id": str(doc.get("superuser_id")) if doc.get("superuser_id") else None,
         "dataRetrievalTime": _fmt_dt(latest_timestamp) if latest_timestamp else None,
+        "landmark": landmark,
+        "lastLocation": landmark,
+        "lat": lat,
+        "lng": lng,
         "bindTime": _fmt_dt(doc.get("bound_at")),
         "region": doc.get("region") or None,
         "zone": doc.get("zone") or None,
@@ -150,6 +211,9 @@ def _device_row(
         "datapoint_count": doc.get("datapoint_count", 0),
         "last_seen": doc.get("last_seen") or doc.get("lastSeen") or None,
         "first_seen": doc.get("first_seen") or None,
+        "mac": doc.get("mac") or None,
+        "price": price,
+        "currency": currency,
     }
 
 
@@ -190,7 +254,6 @@ def _doc_matches_search(doc: dict, term: str, *, extra: str = "") -> bool:
                 str(doc.get("sn") or ""),
                 str(doc.get("name") or ""),
                 str(doc.get("client") or ""),
-                str(doc.get("category") or ""),
                 str(doc.get("assigned_name") or ""),
                 extra,
             ],
@@ -218,12 +281,12 @@ def _doc_matches_sn_name_search(doc: dict, term: str) -> bool:
 
 async def _build_admin_device_query(
     mongo: MongoService,
-    admin_oid: ObjectId,
+    base: dict,
     search: str | None,
     *,
     sn_name_only: bool = False,
 ) -> dict:
-    query: dict = {"admin_id": admin_oid}
+    query: dict = dict(base)
     term = (search or "").strip()
     if not term:
         return query
@@ -236,7 +299,6 @@ async def _build_admin_device_query(
     if not sn_name_only:
         or_clauses.extend([
             {"client": regex},
-            {"category": regex},
             {"assigned_name": regex},
         ])
         user_ids: list[ObjectId] = []
@@ -314,6 +376,10 @@ async def _list_devices_page(
     term = (search or "").strip()
     sn_name_only = search_scope == "sn_name"
     user_label = ""
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
+
     if isinstance(account, UserInDB) and not sn_name_only:
         user_label = " ".join(filter(None, [account.name or "", account.email or ""]))
 
@@ -376,13 +442,14 @@ async def _list_devices_page(
                 latest_by_sn.get(str(doc.get("sn"))),
                 assigned_user_id=str(account.id),
                 assigned_user_name=user_name,
+                price=price_val,
+                currency=curr_val,
             )
             for doc in page_docs
         ]
         return _paged_response(items, page, limit, total)
 
-    admin_oid = _to_oid(account.id)
-    query = await _build_admin_device_query(mongo, admin_oid, term, sn_name_only=sn_name_only)
+    query = await _build_admin_device_query(mongo, _fleet_base_query(account), term, sn_name_only=sn_name_only)
     query = _apply_device_type_filter(query, device_type)
     query = await _apply_status_filter_to_query(mongo, query, status_filter)
 
@@ -440,24 +507,31 @@ async def _list_devices_page(
                 latest_by_sn.get(str(doc.get("sn"))),
                 assigned_user_id=assigned_user_id,
                 assigned_user_name=assigned_user_name,
+                price=price_val,
+                currency=curr_val,
             )
         )
 
     return _paged_response(items, page, limit, total)
 
 
-async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[dict]:
+async def _enrich_admin_devices(account, mongo: MongoService) -> List[dict]:
     """
-    Build an admin-facing device list purely from Mongo.
+    Build an admin / super user facing device list purely from Mongo.
 
     This keeps GET /api/devices stable even if CityTag is down, because it only relies on:
     - mongo.devices (binding/name/client/region/user assignment)
     - mongo.locations (latest timestamp -> status + dataRetrievalTime)
     - mongo.accounts (assigned user display name, filtered by role="user")
-    """
-    logger.info("enrich_admin_devices started admin=%s", admin.email)
 
-    docs = await mongo.devices.find({"admin_id": admin.id}).to_list(None)
+    `account` is an AdminInDB or SuperUserInDB; the fleet scope is derived from it.
+    """
+    logger.info("enrich_admin_devices started account=%s", account.email)
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
+
+    docs = await mongo.devices.find(_fleet_base_query(account)).to_list(None)
     if not docs:
         return []
 
@@ -469,11 +543,14 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
     if sns_set:
         pipeline = [
             {"$match": {"sn": {"$in": list(sns_set)}}},
-            {"$sort": {"timestamp": -1}},
-            {"$group": {"_id": "$sn", "timestamp": {"$first": "$timestamp"}}},
         ]
-        async for row in mongo.locations.aggregate(pipeline):
-            latest_by_sn[str(row["_id"])] = {"timestamp": row.get("timestamp")}
+        async for row in mongo.db["latestLocation"].aggregate(pipeline):
+            latest_by_sn[str(row["sn"])] = {
+                "timestamp": row.get("timestamps"),
+                "landmark": row.get("landmark"),
+                "lat": row.get("lat"),
+                "lng": row.get("long"),
+            }
 
     # Prefetch users referenced by device.user_id
     user_oids: list[ObjectId] = []
@@ -506,9 +583,13 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
         if not device_sn:
             continue
 
-        latest_ts = latest_by_sn.get(str(device_sn), {}).get("timestamp") if latest_by_sn else None
+        loc_info = latest_by_sn.get(str(device_sn), {}) if latest_by_sn else {}
+        latest_ts = loc_info.get("timestamp")
         data_retrieval_time = _fmt_dt(latest_ts) if latest_ts else None
         device_status = _get_device_status(latest_ts) if latest_ts else "offline"
+        landmark = loc_info.get("landmark") or doc.get("landmark") or doc.get("lastLocation") or None
+        lat = loc_info.get("lat") if loc_info.get("lat") is not None else doc.get("lat")
+        lng = loc_info.get("lng") if loc_info.get("lng") is not None else doc.get("lng")
 
         assigned_user_id, assigned_user_name = resolve_user_display(doc.get("user_id"))
 
@@ -534,7 +615,12 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
             "assigned_user_id": assigned_user_id,
             # Frontend legacy alias (used by dashboard pages).
             "assignedUser": assigned_user_name,
+            "superuser_id": str(doc.get("superuser_id")) if doc.get("superuser_id") else None,
             "dataRetrievalTime": data_retrieval_time,
+            "landmark": landmark,
+            "lastLocation": landmark,
+            "lat": lat,
+            "lng": lng,
             "bindTime": _fmt_dt(doc.get("bound_at")),
             "region": doc.get("region") or None,
             "zone":   doc.get("zone")   or None,
@@ -545,9 +631,12 @@ async def _enrich_admin_devices(admin: AdminInDB, mongo: MongoService) -> List[d
             "datapoint_count": doc.get("datapoint_count", 0),
             "last_seen": doc.get("last_seen") or doc.get("lastSeen") or None,
             "first_seen": doc.get("first_seen") or None,
+            "mac": doc.get("mac") or None,
+            "price": price_val,
+            "currency": curr_val,
         })
 
-    logger.info("enrich_admin_devices completed admin=%s result_count=%s", admin.email, len(result))
+    logger.info("enrich_admin_devices completed account=%s result_count=%s", account.email, len(result))
     return result
 
 
@@ -627,6 +716,8 @@ class UpdateDeviceRequest(BaseModel):
     zone: Optional[str] = None
     add_zone: Optional[str] = None
     remove_zone: Optional[str] = None
+    price: Optional[float] = None
+    currency: Optional[str] = None
 
 
 @router.post("/devices")
@@ -682,16 +773,16 @@ async def list_available_devices(
     mongo: Annotated[MongoService, Depends(get_mongo_service)],
 ) -> List[dict]:
     """
-    Return unbound devices the current admin can bind (dropdown source for
-    the admin bind modal). Admin-only: regular users bind by typing an exact
-    SN (see GET /devices/{sn}/check) rather than browsing a full device list,
-    so this endpoint would otherwise let a user enumerate every unbound
-    device in the system.
+    Return unbound devices the current admin / super user can bind (dropdown
+    source for the bind modal). Fleet accounts only: regular users bind by
+    typing an exact SN (see GET /devices/{sn}/check) rather than browsing a full
+    device list, so this endpoint would otherwise let a user enumerate every
+    unbound device in the system.
     """
-    if not isinstance(account, AdminInDB):
+    if not _is_fleet_account(account):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    query = {"admin_id": account.id, "user_id": None}
+    query = {**_fleet_base_query(account), "user_id": None}
     docs = await mongo.devices.find(query).to_list(None)
 
     return [
@@ -768,9 +859,8 @@ async def get_devices_summary(
             {"_id": {"$in": ids}}, {"sn": 1, "bound_at": 1, "user_id": 1},
         ).to_list(len(ids))
     else:
-        admin_oid = _to_oid(account.id)
         docs = await mongo.devices.find(
-            {"admin_id": admin_oid}, {"sn": 1, "bound_at": 1, "user_id": 1},
+            _fleet_base_query(account), {"sn": 1, "bound_at": 1, "user_id": 1},
         ).to_list(None)
 
     sns = [str(d.get("sn")) for d in docs if d.get("sn")]
@@ -843,9 +933,8 @@ async def get_device_by_sn(
     if isinstance(account, UserInDB):
         if _to_oid(doc.get("_id")) not in (account.devices or []):
             raise HTTPException(status_code=403, detail="Device not assigned to you")
-    else:
-        if str(doc.get("admin_id")) != str(account.id):
-            raise HTTPException(status_code=403, detail="Device not owned by this admin")
+    elif not _owns_device_doc(account, doc):
+        raise HTTPException(status_code=403, detail="Device not in your fleet")
 
     latest_ts_map = await _load_latest_location_map(mongo, [sn])
     latest_ts = latest_ts_map.get(sn)
@@ -861,11 +950,17 @@ async def get_device_by_sn(
             assigned_user_name = raw_name or (email.split("@")[0] if "@" in email else email) or None
             assigned_user_id = str(user_oid)
 
+    pricing = await mongo.get_pricing()
+    price_val = pricing.get("price", 0.0)
+    curr_val = pricing.get("currency", "PKR")
+
     return _device_row(
         doc,
         latest_ts,
         assigned_user_id=assigned_user_id,
         assigned_user_name=assigned_user_name,
+        price=price_val,
+        currency=curr_val,
     )
 
 
@@ -902,9 +997,10 @@ async def _update_device_for_account(
     payload: UpdateDeviceRequest,
     mongo: MongoService,
 ):
-    is_admin = isinstance(current_account, AdminInDB)
+    is_fleet = _is_fleet_account(current_account)
+    is_admin = is_fleet  # region / fence-zone edits: allowed for admins and super users
 
-    if not is_admin and any([
+    if not is_fleet and any([
         payload.region is not None,
         payload.zone is not None,
         payload.add_zone is not None,
@@ -912,15 +1008,18 @@ async def _update_device_for_account(
     ]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admins only may update region or fence zone fields",
+            detail="Only admins or super users may update region or fence zone fields",
         )
 
     device = await mongo.get_device_by_sn(sn)
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
-    if is_admin:
-        if str(device.admin_id) != str(current_account.id):
+    if is_fleet:
+        if isinstance(current_account, SuperUserInDB):
+            if str(device.superuser_id or "") != str(current_account.id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not in your fleet")
+        elif str(device.admin_id) != str(current_account.id):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Device not owned by this admin")
     else:
         if not device.user_id or str(device.user_id) != str(current_account.id):
@@ -952,16 +1051,20 @@ async def _update_device_for_account(
                 await mongo.devices.update_one({"sn": sn}, {"$pull": {"fence_zone_ids": zone_val}})
 
     refreshed = await mongo.get_device_by_sn(sn)
+    dev_obj = refreshed or updated
+    pricing = await mongo.get_pricing()
     return {
         "status": "ok",
         "device": {
-            "id": str((refreshed or updated).id),
-            "sn": (refreshed or updated).sn,
-            "name": (refreshed or updated).name,
-            "client": (refreshed or updated).client,
-            "region": (refreshed or updated).region,
-            "category": (refreshed or updated).category,
-            "zone": (refreshed or updated).zone,
+            "id": str(dev_obj.id),
+            "sn": dev_obj.sn,
+            "name": dev_obj.name,
+            "client": dev_obj.client,
+            "region": dev_obj.region,
+            "category": dev_obj.category,
+            "zone": dev_obj.zone,
+            "price": pricing.get("price", 0.0),
+            "currency": pricing.get("currency", "PKR"),
         },
     }
 

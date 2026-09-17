@@ -3,6 +3,7 @@ import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
 import { registerCacheResetListener } from "../utils/clearAppCaches.js";
 import { fetchFleetDevices, getFleetCache, invalidateFleetCache, isFleetCacheValid } from "../utils/fleetCache.js";
+import { useDeviceUpdates } from '../utils/deviceEvents.js';
 
 const DeviceCacheContext = createContext(null);
 
@@ -60,6 +61,24 @@ export function DeviceCacheProvider({ children }) {
     else resetDeviceCache();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!user]);
+
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    if (!user) return;
+    const id = setInterval(() => {
+      silentRefresh();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [user, silentRefresh]);
+
+  useDeviceUpdates(() => {
+    fetchFleetDevices(getDevicesRef.current, { force: true })
+      .then(list => {
+        setDevices(list);
+        setLastFetched(Date.now());
+      })
+      .catch(() => {});
+  });
 
   return (
     <DeviceCacheContext.Provider value={{ devices, loading, error, refresh: fetchDevices, silentRefresh, lastFetched }}>

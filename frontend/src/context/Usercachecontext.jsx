@@ -2,28 +2,38 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useCityTag } from "../hooks/useCityTag.js";
 import { useAuth } from "./AuthContext.jsx";
 import { registerCacheResetListener } from "../utils/clearAppCaches.js";
+import { useDeviceUpdates } from "../utils/deviceEvents.js";
 
 const UserCacheContext = createContext(null);
 
 export function UserCacheProvider({ children }) {
   const { adminGetUsers } = useCityTag();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isSuperUser } = useAuth();
+  const canManageUsers = isAdmin || isSuperUser;
 
   const [users, setUsers]             = useState([]);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState("");
   const [lastFetched, setLastFetched] = useState(null);
+  const usersRef = useRef([]);
+  const lastFetchedRef = useRef(null);
 
   const adminGetUsersRef = useRef(adminGetUsers);
   useEffect(() => { adminGetUsersRef.current = adminGetUsers; }, [adminGetUsers]);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (force = false) => {
+    if (!force && usersRef.current.length > 0 && lastFetchedRef.current) {
+      return;
+    }
     setLoading(true);
     setError("");
     try {
       const data = await adminGetUsersRef.current();
-      setUsers(Array.isArray(data) ? data : []);
-      setLastFetched(Date.now());
+      const list = Array.isArray(data) ? data : [];
+      usersRef.current = list;
+      lastFetchedRef.current = Date.now();
+      setUsers(list);
+      setLastFetched(lastFetchedRef.current);
     } catch (err) {
       setError(err.message || "Failed to load users");
     } finally {
@@ -36,12 +46,17 @@ export function UserCacheProvider({ children }) {
   const silentRefresh = useCallback(async () => {
     try {
       const data = await adminGetUsersRef.current();
-      setUsers(Array.isArray(data) ? data : []);
-      setLastFetched(Date.now());
+      const list = Array.isArray(data) ? data : [];
+      usersRef.current = list;
+      lastFetchedRef.current = Date.now();
+      setUsers(list);
+      setLastFetched(lastFetchedRef.current);
     } catch {}
   }, []);
 
   const resetUserCache = useCallback(() => {
+    usersRef.current = [];
+    lastFetchedRef.current = null;
     setUsers([]);
     setLoading(false);
     setError("");
@@ -50,12 +65,27 @@ export function UserCacheProvider({ children }) {
 
   useEffect(() => registerCacheResetListener(resetUserCache), [resetUserCache]);
 
+  useDeviceUpdates(() => {
+    if (user && canManageUsers) {
+      silentRefresh();
+    }
+  });
+
+  // Silent auto-refresh every 15 min
+  useEffect(() => {
+    if (!user || !canManageUsers) return;
+    const id = setInterval(() => {
+      silentRefresh();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [user, canManageUsers, silentRefresh]);
+
   // Prefetch as soon as admin is authenticated; clear on logout
   useEffect(() => {
-    if (user && isAdmin) fetchUsers();
+    if (user && canManageUsers) fetchUsers();
     else resetUserCache();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!user, isAdmin]);
+  }, [!!user, canManageUsers]);
 
   return (
     <UserCacheContext.Provider value={{ users, loading, error, refresh: fetchUsers, silentRefresh, lastFetched }}>
