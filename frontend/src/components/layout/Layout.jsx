@@ -17,11 +17,12 @@ export default function Layout({ children }) {
   const isDarkOnlyPage = DARK_ONLY_ROUTES.some(r => pathname.startsWith(r))
   const isDevicesPage  = pathname.startsWith('/devices')
   const isUsersPage    = pathname.startsWith('/users')
+  const isOrdersPage   = pathname.startsWith('/orders')
 
-  // Most pages are fit-to-screen (main clips). The Users table can grow taller
-  // than the viewport, so let main scroll for it instead of clipping.
+  // Most pages are fit-to-screen (main clips). The Users and Orders tables can
+  // grow taller than the viewport, so let main scroll for them instead of clipping.
   const mainOverflow = isMapPage ? 'overflow-hidden p-0'
-    : isUsersPage    ? 'overflow-y-auto overflow-x-hidden p-5'
+    : isUsersPage || isOrdersPage ? 'overflow-y-auto overflow-x-hidden p-5'
     : isDevicesPage  ? 'overflow-hidden p-4'
     :                  'overflow-hidden p-5'
 

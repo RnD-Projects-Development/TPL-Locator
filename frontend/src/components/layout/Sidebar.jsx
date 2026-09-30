@@ -5,12 +5,12 @@ import { useAlerts } from '../../context/AlertsContext.jsx'
 import {
   LayoutDashboard, Map,
   FileText, Layers,
-  LogOut, PlayCircle, Shield, UserCog, Users,
+  LogOut, PlayCircle, Shield, ShoppingBag, UserCog, Users,
 } from 'lucide-react'
 import tplLogo from '../../assets/tpl.png'
 import ModalPortal from '../common/ModalPortal.jsx'
 
-function getNav(isFleetManager, hasGeofenceAccess, hasDashboardAccess) {
+function getNav(isFleetManager, hasGeofenceAccess, hasDashboardAccess, isAdmin) {
   const sections = [
     {
       section: 'OVERVIEW', links: [
@@ -33,6 +33,8 @@ function getNav(isFleetManager, hasGeofenceAccess, hasDashboardAccess) {
     {
       section: 'REPORTS & ADMIN', links: [
         ...(isFleetManager ? [{ to: '/users', icon: UserCog, label: 'Users' }] : []),
+        // Admin-only: purchase invoices expose other customers' CNICs and addresses.
+        ...(isAdmin ? [{ to: '/orders', icon: ShoppingBag, label: 'Orders' }] : []),
         { to: '/reports', icon: FileText, label: 'Reports' },
       ]
     },
@@ -48,7 +50,7 @@ export default function Sidebar() {
   const fleetManager = isFleetManager || isAdmin
   const hasGeofenceAccess = Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access)
   const hasDashboardAccess = Boolean(user?.dashboard_access !== false)
-  const nav = getNav(fleetManager, hasGeofenceAccess, hasDashboardAccess)
+  const nav = getNav(fleetManager, hasGeofenceAccess, hasDashboardAccess, isAdmin)
 
   const confirmLogout = () => {
     setShowLogoutConfirm(false)

@@ -27,6 +27,7 @@ export function selfCrumbs(pathname, search = '') {
   if (pathname === '/alerts')      return [{ label: 'Alerts',      url: '/alerts' }]
   if (pathname === '/fence')       return [{ label: 'Fence',       url: '/fence' }]
   if (pathname === '/users')       return [{ label: 'Users',       url: '/users' }]
+  if (pathname === '/orders')      return [{ label: 'Orders',      url: '/orders' }]
   if (pathname === '/reports')     return [{ label: 'Reports',     url: '/reports' + (search || '') }]
   if (pathname === '/map')         return [{ label: 'Map View',    url: '/map' + (search || '') }]
   if (pathname === '/playback')    return [{ label: 'Playback',    url: '/playback' + (search || '') }]
@@ -96,6 +97,7 @@ const STATIC = {
   '/reports':     ['Reports & Admin', 'Reports'],
   '/field-staff': ['Dashboard', 'Field Staff'],
   '/users':       ['Reports & Admin', 'Users'],
+  '/orders':      ['Reports & Admin', 'Orders'],
 }
 const LABEL_ROUTE = {
   'Dashboard':       '/dashboard',
@@ -110,6 +112,7 @@ const LABEL_ROUTE = {
   'Reports':         '/reports',
   'Field Staff':     '/field-staff',
   'Users':           '/users',
+  'Orders':          '/orders',
   'Search':          '/search',
 }
 

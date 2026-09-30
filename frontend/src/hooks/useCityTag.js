@@ -526,6 +526,36 @@ export function useCityTag() {
     [accessToken, logout]
   );
 
+  /* ── Orders (locator purchase invoices, admin only) ───────────────────────
+     Backed by the MyTrakker e-commerce receipt service; search, sort and
+     paging all happen server-side so the page never holds the whole set. */
+  const getOrders = useCallback(
+    async ({ page = 1, limit = 25, search = "", phone = null, sortBy = "payment_date", sortDir = "desc", refresh = false } = {}) => {
+      const qs = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      });
+      if (search) qs.set("search", search);
+      if (phone) qs.set("phone", phone);
+      if (refresh) qs.set("refresh", "true");
+      return apiFetch(`/api/orders?${qs.toString()}`, {}, accessToken, logout);
+    },
+    [accessToken, logout]
+  );
+
+  const getOrdersByPhone = useCallback(
+    async (phone, { refresh = false } = {}) =>
+      apiFetch(
+        `/api/orders/${encodeURIComponent(phone)}${refresh ? "?refresh=true" : ""}`,
+        {},
+        accessToken,
+        logout
+      ),
+    [accessToken, logout]
+  );
+
   return {
     login, requestLoginOtp, adminLogin, signup, requestPasswordReset, resetPasswordWithOtp,
     getMyProfile, updateMyProfile,
@@ -538,6 +568,7 @@ export function useCityTag() {
     getFieldStaffLiveDevices,
     getCategories, createCategory,
     getPricing, getDevicesPricing, createPricing, updatePricing, updateDevicePricing,
+    getOrders, getOrdersByPhone,
   };
 }
 

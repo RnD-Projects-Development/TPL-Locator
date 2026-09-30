@@ -26,6 +26,7 @@ import PlaybackPage     from './pages/PlaybackPage.jsx'
 import FencePage        from './pages/Fencepage.jsx'
 import FieldStaffDashboard from './pages/FieldStaffDashboard.jsx'
 import UsersPage           from './pages/UsersPage.jsx'
+import Orders              from './pages/Orders.jsx'
 
 export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -93,6 +94,8 @@ function AppShell({ state, dispatch, sidebarOpen, setSidebarOpen, user, isAdmin,
           <Route path="/playback"     element={<PlaybackPage />} />
           <Route path="/fence"        element={isFleetManager || Boolean(user?.geofence_access) || Boolean(user?.geofence_create_access) ? <FencePage /> : <Navigate to={defaultHome} replace />} />
           <Route path="/users"        element={isFleetManager ? <UsersPage /> : <Navigate to={defaultHome} replace />} />
+          {/* Orders are strictly admin: the invoices carry other customers' CNICs and addresses */}
+          <Route path="/orders"       element={isAdmin ? <Orders /> : <Navigate to={defaultHome} replace />} />
           <Route path="/field-staff"  element={<FieldStaffDashboard />} />
           <Route path="/alerts"       element={<Alerts />} />
           <Route path="/reports"      element={<Reports />} />
