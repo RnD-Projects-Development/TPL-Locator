@@ -1,18 +1,21 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const apiTarget = env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
   return {
+    // Production build is served under /locator/; dev server stays at /
+    base: command === "build" ? "/locator/" : "/",
+
     plugins: [react()],
     server: {
-      host: true,            // listen on 0.0.0.0 so ngrok can reach the dev server
+      host: true,
       port: 5173,
-      allowedHosts: true,    // accept the random *.ngrok-free.app host header
+      allowedHosts: true,
       hmr: {
-        clientPort: 443,     // hot-reload websocket works through ngrok's HTTPS
+        clientPort: 443,
       },
       proxy: {
         "/api": {
@@ -27,4 +30,3 @@ export default defineConfig(({ mode }) => {
     },
   };
 });
-
